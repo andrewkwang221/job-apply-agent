@@ -23,7 +23,7 @@ MAX_PAGES = 5
 # Countries with active tech job markets that allow remote work.
 # Querying multiple countries maximises worldwide coverage since Adzuna
 # has no single global endpoint.
-COUNTRIES = ["gb", "de", "fr", "nl", "at", "be", "au", "ca"]
+COUNTRIES = ["gb", "us", "de", "fr", "nl", "at", "be", "au", "ca"]
 
 # Tech roles we're searching for — sent as `what_or` so any match qualifies.
 WHAT_OR = (
