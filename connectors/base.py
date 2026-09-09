@@ -1,5 +1,7 @@
 from typing import List, Dict, Any
 
+import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
+
 class BaseConnector:
     """Base interface for all job source connectors."""
 

@@ -11,6 +11,7 @@ if hasattr(sys.stderr, "reconfigure"):
 import yaml
 import datetime
 import json
+import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from models.database import Job, PipelineRun, ApplicationHistory

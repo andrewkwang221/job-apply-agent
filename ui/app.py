@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import yaml
+import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
 
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
