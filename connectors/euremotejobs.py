@@ -19,6 +19,24 @@ MAX_AGE_DAYS = 10
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
 
 
+def _fetch_feed_via_browser(url: str) -> bytes:
+    """Fetch RSS through Chromium. Cloudflare blocks Python's TLS fingerprint."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True)
+        try:
+            page = browser.new_page()
+            resp = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if resp is None:
+                raise RuntimeError("browser navigation returned no response")
+            if resp.status >= 400:
+                raise RuntimeError(f"browser fetch HTTP {resp.status}")
+            return resp.body()
+        finally:
+            browser.close()
+
+
 class EURemoteJobsConnector(BaseConnector):
     def __init__(self):
         self.source_name = "euremotejobs"
@@ -28,9 +46,14 @@ class EURemoteJobsConnector(BaseConnector):
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=MAX_AGE_DAYS)
         try:
             response = requests.get(_FEED_URL, headers=_HEADERS, timeout=15)
-            response.raise_for_status()
+            if response.status_code == 403:
+                logger.info("requests blocked by Cloudflare (403); fetching RSS via Chromium...")
+                content = _fetch_feed_via_browser(_FEED_URL)
+            else:
+                response.raise_for_status()
+                content = response.content
             _parser = etree.XMLParser(recover=True)
-            root = etree.fromstring(response.content, _parser)
+            root = etree.fromstring(content, _parser)
             channel = root.find("channel")
             if channel is None:
                 return []
