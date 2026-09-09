@@ -1,12 +1,18 @@
 """Tests for antivirus-safe HTTPS CA handling in utils.ssl_compat."""
 import os
+import ssl
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from utils.ssl_compat import (
     SystemCertAdapter,
+    _build_ssl_context,
     _clear_unusable_ca_env,
     _is_usable_cafile,
+    _ssl_context,
 )
 
 
@@ -81,3 +87,36 @@ class TestCertVerifySkipsCertifi:
         adapter.cert_verify(conn, "https://example.com", verify=str(pem), cert=None)
         assert conn.ca_certs == str(pem)
         assert conn.cert_reqs == "CERT_REQUIRED"
+
+    def test_avast_device_path_uses_os_store(self):
+        adapter = SystemCertAdapter()
+        conn = SimpleNamespace(
+            ca_certs="sentinel",
+            ca_cert_dir="sentinel",
+            ca_cert_data="sentinel",
+            cert_reqs=None,
+            cert_file=None,
+            key_file=None,
+        )
+        adapter.cert_verify(
+            conn,
+            "https://remotive.com/api/remote-jobs",
+            verify=r"\\.\aswMonFltProxy\1b97150d49cb2bdf",
+            cert=None,
+        )
+        assert conn.ca_certs is None
+        assert conn.cert_reqs == "CERT_REQUIRED"
+
+
+class TestSslContext:
+    def test_cached_instance_is_reused(self):
+        assert _ssl_context() is _ssl_context()
+
+    def test_windows_skips_create_default_context(self):
+        if sys.platform != "win32":
+            pytest.skip("Windows-only Avast workaround")
+        with patch.object(ssl, "create_default_context") as mocked:
+            ctx = _build_ssl_context()
+        mocked.assert_not_called()
+        assert ctx.verify_mode == ssl.CERT_REQUIRED
+        assert ctx.check_hostname is True

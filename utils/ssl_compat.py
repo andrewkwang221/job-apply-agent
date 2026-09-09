@@ -5,23 +5,25 @@ scanning (e.g. Avast Web/Mail Shield) presents a local CA that is in the
 Windows store but not in certifi, which causes CERTIFICATE_VERIFY_FAILED.
 
 Avast also exposes a named device (\\\\.\\aswMonFltProxy\\...) via
-SSL_CERT_FILE / REQUESTS_CA_BUNDLE, or intercepts the certifi file open.
-That raises PermissionError before TLS starts. Ignore those unusable paths
-and do not let requests pass certifi into urllib3 when the OS store is loaded.
+SSL_CERT_FILE / REQUESTS_CA_BUNDLE, or intercepts CA file opens.
+ssl.create_default_context() calls set_default_verify_paths() which tries
+to open that device and raises PermissionError. On Windows, load the
+system store only and cache the SSLContext so this work happens once.
 """
 from __future__ import annotations
 
-import logging
 import os
 import ssl
+import sys
+import threading
 
 import requests
 from requests.adapters import HTTPAdapter
 
-logger = logging.getLogger(__name__)
-
 _PATCHED = False
 _CA_ENV_VARS = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE")
+_SSL_CONTEXT: ssl.SSLContext | None = None
+_SSL_CONTEXT_LOCK = threading.Lock()
 
 
 def _is_usable_cafile(path: str) -> bool:
@@ -45,19 +47,47 @@ def _clear_unusable_ca_env() -> list[str]:
         if val and not _is_usable_cafile(val):
             os.environ.pop(key, None)
             cleared.append(key)
-            logger.warning(
-                "Ignoring unusable %s (antivirus HTTPS scan device or unreadable path)",
-                key,
-            )
     return cleared
 
 
-def _ssl_context() -> ssl.SSLContext:
-    _clear_unusable_ca_env()
+def _load_windows_store(ctx: ssl.SSLContext) -> None:
+    """Load Windows CA/ROOT stores without set_default_verify_paths()."""
+    load_store = getattr(ctx, "_load_windows_store_certs", None)
+    stores = getattr(ctx, "_windows_cert_stores", ("CA", "ROOT"))
+    if load_store is not None:
+        for storename in stores:
+            try:
+                load_store(storename, ssl.Purpose.SERVER_AUTH)
+            except OSError:
+                pass
+        return
+    for store in ("CA", "ROOT"):
+        try:
+            for der, encoding, trust in ssl.enum_certificates(store):
+                if encoding != "x509_asn":
+                    continue
+                if trust is not True and ssl.Purpose.SERVER_AUTH.oid not in (trust or ()):
+                    continue
+                try:
+                    ctx.load_verify_locations(cadata=der)
+                except ssl.SSLError:
+                    pass
+        except OSError:
+            pass
+
+
+def _build_ssl_context() -> ssl.SSLContext:
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.check_hostname = True
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    if sys.platform == "win32":
+        # create_default_context() -> load_default_certs() -> set_default_verify_paths()
+        # opens Avast's aswMonFltProxy device. Use the Windows store only.
+        _load_windows_store(ctx)
+        return ctx
     try:
         ctx = ssl.create_default_context()
-    except OSError as exc:
-        logger.warning("ssl.create_default_context failed (%s); using TLS client context", exc)
+    except OSError:
         ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = True
         ctx.verify_mode = ssl.CERT_REQUIRED
@@ -71,11 +101,19 @@ def _ssl_context() -> ssl.SSLContext:
         cafile = certifi.where()
         if _is_usable_cafile(cafile):
             ctx.load_verify_locations(cafile=cafile)
-    except OSError as exc:
-        logger.warning("Skipping certifi CA bundle (%s)", exc)
     except Exception:
         pass
     return ctx
+
+
+def _ssl_context() -> ssl.SSLContext:
+    global _SSL_CONTEXT
+    if _SSL_CONTEXT is not None:
+        return _SSL_CONTEXT
+    with _SSL_CONTEXT_LOCK:
+        if _SSL_CONTEXT is None:
+            _SSL_CONTEXT = _build_ssl_context()
+        return _SSL_CONTEXT
 
 
 class SystemCertAdapter(HTTPAdapter):
@@ -91,7 +129,10 @@ class SystemCertAdapter(HTTPAdapter):
         # verify=True would open certifi's cacert.pem. Avast Web Shield can
         # redirect that open to \\.\aswMonFltProxy\... and raise PermissionError.
         # The SSLContext already trusts the OS (and Avast's local CA).
-        if verify is True:
+        use_os_store = verify is True or (
+            isinstance(verify, str) and not _is_usable_cafile(verify)
+        )
+        if use_os_store:
             conn.ca_certs = None
             conn.ca_cert_dir = None
             if hasattr(conn, "ca_cert_data"):
