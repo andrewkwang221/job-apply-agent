@@ -1,12 +1,8 @@
-# Career Copilot
+# Job Apply Agent
 
-A local-first AI job search agent that automates the mechanical work between job discovery and application.
+A local-first AI job search and apply agent that automates the mechanical work between job discovery and application.
 
-## Demo
-
-[![Career Copilot Demo](https://img.youtube.com/vi/0jkhrquK-aU/maxresdefault.jpg)](https://youtu.be/0jkhrquK-aU)
-
-## What Career Copilot Does
+## What Job Apply Agent Does
 
 • Aggregates remote jobs from 20 sources
 • Deduplicates and filters postings automatically
@@ -15,10 +11,7 @@ A local-first AI job search agent that automates the mechanical work between job
 • Automates ATS form filling using Playwright
 • Runs fully locally — no data leaves your machine
 
-[![CI](https://github.com/mcherif/career-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/mcherif/career-copilot/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/mcherif/career-copilot/branch/main/graph/badge.svg)](https://codecov.io/gh/mcherif/career-copilot)
-
-Career Copilot is an AI-assisted job search operator tool.
+Job Apply Agent is an AI-assisted job search operator tool.
 
 It runs a continuous pipeline that ingests remote job listings from 17 sources, scores and filters them against a candidate profile, and surfaces the best matches for human review. The operator interacts with the system through a CLI control surface and a natural language assistant backed by live database access — not a chat interface bolted onto a scraper, but a workflow system with stats, triage queues, shortlists, pipeline control, and ATS-aware application automation.
 
@@ -30,7 +23,7 @@ It runs a continuous pipeline that ingests remote job listings from 17 sources, 
 
 Job searching at scale means manually scanning hundreds of postings across dozens of sites, filtering roles that are geographically restricted or off-target, and tracking applications before they go cold.
 
-Career Copilot explores how much of this workflow can be automated through a combination of data pipelines, deterministic evaluation, and local LLM reasoning — while keeping the operator in control of every decision that matters.
+Job Apply Agent explores how much of this workflow can be automated through a combination of data pipelines, deterministic evaluation, and local LLM reasoning — while keeping the operator in control of every decision that matters.
 
 The goal is not to automate applying. It is to eliminate the mechanical work that precedes it: discovery, filtering, scoring, and triage. By the time a job reaches the shortlist, it has already passed geographic eligibility checks, rule-based fit scoring, and semantic LLM evaluation. The operator's attention is reserved for jobs that have earned it.
 
@@ -38,13 +31,13 @@ The goal is not to automate applying. It is to eliminate the mechanical work tha
 
 ## System Architecture
 
-![Career Copilot Architecture](docs/career-copilot-agent-work.png)
+**Job Apply Agent Architecture**
 
 Job sources feed a local database. An AI evaluation agent applies rule-based filters and LLM reasoning. The operator interacts through a CLI, a natural language assistant, and an ATS automation layer.
 
 <br>
 
-![Career Copilot Pipeline](docs/career-copilot-system-overview-dark.png)
+**Job Apply Agent Pipeline**
 
 Each job passes through ingestion, deterministic scoring, LLM semantic evaluation, and a status lifecycle — ending at the operator interface for final review and application.
 
@@ -107,8 +100,6 @@ This hybrid architecture avoids the two failure modes of pure-ML systems (opaque
 
 A browser-based triage interface for reviewing and acting on jobs without using the CLI.
 
-![Career Copilot Web UI](docs/ui-screenshot.png)
-
 **What it does:**
 
 - **Status strip** — live counts across all pipeline stages (New, Review, Shortlisted, Applied, Deferred, Rejected, Expired). Click any pill to jump to that queue.
@@ -130,7 +121,7 @@ python run_pipeline.py ui --port 8080 --no-browser
 
 > **`python run_pipeline.py ask`**
 
-Career Copilot includes a local AI assistant that operates on the live system using natural language. It uses tool calling to query the real database and pipeline history — it never guesses or makes up data.
+Job Apply Agent includes a local AI assistant that operates on the live system using natural language. It uses tool calling to query the real database and pipeline history — it never guesses or makes up data.
 
 **Example interactions:**
 
@@ -175,7 +166,7 @@ Available tools:
 
 ## Local AI Reasoning
 
-Career Copilot uses [Ollama](https://ollama.com) for fully local inference — no API costs, no data leaving your machine.
+Job Apply Agent uses [Ollama](https://ollama.com) for fully local inference — no API costs, no data leaving your machine.
 
 Tested models:
 

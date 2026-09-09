@@ -38,7 +38,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description="Minimal Playwright playground: open a shortlisted job URL, wait, and close."
     )
-    parser.add_argument("--db", default="career_copilot.db", help="Path to SQLite database")
+    parser.add_argument("--db", default="job_apply_agent.db", help="Path to SQLite database")
     parser.add_argument("--url", help="Explicit URL to open instead of the top shortlisted job")
     parser.add_argument("--seconds", type=int, default=5, help="Seconds to keep the page open")
     parser.add_argument(

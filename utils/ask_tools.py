@@ -1,5 +1,5 @@
 """
-Tool definitions for the Career Copilot interactive assistant (ask command).
+Tool definitions for the Job Apply Agent interactive assistant (ask command).
 
 Each tool function accepts a SQLAlchemy session as its first argument plus
 any parameters declared in TOOL_SCHEMAS.  dispatch_tool() is the single
@@ -153,13 +153,13 @@ def get_job_description(session: Session, job_id: int) -> dict:
 
 
 def get_schedule(session: Session) -> dict:
-    """Query Windows Task Scheduler for CareerCopilot scheduled tasks."""
+    """Query Windows Task Scheduler for JobApplyAgent scheduled tasks."""
     # LastTaskResult codes: 0 = success, 1 = incorrect function, 267011 = task has not run yet
     _RESULT_LABELS = {0: "success", 267011: "never run", 1: "failed"}
 
     try:
         ps = (
-            "Get-ScheduledTask | Where-Object { $_.TaskName -like 'CareerCopilot*' } | "
+            "Get-ScheduledTask | Where-Object { $_.TaskName -like 'JobApplyAgent*' } | "
             "ForEach-Object { "
             "  $task = $_; "
             "  $info = $task | Get-ScheduledTaskInfo; "
@@ -180,7 +180,7 @@ def get_schedule(session: Session) -> dict:
             capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0 or not result.stdout.strip():
-            return {"error": "No CareerCopilot scheduled tasks found", "detail": result.stderr.strip()}
+            return {"error": "No JobApplyAgent scheduled tasks found", "detail": result.stderr.strip()}
         raw = json.loads(result.stdout)
         tasks = raw if isinstance(raw, list) else [raw]
         return {"scheduled_tasks": tasks}
@@ -564,7 +564,7 @@ TOOL_SCHEMAS = [
         "type": "function",
         "function": {
             "name": "get_schedule",
-            "description": "Query Windows Task Scheduler to find out when Career Copilot is scheduled to run automatically, including next and last run times.",
+            "description": "Query Windows Task Scheduler to find out when Job Apply Agent is scheduled to run automatically, including next and last run times.",
             "parameters": {
                 "type": "object",
                 "properties": {},

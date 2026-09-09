@@ -1,5 +1,5 @@
 """
-Shared fixtures for Career Copilot test suite.
+Shared fixtures for Job Apply Agent test suite.
 """
 import pytest
 from sqlalchemy import create_engine

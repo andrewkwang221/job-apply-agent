@@ -1,7 +1,7 @@
 from models.database import Job
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-engine = create_engine("sqlite:///career_copilot.db", connect_args={"check_same_thread": False})
+engine = create_engine("sqlite:///job_apply_agent.db", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 DISABLED_SOURCES = {"remoteok", "weworkremotely", "workingnomads"}

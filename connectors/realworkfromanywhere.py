@@ -17,7 +17,7 @@ logger = setup_logger("realworkfromanywhere_connector")
 _FEED_URL = "https://www.realworkfromanywhere.com/rss.xml"
 MAX_AGE_DAYS = 10
 
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 
 class RealWorkFromAnywhereConnector(BaseConnector):

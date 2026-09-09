@@ -25,7 +25,7 @@ class WeWorkRemotelyConnector(BaseConnector):
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         logger.info(f"Fetching jobs from {self.source_name} RSS feeds...")
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
         all_jobs: List[Dict[str, Any]] = []
         seen_ids: set = set()
 

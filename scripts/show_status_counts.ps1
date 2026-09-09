@@ -1,7 +1,7 @@
 @'
 import sqlite3
 
-conn = sqlite3.connect("career_copilot.db")
+conn = sqlite3.connect("job_apply_agent.db")
 cur = conn.cursor()
 
 print("-- final_status_counts --")

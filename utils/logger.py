@@ -52,7 +52,7 @@ def setup_logger(name: str) -> logging.Logger:
     console_handler.setFormatter(console_formatter)
 
     # 2. File Handler (DEBUG level, rotating with max 10MB and 5 backups)
-    log_file_path = os.path.join(LOGS_DIR, "career_copilot.log")
+    log_file_path = os.path.join(LOGS_DIR, "job_apply_agent.log")
     file_handler = RotatingFileHandler(
         log_file_path,
         maxBytes=10 * 1024 * 1024,  # 10 MB limit

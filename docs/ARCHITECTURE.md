@@ -1,14 +1,14 @@
-# Career Copilot - System Architecture
+# Job Apply Agent - System Architecture
 
 For a high-level overview see `README.md`.
 
-This document describes the internal architecture and technical design of Career Copilot.
+This document describes the internal architecture and technical design of Job Apply Agent.
 
 ---
 
 ## Overview
 
-Career Copilot is a modular job discovery and application assistant that automates repetitive job search tasks while keeping a human in control of all final decisions.
+Job Apply Agent is a modular job discovery and application assistant that automates repetitive job search tasks while keeping a human in control of all final decisions.
 
 The system performs four main tasks:
 
@@ -148,7 +148,7 @@ Key rejection patterns (in order):
 - Migrations via Alembic
 - Tables: `jobs`, `application_history`, `pipeline_runs`
 
-### Career Intelligence Engine (`utils/scoring.py`, `utils/application_filter.py`)
+### Job Apply Intelligence Engine (`utils/scoring.py`, `utils/application_filter.py`)
 
 Evaluates job relevance:
 

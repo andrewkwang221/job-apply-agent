@@ -37,7 +37,7 @@ from utils.logger import setup_logger
 logger = setup_logger("remote100k_connector")
 
 _SITEMAP_URL = "https://remote100k.com/sitemap.xml"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 _MAX_NEW = 150
 _FETCH_DELAY = 0.4

@@ -70,7 +70,7 @@ def _build_html(new_jobs: List[Dict[str, Any]], counts: Dict[str, int]) -> str:
 
     return f"""
     <html><body style="font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#222;">
-      <h2 style="color:#1565c0;">Career Copilot Report &mdash; {now}</h2>
+      <h2 style="color:#1565c0;">Job Apply Agent Report &mdash; {now}</h2>
 
       <h3 style="color:#333;">Pipeline Summary</h3>
       <table style="border-collapse:collapse;font-size:0.95em;min-width:220px;">
@@ -93,7 +93,7 @@ def _build_html(new_jobs: List[Dict[str, Any]], counts: Dict[str, int]) -> str:
     """
 
 
-_KEYRING_SERVICE = "career-copilot"
+_KEYRING_SERVICE = "job-apply-agent"
 
 
 def _get_credential(key: str) -> str:
@@ -120,7 +120,7 @@ def send_report(new_jobs: List[Dict[str, Any]], counts: Dict[str, int]) -> bool:
         logger.error("Email not configured — set EMAIL_FROM, EMAIL_TO, EMAIL_PASSWORD in .env")
         return False
 
-    subject = f"Career Copilot — {counts.get('shortlisted', 0)} shortlisted, {counts.get('review', 0)} in review"
+    subject = f"Job Apply Agent — {counts.get('shortlisted', 0)} shortlisted, {counts.get('review', 0)} in review"
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject

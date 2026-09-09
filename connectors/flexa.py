@@ -38,11 +38,11 @@ logger = setup_logger("flexa_connector")
 
 _GRAPHQL_URL = "https://flexa.careers/api/graphql"
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)",
+    "User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)",
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
-_PAGE_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+_PAGE_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 # GraphQL jobs to fetch per request (API limit unknown — 300 is conservative).
 _GRAPHQL_BATCH = 300

@@ -16,7 +16,7 @@ logger = setup_logger("euremotejobs_connector")
 _FEED_URL = "https://euremotejobs.com/job-listings/feed/"
 MAX_AGE_DAYS = 10
 
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 
 def _fetch_feed_via_browser(url: str) -> bytes:

@@ -93,7 +93,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 @click.group()
 def cli():
-    """Career Copilot Data Pipeline CLI."""
+    """Job Apply Agent Data Pipeline CLI."""
     pass
 
 def _load_profile(profile_path: str):
@@ -690,7 +690,7 @@ def send_test_email():
 def setup_credentials():
     """Store email credentials securely in Windows Credential Manager."""
     import keyring
-    service = "career-copilot"
+    service = "job-apply-agent"
     click.echo("Storing email credentials in Windows Credential Manager (never written to disk).")
     click.echo("")
     email_from = click.prompt("Sender email address")
@@ -744,7 +744,7 @@ def help_command():
     HIGHLIGHT = {"full-run", "open-job"}
 
     click.echo("")
-    click.echo(click.style("  Career Copilot — Command Reference", fg="cyan", bold=True))
+    click.echo(click.style("  Job Apply Agent — Command Reference", fg="cyan", bold=True))
     click.echo("")
     for cmd, desc, opts in lines:
         if not cmd and not desc and not opts:
@@ -1105,12 +1105,12 @@ def open_job(job_id, rank, queue_status, profile, headless, fill, dry_run):
         session.close()
 
 
-_SYSTEM_PROMPT = """You are an AI assistant embedded inside Career Copilot, a local job discovery and application pipeline.
+_SYSTEM_PROMPT = """You are an AI assistant embedded inside Job Apply Agent, a local job discovery and application pipeline.
 You have access to tools that let you query the live jobs database and pipeline history.
 Always use the appropriate tool to answer questions about jobs, counts, or pipeline runs — never guess or make up data.
 
 == PROJECT OVERVIEW ==
-Career Copilot fetches remote job listings from multiple sources (Remotive, RemoteOK, Adzuna, WeWorkRemotely, Himalayas, Greenhouse, Ashby, Lever, Workable, and others), scores them against a candidate profile, runs a local LLM analysis via Ollama, and assists with application form prefilling using Playwright.
+Job Apply Agent fetches remote job listings from multiple sources (Remotive, RemoteOK, Adzuna, WeWorkRemotely, Himalayas, Greenhouse, Ashby, Lever, Workable, and others), scores them against a candidate profile, runs a local LLM analysis via Ollama, and assists with application form prefilling using Playwright.
 
 == KEY FILES ==
 - run_pipeline.py       — CLI entrypoint (commands: full-run, fetch, evaluate, analyze, triage, open-job, stats, ask)
@@ -1123,11 +1123,11 @@ Career Copilot fetches remote job listings from multiple sources (Remotive, Remo
 - utils/form_filler.py  — Playwright form prefill logic
 - utils/form_inspector.py — Scans ATS form fields (supports aria-label, aria-labelledby, label[for=...])
 - utils/llm_analysis.py — Sends jobs to Ollama for semantic scoring
-- utils/logger.py       — Colored console + rotating file logger (logs/career_copilot.log)
+- utils/logger.py       — Colored console + rotating file logger (logs/job_apply_agent.log)
 - models/database.py    — SQLAlchemy models: Job, PipelineRun, ApplicationHistory
 
 == COMMON ERRORS AND FIXES ==
-- "No module named X"            → Run: pip install -r requirements.txt (in the career-copilot conda env)
+- "No module named X"            → Run: pip install -r requirements.txt (in the job-apply-agent conda env)
 - "Ollama connection refused"    → Start Ollama: ollama serve  (or check it's running)
 - "model not found"              → Pull the model: ollama pull qwen2.5:7b
 - "profile.yaml not found"      → Copy profile.template.yaml to profile.yaml and fill in your details
@@ -1157,7 +1157,7 @@ python run_pipeline.py ask                                 # This assistant
 - resumes: each resume has tags — the pipeline picks the best match per job
 
 == AUTOMATED SCHEDULE ==
-Use the get_schedule tool to answer any questions about when Career Copilot runs automatically.
+Use the get_schedule tool to answer any questions about when Job Apply Agent runs automatically.
 To run manually at any time: python run_pipeline.py full-run
 
 Answer questions clearly and concisely. If you are unsure, say so rather than guessing.
@@ -1165,7 +1165,7 @@ Answer questions clearly and concisely. If you are unsure, say so rather than gu
 
 
 def _read_recent_logs(n_lines: int = 60) -> str:
-    log_path = os.path.join(os.path.dirname(__file__), "logs", "career_copilot.log")
+    log_path = os.path.join(os.path.dirname(__file__), "logs", "job_apply_agent.log")
     try:
         with open(log_path, encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
@@ -1198,7 +1198,7 @@ def ask(model: str):
     messages = [{"role": "system", "content": _SYSTEM_PROMPT + log_context}]
 
     click.echo("")
-    click.echo(click.style("  Career Copilot Assistant", fg="cyan", bold=True))
+    click.echo(click.style("  Job Apply Agent Assistant", fg="cyan", bold=True))
     click.echo(click.style(f"  Model: {model}  |  DB access: enabled  |  Type 'exit' to quit", fg="white"))
     click.echo("")
 
@@ -1479,7 +1479,7 @@ def perf_cmd(job, last, save_only):
 @click.option('--port', default=7860, type=int, show_default=True)
 @click.option('--no-browser', is_flag=True, help='Do not open browser automatically')
 def ui_cmd(port: int, no_browser: bool):
-    """Launch the Career Copilot web UI."""
+    """Launch the Job Apply Agent web UI."""
     import socket
     import webbrowser
     import uvicorn
@@ -1507,7 +1507,7 @@ def ui_cmd(port: int, no_browser: bool):
 
     if not no_browser:
         webbrowser.open(url)
-    click.echo(f"Starting Career Copilot UI at {url}")
+    click.echo(f"Starting Job Apply Agent UI at {url}")
     uvicorn.run("ui.app:app", host="127.0.0.1", port=port, reload=False, timeout_graceful_shutdown=3)
 
 

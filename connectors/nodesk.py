@@ -36,7 +36,7 @@ from utils.logger import setup_logger
 logger = setup_logger("nodesk_connector")
 
 _SITEMAP_URL = "https://nodesk.co/sitemap.xml"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 # Max new job pages to fetch per pipeline run (avoids hammering the server).
 _MAX_NEW = 150

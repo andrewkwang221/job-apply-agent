@@ -49,7 +49,7 @@ class RemoteOKConnector(BaseConnector):
         logger.info(f"Fetching jobs from {self.source_name} API...")
         try:
             # RemoteOK requires a browser-like User-Agent or returns 403.
-            headers = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+            headers = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
             response = requests.get(self.api_url, headers=headers, timeout=15)
             response.raise_for_status()
             data = response.json()

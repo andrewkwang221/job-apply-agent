@@ -1,5 +1,5 @@
 """
-Career Copilot — local web UI (FastAPI).
+Job Apply Agent — local web UI (FastAPI).
 
 Start via:  python run_pipeline.py ui
 Or directly: uvicorn ui.app:app --port 7860
@@ -38,7 +38,7 @@ from models.database import InterviewPrepSheet, Job
 # App + DB
 # ---------------------------------------------------------------------------
 
-app = FastAPI(title="Career Copilot UI")
+app = FastAPI(title="Job Apply Agent UI")
 
 _engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": False})
 _Session = sessionmaker(bind=_engine)
@@ -561,7 +561,7 @@ def _scrape_job_meta(url: str) -> Dict[str, Any]:
     """
     import requests as _req
     try:
-        resp = _req.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}, timeout=10)
+        resp = _req.get(url, headers={"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}, timeout=10)
         resp.raise_for_status()
         html = resp.text
     except Exception:

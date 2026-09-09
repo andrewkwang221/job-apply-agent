@@ -20,7 +20,7 @@ class JobspressoConnector(BaseConnector):
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         logger.info(f"Fetching jobs from {self.source_name} RSS feed...")
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; career-copilot/1.0)"}
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
         try:
             response = requests.get(_FEED_URL, headers=headers, timeout=15)
             response.raise_for_status()

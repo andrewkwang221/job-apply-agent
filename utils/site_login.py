@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 # Where per-domain session state JSON files are stored.
-SESSIONS_DIR = Path.home() / ".career-copilot" / "sessions"
+SESSIONS_DIR = Path.home() / ".job-apply-agent" / "sessions"
 
 
 def session_state_path(domain: str) -> str | None:
