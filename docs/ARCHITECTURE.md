@@ -110,6 +110,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `YCombinatorConnector` | [Y Combinator jobs](https://www.ycombinator.com/jobs/role/software-engineer/remote) | Guest Inertia `jobPostings`; truncated mixed-date list, no age filter; apply account-gated (review cap) |
 | `WaasConnector` | [Work at a Startup](https://www.workatastartup.com/companies?jobType=fulltime&remote=yes&remote=only&role=eng&sortBy=created_desc) | Playwright login (`WAAS_EMAIL` / `WAAS_PASSWORD`); infinite-scroll full-time remote eng directory then `/companies/fetch` jobs; apply account-gated (review cap) |
 | `TechJobsForGoodConnector` | [Tech Jobs for Good](https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=2&sort_by=date) | Guest remote HTML list + JobPosting JSON-LD; `sort_by=date` newest-first; apply account-gated (review cap) |
+| `RemoteComConnector` | [Remote](https://remote.com/jobs/all?workplaceLocation=remote&country=anywhere&country=USA) | Guest RSC `jobsData.jobs` list + JobPosting JSON-LD; page 1 mixed, page 2+ newest-first (cap 30); apply account-gated (review cap) |
 
 **Direct ATS connectors:**
 

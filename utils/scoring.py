@@ -13,6 +13,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "ycombinator",     # apply goes through a YC Work at a Startup account
     "waas",            # Work at a Startup apply requires a YC profile
     "techjobsforgood", # apply requires a Tech Jobs for Good account
+    "remotecom",       # Quick apply / sign-in on remote.com
 })
 
 TITLE_REJECT_KEYWORDS = [

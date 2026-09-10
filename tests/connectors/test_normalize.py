@@ -450,3 +450,33 @@ class TestTechJobsForGoodNormalize:
         assert n["title"] == "Senior Engineering Manager, Platform"
         assert n["url"].startswith("https://techjobsforgood.com/jobs/")
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# remote.com
+# ---------------------------------------------------------------------------
+
+class TestRemoteComNormalize:
+    def _raw(self):
+        return {
+            "id": "staff-security-engineer-j1w0zkw9",
+            "listing_url": "https://remote.com/jobs/aledade-c11fg46i/staff-security-engineer-j1w0zkw9",
+            "url": "https://jobs.lever.co/aledade/13c05dc3",
+            "title": "Staff Security Engineer",
+            "company": "Aledade",
+            "location": "Remote / United States",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 9, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remotecom import RemoteComConnector
+        n = RemoteComConnector().normalize(self._raw())
+        _assert_shape(n, "remotecom")
+
+    def test_title_and_listing_url(self):
+        from connectors.remotecom import RemoteComConnector
+        n = RemoteComConnector().normalize(self._raw())
+        assert n["title"] == "Staff Security Engineer"
+        assert n["url"] == "https://jobs.lever.co/aledade/13c05dc3"
+        assert isinstance(n["location"], str)

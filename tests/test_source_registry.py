@@ -23,6 +23,7 @@ def test_public_board_connectors_are_registered():
     assert "ycombinator" in CONNECTORS
     assert "waas" in CONNECTORS
     assert "techjobsforgood" in CONNECTORS
+    assert "remotecom" in CONNECTORS
 
 
 def test_flexjobs_is_opt_in_not_in_all():
@@ -43,3 +44,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "ycombinator" in _NO_DIRECT_APPLY_SOURCES
     assert "waas" in _NO_DIRECT_APPLY_SOURCES
     assert "techjobsforgood" in _NO_DIRECT_APPLY_SOURCES
+    assert "remotecom" in _NO_DIRECT_APPLY_SOURCES
