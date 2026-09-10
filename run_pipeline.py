@@ -40,6 +40,8 @@ from connectors.wearedistributed import WeAreDistributedConnector
 from connectors.flexa import FlexaConnector
 from connectors.remotejobsio import RemoteJobsIoConnector
 from connectors.remotejobsfinder import RemoteJobsFinderConnector
+from connectors.dailyremote import DailyRemoteConnector
+from connectors.arcdev import ArcDevConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -77,6 +79,8 @@ CONNECTORS = {
     "flexa": FlexaConnector,
     "remotejobsio": RemoteJobsIoConnector,
     "remotejobsfinder": RemoteJobsFinderConnector,
+    "dailyremote": DailyRemoteConnector,
+    "arcdev": ArcDevConnector,
 }
 
 _SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
@@ -92,9 +96,10 @@ SYSTEM_BROWSER_DOMAINS = {
     "remotejobs.io",
 }
 
-# Sources disabled from 'all' by default.
-# Enable individually with --source <name>.
-DISABLED_SOURCES: set[str] = {"weworkremotely"}
+# Sources skipped when --source all is used. Enable individually with --source <name>.
+# We Work Remotely, DailyRemote, and Arc.dev are fetched; apply is gated so scoring
+# caps them at review (see _NO_DIRECT_APPLY_SOURCES).
+DISABLED_SOURCES: set[str] = set()
 
 engine = create_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -751,11 +756,12 @@ def help_command():
         ("ask", "Chat with local Ollama LLM for troubleshooting help", "--model <model>"),
         ("", "", ""),
         ("", "SOURCES", ""),
-        ("", "remotive  arbeitnow  jobicy  jobspresso  dynamitejobs", ""),
-        ("", "workingnomads  getonboard  himalayas  adzuna  ashby  greenhouse  lever  direct_ats", ""),
-        ("", "nodesk  remote100k  wearedistributed  flexa  remotejobsio  remotejobsfinder  (all = all enabled sources)", ""),
-        ("", "remoteok  (disabled by default)", ""),
-        ("", "weworkremotely  (disabled — requires paid subscription)", ""),
+        ("", "remotive  remoteok  weworkremotely  arbeitnow  jobicy  jobspresso", ""),
+        ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
+        ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
+        ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
+        ("", "dailyremote  arcdev", ""),
+        ("", "all = every registered source (WWR / DailyRemote / Arc apply gated → review)", ""),
     ]
 
     HIGHLIGHT = {"full-run", "open-job"}

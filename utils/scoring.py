@@ -7,6 +7,8 @@ from utils.remote_filter import classify_remote_eligibility
 _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "weworkremotely",  # subscription required to view full job / apply
     "remotejobsio",    # apply / company details gated behind a subscription
+    "dailyremote",     # company name and apply URL are Premium-gated
+    "arcdev",          # Arc Exclusive / Fast apply requires an Arc account
 })
 
 TITLE_REJECT_KEYWORDS = [

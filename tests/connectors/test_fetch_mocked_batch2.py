@@ -1,7 +1,7 @@
 """
 Mocked fetch + normalize tests for the remaining simple connectors:
 Himalayas, Arbeitnow, WorkingNomads, RemoteOK, Jobicy, RemoteAIJobs,
-ArcDev, DynamiteJobs, DailyRemote, Jobspresso, Adzuna.
+DynamiteJobs, Jobspresso, Adzuna.
 
 No live network calls — requests.get is patched throughout.
 """
@@ -550,71 +550,6 @@ class TestRemoteAIJobsFetch:
 
 
 # ---------------------------------------------------------------------------
-# ArcDev
-# ---------------------------------------------------------------------------
-
-class TestArcDevFetch:
-    _T = "connectors.arcdev.requests.get"
-
-    def _job(self, job_id="arc-1"):
-        return {"id": job_id, "title": "Backend Engineer",
-                "company": {"name": "Acme"}, "url": "https://arc.dev/jobs/1",
-                "description": "role", "published_at": "2026-03-24T00:00:00Z",
-                "location": "Worldwide"}
-
-    def test_returns_jobs_dict_format(self):
-        with patch(self._T, return_value=_mock_json({"jobs": [self._job()]})):
-            from connectors.arcdev import ArcDevConnector
-            jobs = ArcDevConnector().fetch_jobs()
-        assert len(jobs) == 1
-
-    def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_json({}, 503)):
-            from connectors.arcdev import ArcDevConnector
-            assert ArcDevConnector().fetch_jobs() == []
-
-    def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.arcdev import ArcDevConnector
-            assert ArcDevConnector().fetch_jobs() == []
-
-
-class TestArcDevNormalize:
-    def _n(self, raw):
-        from connectors.arcdev import ArcDevConnector
-        return ArcDevConnector().normalize(raw)
-
-    def test_company_from_dict(self):
-        r = self._n({"id": "1", "title": "Dev", "company": {"name": "Acme"},
-                     "description": "", "published_at": "2026-03-24T00:00:00Z"})
-        assert r["company"] == "Acme"
-
-    def test_company_from_string_field(self):
-        r = self._n({"id": "1", "title": "Dev", "company_name": "StrCo",
-                     "description": "", "published_at": "2026-03-24T00:00:00Z"})
-        assert r["company"] == "StrCo"
-
-    def test_url_from_multiple_fields(self):
-        r = self._n({"id": "1", "title": "Dev", "company": "Co",
-                     "job_url": "https://arc.dev/1", "description": ""})
-        assert r["url"] == "https://arc.dev/1"
-
-    def test_date_from_published_at(self):
-        r = self._n({"id": "1", "title": "Dev", "company": "Co",
-                     "description": "", "published_at": "2026-03-24T00:00:00Z"})
-        assert isinstance(r["posted_date"], datetime)
-
-    def test_date_from_created_at_fallback(self):
-        r = self._n({"id": "1", "title": "Dev", "company": "Co",
-                     "description": "", "created_at": "2026-03-24T00:00:00Z"})
-        assert isinstance(r["posted_date"], datetime)
-
-    def test_source_name(self):
-        assert self._n({"id": "1", "title": "", "company": "",
-                        "description": ""})["source"] == "arcdev"
-
-
-# ---------------------------------------------------------------------------
 # DynamiteJobs (stdlib ET RSS)
 # ---------------------------------------------------------------------------
 
@@ -675,57 +610,6 @@ class TestDynamiteJobsFetch:
         with patch(self._T, side_effect=Exception("err")):
             from connectors.dynamitejobs import DynamiteJobsConnector
             assert DynamiteJobsConnector().fetch_jobs() == []
-
-
-# ---------------------------------------------------------------------------
-# DailyRemote (stdlib ET RSS, multi-feed with dedup)
-# ---------------------------------------------------------------------------
-
-class TestDailyRemoteFetch:
-    _T = "connectors.dailyremote.requests.get"
-
-    def _item(self, title="Backend Dev at Acme", guid="https://dailyremote.com/1"):
-        return f"""<item>
-          <title>{title}</title>
-          <guid>{guid}</guid>
-          <description>role</description>
-          <pubDate>{_RECENT_PUB_DATE}</pubDate>
-        </item>"""
-
-    def _feed(self, *items):
-        return f"""<?xml version="1.0"?><rss version="2.0"><channel>{"".join(items)}</channel></rss>""".encode()
-
-    def test_returns_jobs(self):
-        with patch(self._T, return_value=_mock_xml(self._feed(self._item()))):
-            from connectors.dailyremote import DailyRemoteConnector
-            jobs = DailyRemoteConnector().fetch_jobs()
-        assert len(jobs) == 1
-
-    def test_splits_company_from_title(self):
-        with patch(self._T, return_value=_mock_xml(self._feed(self._item(title="Backend Dev at Acme")))):
-            from connectors.dailyremote import DailyRemoteConnector
-            jobs = DailyRemoteConnector().fetch_jobs()
-        assert jobs[0]["company"] == "Acme"
-        assert jobs[0]["title"] == "Backend Dev"
-
-    def test_deduplicates_across_feeds(self):
-        xml = self._feed(self._item(guid="https://dailyremote.com/same"))
-        # Same content twice (simulates duplicate across feeds)
-        with patch(self._T, side_effect=[_mock_xml(xml), _mock_xml(xml)]):
-            from connectors.dailyremote import DailyRemoteConnector
-            jobs = DailyRemoteConnector().fetch_jobs()
-        ids = [j["id"] for j in jobs]
-        assert len(ids) == len(set(ids))
-
-    def test_no_channel_continues(self):
-        with patch(self._T, return_value=_mock_xml(b"<?xml version='1.0'?><rss/>")):
-            from connectors.dailyremote import DailyRemoteConnector
-            assert DailyRemoteConnector().fetch_jobs() == []
-
-    def test_exception_continues_to_next_feed(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.dailyremote import DailyRemoteConnector
-            assert DailyRemoteConnector().fetch_jobs() == []
 
 
 # ---------------------------------------------------------------------------

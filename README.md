@@ -190,7 +190,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [GetOnBoard](https://www.getonbrd.com) | JSON API | Tech jobs, LatAm-focused (fully remote only) |
 | [Himalayas](https://himalayas.app) | JSON API | Worldwide-only remote jobs |
 | [RemoteOK](https://remoteok.com) | JSON API | Remote jobs — only jobs with extractable ATS links |
-| [WeWorkRemotely](https://weworkremotely.com) | RSS | Curated remote tech jobs |
+| [WeWorkRemotely](https://weworkremotely.com) | RSS | Curated remote tech jobs; apply is subscription-gated (capped at review) |
 | [Adzuna](https://www.adzuna.com) | JSON API | Multi-country (gb/de/fr/nl/at/be/au/ca), remote-filtered |
 | [Real Work From Anywhere](https://www.realworkfromanywhere.com) | RSS | Worldwide-only curated remote jobs |
 | [EU Remote Jobs](https://euremotejobs.com) | RSS | European timezone remote jobs |
@@ -201,11 +201,13 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [Flexa Careers](https://flexa.careers/jobs) | GraphQL API + JSON-LD | Flexible-work focused jobs; newest-first via `sort: DATE_DESC`; engineering title filter; description from per-page JSON-LD |
 | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js listing HTML | Developer category listings from `__NEXT_DATA__`; engineering title filter; apply is subscription-gated (capped at review) |
 | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Sitemap + JSON-LD | English remote listings from `sitemap_listings_active.xml`; engineering slug filter; JobPosting JSON-LD for company/dates |
+| [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated (capped at review) |
+| [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated (capped at review) |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |
 | Lever | JSON API | DB-discovered Lever boards not already in Direct ATS |
-| [Working Nomads](https://www.workingnomads.com) | JSON API | Disabled by default (Proxify approval required) |
+| [Working Nomads](https://www.workingnomads.com) | JSON API | Remote jobs from the public exposed_jobs API |
 
 Jobs older than 10 days are filtered out at fetch time across all sources.
 

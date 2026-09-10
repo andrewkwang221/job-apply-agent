@@ -87,7 +87,7 @@ Sources are implemented as `BaseConnector` subclasses in `connectors/`.
 |---|---|---|
 | `RemotiveConnector` | [Remotive](https://remotive.com) | General remote tech jobs |
 | `RemoteOKConnector` | [RemoteOK](https://remoteok.com) | Only jobs with extractable ATS links (avoids subscription wall) |
-| `WeWorkRemotelyConnector` | [WeWorkRemotely](https://weworkremotely.com) | Curated remote tech jobs |
+| `WeWorkRemotelyConnector` | [WeWorkRemotely](https://weworkremotely.com) | Curated remote tech jobs (RSS). Apply is paywalled; scoring caps at review. |
 | `ArbeitnowConnector` | [Arbeitnow](https://www.arbeitnow.com) | EU-focused remote jobs |
 | `JobicyConnector` | [Jobicy](https://jobicy.com) | Remote tech jobs |
 | `JobspressoConnector` | [Jobspresso](https://jobspresso.co) | Curated remote jobs |
@@ -102,6 +102,8 @@ Sources are implemented as `BaseConnector` subclasses in `connectors/`.
 | `Remote100kConnector` | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD; ATS apply URL extracted from page HTML; `?ref=` tracking params stripped |
 | `RemoteJobsIoConnector` | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js `__NEXT_DATA__` listing scrape; engineering title filter; apply paywalled |
 | `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Active-listings sitemap + JobPosting JSON-LD; `/en/remote-jobs/` only; engineering slug filter |
+| `DailyRemoteConnector` | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Software-board HTML cards; relative dates; company/apply Premium-gated (review cap) |
+| `ArcDevConnector` | [Arc.dev](https://arc.dev/remote-jobs) | Public `__NEXT_DATA__` board + engineering categories; Fast apply gated (review cap) |
 
 **Direct ATS connectors:**
 

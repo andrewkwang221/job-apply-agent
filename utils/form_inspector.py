@@ -60,6 +60,7 @@ _LISTING_DOMAINS = [
     "dynamitejobs.com",
     "jobspresso.co",
     "workingnomads.com",
+    "arc.dev",
     "arcdev.app",
     "dailyremote.com",
     "nodesk.co",

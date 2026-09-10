@@ -254,6 +254,62 @@ class TestRemoteJobsIoNormalize:
 
 
 # ---------------------------------------------------------------------------
+# DailyRemote
+# ---------------------------------------------------------------------------
+
+class TestDailyRemoteNormalize:
+    def _raw(self):
+        return {
+            "id": "5587310",
+            "url": "https://dailyremote.com/remote-job/senior-backend-engineer-5587310",
+            "title": "Senior Backend Engineer",
+            "company": "Unknown",
+            "location": "Remote",
+            "description": "Python role",
+            "posted_date": datetime(2026, 9, 8, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.dailyremote import DailyRemoteConnector
+        n = DailyRemoteConnector().normalize(self._raw())
+        _assert_shape(n, "dailyremote")
+
+    def test_title_and_listing_url(self):
+        from connectors.dailyremote import DailyRemoteConnector
+        n = DailyRemoteConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].endswith("/senior-backend-engineer-5587310")
+
+
+# ---------------------------------------------------------------------------
+# Arc.dev
+# ---------------------------------------------------------------------------
+
+class TestArcDevNormalize:
+    def _raw(self):
+        return {
+            "id": "abc123",
+            "url": "https://arc.dev/remote-jobs/details/abc123",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Worldwide",
+            "description": "Python role",
+            "posted_date": datetime(2026, 9, 8, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.arcdev import ArcDevConnector
+        n = ArcDevConnector().normalize(self._raw())
+        _assert_shape(n, "arcdev")
+
+    def test_title_and_company(self):
+        from connectors.arcdev import ArcDevConnector
+        n = ArcDevConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["company"] == "Acme"
+
+
+# ---------------------------------------------------------------------------
 # RemoteJobsFinder
 # ---------------------------------------------------------------------------
 
