@@ -81,6 +81,8 @@ Evaluation policy: `evaluate` always refreshes `rule_status` but only touches fi
 
 Sources are implemented as `BaseConnector` subclasses in `connectors/`.
 
+How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR_PLAYBOOK.md](CONNECTOR_PLAYBOOK.md).
+
 **Aggregate job boards (JSON/RSS):**
 
 | Connector | Source | Notes |

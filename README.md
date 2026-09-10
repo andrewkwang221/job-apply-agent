@@ -211,6 +211,8 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 
 Jobs older than 10 days are filtered out at fetch time across all sources.
 
+Adding a board: see [docs/CONNECTOR_PLAYBOOK.md](docs/CONNECTOR_PLAYBOOK.md). Pagination caps apply only when the list is newest-first.
+
 ---
 
 ## Pipeline

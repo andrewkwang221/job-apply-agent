@@ -1,0 +1,34 @@
+---
+description: Process for adding a job-board connector from a listing URL
+alwaysApply: true
+---
+
+# Job-board connectors
+
+When the user pastes a job-board URL (or asks to add a source), follow `docs/CONNECTOR_PLAYBOOK.md`. Plan first; do not build until they confirm. One board at a time.
+
+## Pagination
+
+Prefix/page/count caps are allowed **only** after proving newest-first (`DATE_DESC`, sitemap `lastmod`, live latest pager). Then a batch cap or first-stale-page stop is OK.
+
+Unsorted / mixed / alphabetical lists: walk the pager or sitemap, date-filter, skip known URLs via `unseen_listing_urls` + `remember_listing_urls`. Do not prefix-slice.
+
+```python
+# ✅ GOOD — remote100k / nodesk
+cap = _MAX_NEW if newest_first else _MAX_UNSEEN_FETCHES
+to_fetch = unseen_listing_urls(eng_urls, self.source_name, max_new=cap)
+
+# ❌ BAD — cap mixed pages and miss later new jobs
+for page in range(1, 40):
+    ...
+```
+
+## Architecture
+
+Ask before: new pipeline stages, `BaseConnector` changes, Alembic/new tables (except `seen_listing_urls` IF NOT EXISTS), auth/credentials, Playwright-as-default, infinite-scroll/CSRF pagers, rewriting `job_store` / scoring / prefill for one board.
+
+New `connectors/*.py` + `CONNECTORS` register is not architecture.
+
+## Normalize
+
+`location` and `raw_location_text` must be strings, never JSON-LD dicts. Paywalled apply → `_NO_DIRECT_APPLY_SOURCES`. Aggregator host → `form_inspector._LISTING_DOMAINS`.
