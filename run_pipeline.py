@@ -13,6 +13,7 @@ import datetime
 import json
 import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
 from sqlalchemy import create_engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from models.database import Job, PipelineRun, ApplicationHistory
 from connectors.remotive import RemotiveConnector
@@ -130,7 +131,7 @@ def _run_fetch(source: str, dry_run: bool):
     # Create PipelineRun record (only save if not dry-run)
     run = PipelineRun(
         source=source,
-        started_at=datetime.datetime.utcnow(),
+        started_at=datetime.datetime.now(datetime.timezone.utc),
         status="running",
         jobs_fetched=0,
         jobs_new=0,
@@ -147,7 +148,8 @@ def _run_fetch(source: str, dry_run: bool):
         raw_jobs = connector.fetch_jobs()
         
         run.jobs_fetched = len(raw_jobs)
-        
+        normalized = None
+
         for raw_job in raw_jobs:
             try:
                 normalized = connector.normalize(raw_job)
@@ -176,12 +178,19 @@ def _run_fetch(source: str, dry_run: bool):
                 if not dry_run and run.jobs_new % 20 == 0:
                     session.commit()
                 
+            except IntegrityError:
+                session.rollback()
+                run.jobs_duplicates += 1
+                logger.debug(
+                    f"Skipped duplicate job (unique constraint): "
+                    f"{(normalized or {}).get('url')}"
+                )
             except Exception as e:
                 session.rollback()
                 logger.error(f"Error processing job: {e}")
                 
         run.status = "completed"
-        run.completed_at = datetime.datetime.utcnow()
+        run.completed_at = datetime.datetime.now(datetime.timezone.utc)
         if not dry_run:
             session.commit()
             
@@ -196,7 +205,7 @@ def _run_fetch(source: str, dry_run: bool):
         logger.error(f"Pipeline failed: {e}")
         run.status = "failed"
         run.error_message = str(e)
-        run.completed_at = datetime.datetime.utcnow()
+        run.completed_at = datetime.datetime.now(datetime.timezone.utc)
         if not dry_run:
             session.commit()
             

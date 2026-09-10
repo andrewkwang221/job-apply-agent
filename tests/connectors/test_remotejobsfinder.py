@@ -97,6 +97,12 @@ class TestParseSitemap:
         xml = _sitemap_xml()
         assert _parse_sitemap(xml) == []
 
+    def test_collects_later_alphabet_urls_past_old_prefix_cap(self):
+        slugs = [f"acme-engineer-{i:03d}" for i in range(200)] + ["zzz-senior-engineer"]
+        urls = _parse_sitemap(_sitemap_xml(*slugs))
+        assert len(urls) == 201
+        assert _job_url("zzz-senior-engineer") in urls
+
 
 class TestEngineeringUrl:
     def test_remote_engineer(self):
@@ -142,9 +148,16 @@ class TestListingHtml:
 
 
 class TestFetchJobs:
+    def _passthrough_unseen(self, urls, source, max_new=None):
+        urls = list(urls)
+        return urls[:max_new] if max_new is not None else urls
+
+    @patch("connectors.remotejobsfinder.remember_listing_urls")
+    @patch("connectors.remotejobsfinder.unseen_listing_urls")
     @patch("connectors.remotejobsfinder.time.sleep")
     @patch("connectors.remotejobsfinder.requests.get")
-    def test_returns_jobs(self, mock_get, _sleep):
+    def test_returns_jobs(self, mock_get, _sleep, mock_unseen, _remember):
+        mock_unseen.side_effect = self._passthrough_unseen
         xml = _sitemap_xml("acme-senior-engineer")
         mock_get.side_effect = [
             _mock_response(xml),
@@ -154,15 +167,21 @@ class TestFetchJobs:
         assert len(jobs) == 1
         assert jobs[0]["company"] == "Acme"
 
+    @patch("connectors.remotejobsfinder.remember_listing_urls")
+    @patch("connectors.remotejobsfinder.unseen_listing_urls")
     @patch("connectors.remotejobsfinder.time.sleep")
     @patch("connectors.remotejobsfinder.requests.get")
-    def test_sitemap_error_returns_empty(self, mock_get, _sleep):
+    def test_sitemap_error_returns_empty(self, mock_get, _sleep, mock_unseen, _remember):
+        mock_unseen.side_effect = self._passthrough_unseen
         mock_get.side_effect = Exception("network error")
         assert RemoteJobsFinderConnector().fetch_jobs() == []
 
+    @patch("connectors.remotejobsfinder.remember_listing_urls")
+    @patch("connectors.remotejobsfinder.unseen_listing_urls")
     @patch("connectors.remotejobsfinder.time.sleep")
     @patch("connectors.remotejobsfinder.requests.get")
-    def test_page_error_skips_job(self, mock_get, _sleep):
+    def test_page_error_skips_job(self, mock_get, _sleep, mock_unseen, _remember):
+        mock_unseen.side_effect = self._passthrough_unseen
         xml = _sitemap_xml("acme-senior-engineer", "stripe-backend-developer")
         mock_get.side_effect = [
             _mock_response(xml),

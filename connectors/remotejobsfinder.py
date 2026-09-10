@@ -29,6 +29,7 @@ from dateutil import parser as dateutil_parser
 import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
 
@@ -38,8 +39,9 @@ _SITEMAP_URL = "https://remotejobsfinder.co/sitemap_listings_active.xml"
 _LISTING_URL = "https://remotejobsfinder.co/en/remote-jobs"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
-_MAX_CANDIDATES = 200
-_MAX_NEW = 120
+# Sitemap is alphabetical with no lastmod — never prefix-cap the URL list.
+# Cap *new* detail fetches per run; leftover unseen locs stay for the next run.
+_MAX_UNSEEN_FETCHES = 300
 _FETCH_DELAY = 0.4
 
 _REMOTE_JOB_RE = re.compile(
@@ -74,18 +76,23 @@ class RemoteJobsFinderConnector(BaseConnector):
             return []
 
         logger.info(f"Collected {len(urls)} engineering remote job URLs")
+        to_fetch = unseen_listing_urls(
+            urls, self.source_name, max_new=_MAX_UNSEEN_FETCHES
+        )
+        logger.info(f"{len(to_fetch)} unseen RemoteJobsFinder URLs to fetch this run")
         jobs: list[dict[str, Any]] = []
-        for url in urls:
-            if len(jobs) >= _MAX_NEW:
-                break
+        crawled: list[str] = []
+        for url in to_fetch:
             try:
                 raw = _fetch_job_page(url)
+                crawled.append(url)
                 if raw:
                     jobs.append(raw)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {url}: {e}")
                 logger.debug(traceback.format_exc())
+        remember_listing_urls(self.source_name, crawled)
 
         logger.info(f"Successfully fetched {len(jobs)} jobs from remotejobsfinder.co")
         return jobs
@@ -127,8 +134,6 @@ def _parse_sitemap(content: bytes) -> list[str]:
     for loc in re.findall(r"<loc>\s*([^<\s]+)\s*</loc>", content.decode("utf-8", errors="replace")):
         if _is_engineering_remote_url(loc):
             urls.append(loc)
-            if len(urls) >= _MAX_CANDIDATES:
-                break
     return urls
 
 
@@ -164,8 +169,6 @@ def _job_urls_from_listing_html(html: str) -> list[str]:
             continue
         seen.add(raw)
         found.append(raw)
-        if len(found) >= _MAX_CANDIDATES:
-            break
     return found
 
 

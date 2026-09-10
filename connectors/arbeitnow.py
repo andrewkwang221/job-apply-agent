@@ -1,13 +1,40 @@
+from __future__ import annotations
+
 import traceback
-import requests
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
+
+import requests
 from dateutil import parser
+
+import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
 logger = setup_logger("arbeitnow_connector")
+
+# Live pages mix created_at across page numbers (checked 2026-09-10), so walk
+# the pager and date-filter instead of stopping at page 3 or the first old job.
+_MAX_PAGES = 80  # runaway guard only; stop earlier on empty / no next link
+
+
+def _parse_created_at(value: Any) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)) or (isinstance(value, str) and value.isdigit()):
+        try:
+            return datetime.fromtimestamp(int(value), tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            pass
+    try:
+        dt = parser.parse(str(value))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
 
 
 class ArbeitnowConnector(BaseConnector):
@@ -18,10 +45,12 @@ class ArbeitnowConnector(BaseConnector):
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         logger.info(f"Fetching jobs from {self.source_name} API...")
         all_jobs: List[Dict[str, Any]] = []
+        seen_keys: set[str] = set()
         page = 1
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
 
         try:
-            while True:
+            while page <= _MAX_PAGES:
                 response = requests.get(
                     self.api_url,
                     params={"page": page},
@@ -32,12 +61,21 @@ class ArbeitnowConnector(BaseConnector):
                 jobs = data.get("data", [])
                 if not jobs:
                     break
-                # Keep only remote jobs.
-                remote_jobs = [j for j in jobs if j.get("remote")]
-                all_jobs.extend(remote_jobs)
 
-                # Arbeitnow paginates; stop after page 3 to avoid fetching hundreds of old jobs.
-                if page >= 3 or not data.get("links", {}).get("next"):
+                for job in jobs:
+                    if not job.get("remote"):
+                        continue
+                    posted = _parse_created_at(job.get("created_at"))
+                    if posted and posted < cutoff:
+                        continue
+                    key = str(job.get("slug") or job.get("url") or "")
+                    if key and key in seen_keys:
+                        continue
+                    if key:
+                        seen_keys.add(key)
+                    all_jobs.append(job)
+
+                if not data.get("links", {}).get("next"):
                     break
                 page += 1
 
@@ -50,15 +88,7 @@ class ArbeitnowConnector(BaseConnector):
 
     def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         url = raw_job.get("url", "")
-
-        posted_date = None
-        created_at = raw_job.get("created_at")
-        if created_at:
-            try:
-                posted_date = parser.parse(str(created_at)) if isinstance(created_at, str) else \
-                              parser.parse(str(created_at))
-            except Exception:
-                pass
+        posted_date = _parse_created_at(raw_job.get("created_at"))
 
         location = raw_job.get("location", "Remote")
         if not location:

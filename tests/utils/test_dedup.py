@@ -114,3 +114,49 @@ class TestIsDuplicateByHash:
 
     def test_empty_db_never_duplicate(self, db_session):
         assert not is_duplicate({"url": "https://x.com/1", "company": "X", "title": "Y", "location": "Z"}, db_session)
+
+
+# ---------------------------------------------------------------------------
+# is_duplicate — pending (uncommitted) session objects
+# ---------------------------------------------------------------------------
+
+class TestIsDuplicatePending:
+    def test_uncommitted_url_is_duplicate(self, db_session):
+        job = Job(
+            external_id="pending-url",
+            source="test",
+            company="Acme",
+            title="Engineer",
+            location="Remote",
+            raw_location_text="Remote",
+            url="https://example.com/pending",
+            status="new",
+        )
+        db_session.add(job)
+        assert is_duplicate(
+            {"url": "https://example.com/pending", "company": "Other", "title": "X", "location": "Y"},
+            db_session,
+        )
+
+    def test_uncommitted_external_id_is_duplicate(self, db_session):
+        job = Job(
+            external_id="same-slug",
+            source="test",
+            company="Acme",
+            title="Engineer",
+            location="Remote",
+            raw_location_text="Remote",
+            url="https://example.com/a",
+            status="new",
+        )
+        db_session.add(job)
+        assert is_duplicate(
+            {
+                "url": "https://example.com/b",
+                "external_id": "same-slug",
+                "company": "Other",
+                "title": "X",
+                "location": "Y",
+            },
+            db_session,
+        )

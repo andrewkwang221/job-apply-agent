@@ -4,6 +4,7 @@ from typing import List, Dict, Any
 
 import requests
 
+import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.text_cleaning import clean_description
@@ -12,8 +13,11 @@ from utils.logger import setup_logger
 logger = setup_logger("himalayas_connector")
 
 BASE_URL = "https://himalayas.app/jobs/api/search"
-MAX_PAGES = 10
-MAX_AGE_DAYS = 10
+# Live pages are not newest-first (checked 2026-09-10); walk until totalCount.
+# Runaway only — ~20 jobs/page, ~2000 total worldwide listings.
+MAX_PAGES = 150
+PAGE_SIZE = 20
+MAX_AGE_DAYS = config.MAX_JOB_AGE_DAYS
 
 
 class HimalayasConnector(BaseConnector):
@@ -40,14 +44,12 @@ class HimalayasConnector(BaseConnector):
                 if not jobs:
                     break
 
-                stop_early = False
                 for job in jobs:
                     pub = job.get("pubDate")
                     if pub:
                         try:
                             posted = datetime.fromtimestamp(int(pub), tz=timezone.utc)
                             if posted < cutoff:
-                                stop_early = True
                                 continue
                         except Exception:
                             pass
@@ -57,11 +59,8 @@ class HimalayasConnector(BaseConnector):
                         seen_guids.add(guid)
                         all_jobs.append(job)
 
-                if stop_early:
-                    break
-
                 total = data.get("totalCount", 0)
-                if page * 20 >= total:
+                if page * PAGE_SIZE >= total:
                     break
                 page += 1
 

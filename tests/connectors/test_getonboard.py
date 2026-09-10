@@ -174,13 +174,34 @@ class TestFetchCategory:
             connector._fetch_category("programming", set(), {"en"})
         assert mock_get.call_count == 1
 
-    def test_paginates_up_to_max_pages(self):
-        from connectors.getonboard import MAX_PAGES
+    def test_paginates_until_total_pages(self):
         connector = self._connector()
-        data = _page([_job()], total_pages=10)
+        data = _page([_job()], total_pages=4)
         with patch(self._T, return_value=_mock_resp(data)) as mock_get:
             connector._fetch_category("programming", set(), {"en"})
-        assert mock_get.call_count == MAX_PAGES
+        assert mock_get.call_count == 4
+
+    def test_continues_when_page_has_old_and_new_jobs(self):
+        connector = self._connector()
+        old_ts = int((datetime.now(tz=timezone.utc) - timedelta(days=20)).timestamp())
+        new_ts = int(datetime.now(tz=timezone.utc).timestamp())
+
+        def side_effect(*args, **kwargs):
+            page = (kwargs.get("params") or {}).get("page", 1)
+            if page == 1:
+                return _mock_resp(_page([
+                    _job(job_id="old", published_at=old_ts),
+                    _job(job_id="n1", published_at=new_ts),
+                ], total_pages=2))
+            return _mock_resp(_page([_job(job_id="n2", published_at=new_ts)], total_pages=2))
+
+        with patch(self._T, side_effect=side_effect) as mock_get:
+            jobs = connector._fetch_category("programming", set(), {"en"})
+        ids = {j["id"] for j in jobs}
+        assert "old" not in ids
+        assert "n1" in ids
+        assert "n2" in ids
+        assert mock_get.call_count == 2
 
     def test_http_error_propagates(self):
         connector = self._connector()

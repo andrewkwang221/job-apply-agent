@@ -19,6 +19,16 @@ from connectors.nodesk import (
     _parse_sitemap,
 )
 
+
+def _passthrough_unseen(urls, source, max_new=None):
+    urls = list(urls)
+    return urls[:max_new] if max_new is not None else urls
+
+
+def _sitemap_urls(xml: bytes) -> list[str]:
+    urls, _ = _parse_sitemap(xml)
+    return urls
+
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
 # ---------------------------------------------------------------------------
@@ -50,12 +60,13 @@ def _job_html(
     company="Acme",
     valid_through=None,
     location_name="Worldwide",
+    date_posted=None,
 ) -> str:
     ld = {
         "@context": "https://schema.org/",
         "@type": "JobPosting",
         "title": title,
-        "datePosted": "2026-03-27",
+        "datePosted": date_posted or _TODAY,
         "hiringOrganization": {"@type": "Organization", "name": company},
         "applicantLocationRequirements": [{"@type": "Country", "name": location_name}],
         "description": "<p>Python and Django</p>",
@@ -89,7 +100,7 @@ def _mock_response(content, status=200):
 class TestParseSitemap:
     def test_returns_job_urls_only(self):
         xml = _sitemap_xml("acme-senior-engineer", "kodify-fullstack-developer")
-        urls = _parse_sitemap(xml)
+        urls = _sitemap_urls(xml)
         assert all("nodesk.co/remote-jobs/" in u for u in urls)
         assert not any("remote-companies" in u for u in urls)
 
@@ -99,12 +110,24 @@ class TestParseSitemap:
   <url><loc>https://nodesk.co/remote-jobs/old-job/</loc><lastmod>2026-01-01</lastmod></url>
   <url><loc>https://nodesk.co/remote-jobs/new-job/</loc><lastmod>2026-04-01</lastmod></url>
 </urlset>"""
-        urls = _parse_sitemap(xml)
+        urls, newest_first = _parse_sitemap(xml)
+        assert newest_first is True
         assert urls[0].endswith("new-job/")
         assert urls[1].endswith("old-job/")
 
+    def test_without_lastmod_is_not_newest_first(self):
+        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://nodesk.co/remote-jobs/acme-engineer/</loc></url>
+  <url><loc>https://nodesk.co/remote-jobs/zzz-developer/</loc></url>
+</urlset>"""
+        urls, newest_first = _parse_sitemap(xml)
+        assert newest_first is False
+        assert urls[0].endswith("acme-engineer/")
+        assert urls[1].endswith("zzz-developer/")
+
     def test_malformed_xml_returns_empty(self):
-        assert _parse_sitemap(b"not xml at all") == []
+        assert _parse_sitemap(b"not xml at all") == ([], False)
 
     def test_excludes_company_and_article_urls(self):
         xml = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -113,10 +136,23 @@ class TestParseSitemap:
   <url><loc>https://nodesk.co/articles/remote-work-tips/</loc></url>
   <url><loc>https://nodesk.co/remote-jobs/acme-senior-engineer/</loc></url>
 </urlset>"""
-        urls = _parse_sitemap(xml)
+        urls = _sitemap_urls(xml)
         assert not any("remote-companies" in u for u in urls)
         assert not any("articles" in u for u in urls)
         assert any("acme-senior-engineer" in u for u in urls)
+
+    @patch("connectors.nodesk.time.sleep")
+    @patch("connectors.nodesk.requests.get")
+    def test_follows_sitemap_index(self, mock_get, mock_sleep):
+        child = _sitemap_xml("acme-senior-engineer")
+        mock_get.return_value = _mock_response(child)
+        index = b"""<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap><loc>https://nodesk.co/job-sitemap.xml</loc></sitemap>
+</sitemapindex>"""
+        urls, _newest = _parse_sitemap(index)
+        assert any("acme-senior-engineer" in u for u in urls)
+        mock_get.assert_called()
 
 
 # ---------------------------------------------------------------------------
@@ -181,12 +217,24 @@ class TestExtractJsonld:
         raw = _extract_jsonld(html, "https://nodesk.co/remote-jobs/acme-backend-engineer/")
         assert raw["id"] == "acme-backend-engineer"
 
+    def test_stale_posted_date_returns_none(self):
+        old = (datetime.now(tz=timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d")
+        html = _job_html(date_posted=old)
+        raw = _extract_jsonld(html, "https://nodesk.co/remote-jobs/acme-old-engineer/")
+        assert raw is None
+
 
 # ---------------------------------------------------------------------------
 # NodeskConnector.fetch_jobs (mocked HTTP)
 # ---------------------------------------------------------------------------
 
 class TestNodeskFetch:
+    @pytest.fixture(autouse=True)
+    def _no_db(self):
+        with patch("connectors.nodesk.unseen_listing_urls", side_effect=_passthrough_unseen), \
+             patch("connectors.nodesk.remember_listing_urls"):
+            yield
+
     def _make_responses(self, slugs, job_html_map=None):
         """Return a side_effect list: first call is sitemap, rest are job pages."""
         xml = _sitemap_xml(*slugs)

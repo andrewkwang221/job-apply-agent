@@ -109,6 +109,28 @@ class TestHimalayasFetch:
             jobs = HimalayasConnector().fetch_jobs()
         assert len(jobs) == 1
 
+    def test_continues_when_page_mixes_old_and_new(self):
+        old_ts = str(int((datetime.now(tz=timezone.utc) - timedelta(days=30)).timestamp()))
+        new_ts = str(int(datetime.now(tz=timezone.utc).timestamp()))
+        responses = [
+            _mock_json({
+                "jobs": [self._job(guid="old", pub=old_ts), self._job(guid="new1", pub=new_ts)],
+                "totalCount": 40,
+            }),
+            _mock_json({
+                "jobs": [self._job(guid="new2", pub=new_ts)],
+                "totalCount": 40,
+            }),
+        ]
+        with patch(self._T, side_effect=responses) as mock_get:
+            from connectors.himalayas import HimalayasConnector
+            jobs = HimalayasConnector().fetch_jobs()
+        ids = {j["guid"] for j in jobs}
+        assert "old" not in ids
+        assert "new1" in ids
+        assert "new2" in ids
+        assert mock_get.call_count == 2
+
     def test_http_error_returns_empty(self):
         with patch(self._T, return_value=_mock_json({}, 503)):
             from connectors.himalayas import HimalayasConnector
@@ -158,10 +180,11 @@ class TestHimalayasNormalize:
 class TestArbeitnowFetch:
     _T = "connectors.arbeitnow.requests.get"
 
-    def _job(self, remote=True, slug="eng-acme"):
+    def _job(self, remote=True, slug="eng-acme", created_at=None):
+        created_at = created_at or datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
         return {"slug": slug, "title": "Engineer", "company_name": "Acme",
                 "remote": remote, "url": "https://arbeitnow.com/jobs/acme",
-                "description": "role", "location": "Remote", "created_at": "2026-03-24"}
+                "description": "role", "location": "Remote", "created_at": created_at}
 
     def test_returns_remote_jobs_only(self):
         data = {"data": [self._job(remote=True), self._job(remote=False, slug="non-remote")],
@@ -177,17 +200,50 @@ class TestArbeitnowFetch:
             jobs = ArbeitnowConnector().fetch_jobs()
         assert jobs == []
 
-    def test_paginates_up_to_3_pages(self):
-        page_data = {"data": [self._job()], "links": {"next": "page2"}}
-        with patch(self._T, return_value=_mock_json(page_data)):
+    def test_paginates_past_three_pages_when_recent(self):
+        pages = [
+            _mock_json({"data": [self._job(slug=f"p{i}")], "links": {"next": "page"}})
+            for i in range(1, 4)
+        ]
+        pages.append(_mock_json({"data": [self._job(slug="p4")], "links": {}}))
+        with patch(self._T, side_effect=pages) as mock_get:
             from connectors.arbeitnow import ArbeitnowConnector
             jobs = ArbeitnowConnector().fetch_jobs()
-        # Should stop at page 3 regardless of "next" link
-        assert len(jobs) <= 3
+        assert mock_get.call_count == 4
+        assert len(jobs) == 4
+
+    def test_continues_when_page_mixes_old_and_new(self):
+        old = (datetime.now(tz=timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+        responses = [
+            _mock_json({
+                "data": [self._job(slug="old", created_at=old), self._job(slug="new1")],
+                "links": {"next": "page2"},
+            }),
+            _mock_json({"data": [self._job(slug="new2")], "links": {}}),
+        ]
+        with patch(self._T, side_effect=responses) as mock_get:
+            from connectors.arbeitnow import ArbeitnowConnector
+            jobs = ArbeitnowConnector().fetch_jobs()
+        slugs = [j["slug"] for j in jobs]
+        assert "old" not in slugs
+        assert "new1" in slugs
+        assert "new2" in slugs
+        assert mock_get.call_count == 2
 
     def test_stops_when_no_next_link(self):
         data = {"data": [self._job()], "links": {}}
         with patch(self._T, return_value=_mock_json(data)):
+            from connectors.arbeitnow import ArbeitnowConnector
+            jobs = ArbeitnowConnector().fetch_jobs()
+        assert len(jobs) == 1
+
+    def test_deduplicates_overlapping_pages(self):
+        job = self._job(slug="same-role")
+        responses = [
+            _mock_json({"data": [job], "links": {"next": "page2"}}),
+            _mock_json({"data": [job], "links": {}}),
+        ]
+        with patch(self._T, side_effect=responses):
             from connectors.arbeitnow import ArbeitnowConnector
             jobs = ArbeitnowConnector().fetch_jobs()
         assert len(jobs) == 1

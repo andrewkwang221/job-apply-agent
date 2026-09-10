@@ -7,7 +7,8 @@ SSR). Job cards are embedded in ``__NEXT_DATA__`` as
 
 Strategy
 --------
-1. GET the developer category page (and a few subsequent ``?page=N`` pages).
+1. GET every developer category page (``jobsListWithPagination.totalPages``).
+   Pages are not newest-first, so do not stop at a page cap or the first old job.
 2. Parse ``__NEXT_DATA__`` for title, summary, location, dates, and slug.
 3. Keep engineering-relevant titles; skip expired and stale postings.
 4. Store the remotejobs.io job URL. Apply links are paywalled, so scoring
@@ -36,7 +37,6 @@ logger = setup_logger("remotejobsio_connector")
 
 LISTING_URL = "https://www.remotejobs.io/work-from-home/developer"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
-_MAX_PAGES = 6
 _FETCH_DELAY = 0.4
 _NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
@@ -65,11 +65,15 @@ class RemoteJobsIoConnector(BaseConnector):
         seen_ids: set[str] = set()
 
         try:
-            for page in range(1, _MAX_PAGES + 1):
+            page = 1
+            total_pages = 1
+            while page <= total_pages:
                 html = _fetch_listing_html(page)
                 if not html:
                     break
-                raw_items = _extract_listing_jobs(html)
+                raw_items, reported_pages = _extract_listing_page(html)
+                if page == 1:
+                    total_pages = max(reported_pages, 1)
                 if not raw_items:
                     break
 
@@ -86,10 +90,11 @@ class RemoteJobsIoConnector(BaseConnector):
                     new_on_page += 1
 
                 logger.info(
-                    f"Page {page}: {len(raw_items)} listings, "
+                    f"Page {page}/{total_pages}: {len(raw_items)} listings, "
                     f"{new_on_page} kept (total {len(all_jobs)})"
                 )
-                if page < _MAX_PAGES:
+                page += 1
+                if page <= total_pages:
                     time.sleep(_FETCH_DELAY)
         except Exception as e:
             logger.error(f"Error fetching jobs from remotejobs.io: {e}")
@@ -129,26 +134,39 @@ def _fetch_listing_html(page: int) -> str | None:
     return resp.text
 
 
-def _extract_listing_jobs(html: str) -> list[dict[str, Any]]:
-    """Return job dicts from the listing page ``__NEXT_DATA__`` blob."""
+def _extract_listing_page(html: str) -> tuple[list[dict[str, Any]], int]:
+    """Return (job dicts, totalPages) from the listing ``__NEXT_DATA__`` blob."""
     match = _NEXT_DATA_RE.search(html)
     if not match:
-        return []
+        return [], 1
     try:
         data = json.loads(match.group(1))
     except json.JSONDecodeError:
-        return []
+        return [], 1
 
-    results = (
+    pagination = (
         data.get("props", {})
         .get("pageProps", {})
         .get("data", {})
         .get("jobsListWithPagination", {})
-        .get("results")
     )
-    if not isinstance(results, list):
-        return []
-    return [item for item in results if isinstance(item, dict)]
+    if not isinstance(pagination, dict):
+        return [], 1
+
+    results = pagination.get("results")
+    jobs = [item for item in results if isinstance(item, dict)] if isinstance(results, list) else []
+
+    try:
+        total_pages = int(pagination.get("totalPages") or 1)
+    except (TypeError, ValueError):
+        total_pages = 1
+    return jobs, max(total_pages, 1)
+
+
+def _extract_listing_jobs(html: str) -> list[dict[str, Any]]:
+    """Return job dicts from the listing page ``__NEXT_DATA__`` blob."""
+    jobs, _ = _extract_listing_page(html)
+    return jobs
 
 
 def _is_engineering_title(title: str) -> bool:

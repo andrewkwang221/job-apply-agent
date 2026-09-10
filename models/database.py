@@ -4,6 +4,10 @@ from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
 
+
+def _utc_now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
 class Job(Base):
     __tablename__ = "jobs"
 
@@ -31,8 +35,8 @@ class Job(Base):
     recommended_resume = Column(String, nullable=True)
     cover_letter = Column(Text, nullable=True)
     posted_date = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
     status = Column(String, default="new")
 
 class PipelineRun(Base):
@@ -57,7 +61,7 @@ class ApplicationHistory(Base):
     applied_date = Column(Date)
     source = Column(String, default="manual_import")
     notes = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
 
     __table_args__ = (
         UniqueConstraint("company", "job_title", name="_company_job_uc"),
@@ -78,4 +82,4 @@ class InterviewPrepSheet(Base):
     prep_plan_30_min = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     generated_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)

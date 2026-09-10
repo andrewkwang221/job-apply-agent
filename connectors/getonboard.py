@@ -46,8 +46,8 @@ CATEGORIES = [
 ]
 
 BASE_URL = "https://www.getonbrd.com/api/v0"
-MAX_PAGES = 3
-MAX_AGE_DAYS = 10  # Stop paginating once jobs are older than this
+MAX_PAGES = 50  # runaway only; live category pages mix dates (checked 2026-09-10)
+MAX_AGE_DAYS = 10  # Drop jobs older than this; do not stop the pager on the first old job
 
 
 class GetOnBoardConnector(BaseConnector):
@@ -99,13 +99,11 @@ class GetOnBoardConnector(BaseConnector):
             if not page_jobs:
                 break
 
-            stop_early = False
             for job in page_jobs:
                 published_at = job.get("attributes", {}).get("published_at")
                 if published_at:
                     try:
                         if datetime.fromtimestamp(int(published_at), tz=timezone.utc) < cutoff:
-                            stop_early = True
                             continue
                     except Exception:
                         pass
@@ -120,9 +118,6 @@ class GetOnBoardConnector(BaseConnector):
                 if job_id and job_id not in seen_ids:
                     seen_ids.add(job_id)
                     jobs.append(job)
-
-            if stop_early:
-                break
 
             meta = data.get("meta", {})
             total_pages = meta.get("total_pages", 1)

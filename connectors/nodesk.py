@@ -22,14 +22,16 @@ import re
 import time
 import traceback
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List
 
 import requests
 from dateutil import parser as dateutil_parser
 
+import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -38,8 +40,10 @@ logger = setup_logger("nodesk_connector")
 _SITEMAP_URL = "https://nodesk.co/sitemap.xml"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
-# Max new job pages to fetch per pipeline run (avoids hammering the server).
+# Prefix cap is valid only when sitemap lastmod is present (newest-first).
 _MAX_NEW = 150
+# Unsorted sitemaps: cap new detail fetches; leftover locs stay for next run.
+_MAX_UNSEEN_FETCHES = 300
 # Politeness delay between page fetches (seconds).
 _FETCH_DELAY = 0.4
 
@@ -66,28 +70,34 @@ class NodeskConnector(BaseConnector):
         try:
             resp = requests.get(_SITEMAP_URL, headers=_HEADERS, timeout=15)
             resp.raise_for_status()
-            urls = _parse_sitemap(resp.content)
+            urls, newest_first = _parse_sitemap(resp.content)
         except Exception as e:
             logger.error(f"Failed to fetch nodesk sitemap: {e}")
             logger.debug(traceback.format_exc())
             return []
 
         eng_urls = [u for u in urls if _is_engineering_url(u)]
+        cap = _MAX_NEW if newest_first else _MAX_UNSEEN_FETCHES
+        to_fetch = unseen_listing_urls(eng_urls, self.source_name, max_new=cap)
         logger.info(
             f"Sitemap: {len(urls)} job URLs total, "
-            f"{len(eng_urls)} match engineering keywords"
+            f"{len(eng_urls)} match engineering keywords, "
+            f"newest_first={newest_first}, fetching {len(to_fetch)}"
         )
 
         jobs: List[Dict[str, Any]] = []
-        for url in eng_urls[:_MAX_NEW]:
+        crawled: List[str] = []
+        for url in to_fetch:
             try:
                 raw = _fetch_job_page(url)
+                crawled.append(url)
                 if raw:
                     jobs.append(raw)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {url}: {e}")
                 logger.debug(traceback.format_exc())
+        remember_listing_urls(self.source_name, crawled)
 
         logger.info(f"Successfully fetched {len(jobs)} jobs from nodesk.co")
         return jobs
@@ -121,15 +131,43 @@ class NodeskConnector(BaseConnector):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _parse_sitemap(content: bytes) -> List[str]:
-    """Return /remote-jobs/ job-page URLs from the sitemap, newest first."""
+def _parse_sitemap(content: bytes) -> tuple[list[str], bool]:
+    """Return (/remote-jobs/ URLs, newest_first) from a urlset or sitemap index."""
     try:
         root = ET.fromstring(content)
     except ET.ParseError:
-        return []
+        return [], False
 
-    entries: List[tuple[str, str]] = []  # (lastmod, url)
-    # Try with namespace first, then without.
+    tag = root.tag.lower()
+    if "sitemapindex" in tag:
+        entries: list[tuple[str, str]] = []
+        has_lastmod = False
+        for sm_el in root.findall("sm:sitemap", _NS) or root.findall("sitemap"):
+            child_loc = (
+                sm_el.findtext("sm:loc", namespaces=_NS)
+                or sm_el.findtext("loc")
+                or ""
+            ).strip()
+            if not child_loc:
+                continue
+            try:
+                r = requests.get(child_loc, headers=_HEADERS, timeout=15)
+                r.raise_for_status()
+                child_entries, child_lastmod = _urlset_entries(ET.fromstring(r.content))
+                entries.extend(child_entries)
+                has_lastmod = has_lastmod or child_lastmod
+                time.sleep(0.2)
+            except Exception:
+                continue
+        return _finalize_sitemap_entries(entries, has_lastmod)
+
+    entries, has_lastmod = _urlset_entries(root)
+    return _finalize_sitemap_entries(entries, has_lastmod)
+
+
+def _urlset_entries(root: ET.Element) -> tuple[list[tuple[str, str]], bool]:
+    entries: list[tuple[str, str]] = []
+    has_lastmod = False
     for url_el in root.findall("sm:url", _NS) or root.findall("url"):
         loc = (
             (url_el.findtext("sm:loc", namespaces=_NS) or url_el.findtext("loc") or "")
@@ -141,11 +179,19 @@ def _parse_sitemap(content: bytes) -> List[str]:
             url_el.findtext("sm:lastmod", namespaces=_NS)
             or url_el.findtext("lastmod")
             or ""
-        )
+        ).strip()
+        if lastmod:
+            has_lastmod = True
         entries.append((lastmod, loc))
+    return entries, has_lastmod
 
-    entries.sort(key=lambda x: x[0], reverse=True)
-    return [loc for _, loc in entries]
+
+def _finalize_sitemap_entries(
+    entries: list[tuple[str, str]], has_lastmod: bool
+) -> tuple[list[str], bool]:
+    if has_lastmod:
+        entries = sorted(entries, key=lambda x: x[0], reverse=True)
+    return [loc for _, loc in entries], has_lastmod
 
 
 def _is_engineering_url(url: str) -> bool:
@@ -163,6 +209,7 @@ def _fetch_job_page(url: str) -> Dict[str, Any] | None:
 
 def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
     """Parse a JobPosting JSON-LD block from page HTML and return a raw job dict."""
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
     for match in re.finditer(
         r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
         html,
@@ -211,6 +258,8 @@ def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
                     posted_date = posted_date.replace(tzinfo=timezone.utc)
             except Exception:
                 pass
+        if posted_date and posted_date < cutoff:
+            return None
 
         slug = page_url.rstrip("/").split("/")[-1]
         return {

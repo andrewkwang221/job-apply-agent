@@ -31,6 +31,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -40,6 +41,7 @@ _SITEMAP_URL = "https://remote100k.com/sitemap.xml"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 _MAX_NEW = 150
+_MAX_UNSEEN_FETCHES = 300
 _FETCH_DELAY = 0.4
 
 _NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
@@ -75,28 +77,34 @@ class Remote100kConnector(BaseConnector):
         try:
             resp = requests.get(_SITEMAP_URL, headers=_HEADERS, timeout=15)
             resp.raise_for_status()
-            urls = _parse_sitemap(resp.content)
+            urls, newest_first = _parse_sitemap(resp.content)
         except Exception as e:
             logger.error(f"Failed to fetch remote100k sitemap: {e}")
             logger.debug(traceback.format_exc())
             return []
 
         eng_urls = [u for u in urls if _is_engineering_url(u)]
+        cap = _MAX_NEW if newest_first else _MAX_UNSEEN_FETCHES
+        to_fetch = unseen_listing_urls(eng_urls, self.source_name, max_new=cap)
         logger.info(
             f"Sitemap: {len(urls)} job URLs total, "
-            f"{len(eng_urls)} match engineering keywords"
+            f"{len(eng_urls)} match engineering keywords, "
+            f"newest_first={newest_first}, fetching {len(to_fetch)}"
         )
 
         jobs: list[dict[str, Any]] = []
-        for url in eng_urls[:_MAX_NEW]:
+        crawled: list[str] = []
+        for url in to_fetch:
             try:
                 raw = _fetch_job_page(url)
+                crawled.append(url)
                 if raw:
                     jobs.append(raw)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {url}: {e}")
                 logger.debug(traceback.format_exc())
+        remember_listing_urls(self.source_name, crawled)
 
         logger.info(f"Successfully fetched {len(jobs)} jobs from remote100k.com")
         return jobs
@@ -129,22 +137,23 @@ class Remote100kConnector(BaseConnector):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _parse_sitemap(content: bytes) -> list[str]:
-    """Return /remote-job/ URLs from the sitemap, newest first.
+def _parse_sitemap(content: bytes) -> tuple[list[str], bool]:
+    """Return (/remote-job/ URLs, newest_first) from a urlset or sitemap index.
 
-    Handles both flat <urlset> and <sitemapindex> (follows one level of
-    child sitemaps to find the one containing job pages).
+    Prefix-capping is valid only when ``lastmod`` is present. Missing lastmod
+    leaves document order and ``newest_first=False``.
     """
     try:
         root = ET.fromstring(content)
     except ET.ParseError:
-        return []
+        return [], False
 
     tag = root.tag.lower()
 
     # Sitemap index — follow child sitemaps to find job URLs.
     if "sitemapindex" in tag:
-        all_urls: list[str] = []
+        entries: list[tuple[str, str]] = []
+        has_lastmod = False
         for sm_el in root.findall("sm:sitemap", _NS) or root.findall("sitemap"):
             child_loc = (
                 sm_el.findtext("sm:loc", namespaces=_NS)
@@ -156,19 +165,21 @@ def _parse_sitemap(content: bytes) -> list[str]:
             try:
                 r = requests.get(child_loc, headers=_HEADERS, timeout=15)
                 r.raise_for_status()
-                all_urls.extend(_parse_urlset(ET.fromstring(r.content)))
+                child_entries, child_lastmod = _urlset_entries(ET.fromstring(r.content))
+                entries.extend(child_entries)
+                has_lastmod = has_lastmod or child_lastmod
                 time.sleep(0.2)
             except Exception:
                 continue
-        return all_urls
+        return _finalize_sitemap_entries(entries, has_lastmod)
 
-    # Flat urlset.
-    return _parse_urlset(root)
+    entries, has_lastmod = _urlset_entries(root)
+    return _finalize_sitemap_entries(entries, has_lastmod)
 
 
-def _parse_urlset(root: ET.Element) -> list[str]:
-    """Extract and sort /remote-job/ URLs from a <urlset> element."""
-    entries: list[tuple[str, str]] = []  # (lastmod, url)
+def _urlset_entries(root: ET.Element) -> tuple[list[tuple[str, str]], bool]:
+    entries: list[tuple[str, str]] = []
+    has_lastmod = False
     for url_el in root.findall("sm:url", _NS) or root.findall("url"):
         loc = (
             url_el.findtext("sm:loc", namespaces=_NS)
@@ -181,11 +192,19 @@ def _parse_urlset(root: ET.Element) -> list[str]:
             url_el.findtext("sm:lastmod", namespaces=_NS)
             or url_el.findtext("lastmod")
             or ""
-        )
+        ).strip()
+        if lastmod:
+            has_lastmod = True
         entries.append((lastmod, loc))
+    return entries, has_lastmod
 
-    entries.sort(key=lambda x: x[0], reverse=True)
-    return [loc for _, loc in entries]
+
+def _finalize_sitemap_entries(
+    entries: list[tuple[str, str]], has_lastmod: bool
+) -> tuple[list[str], bool]:
+    if has_lastmod:
+        entries = sorted(entries, key=lambda x: x[0], reverse=True)
+    return [loc for _, loc in entries], has_lastmod
 
 
 def _is_engineering_url(url: str) -> bool:

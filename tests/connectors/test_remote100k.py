@@ -14,12 +14,18 @@ import pytest
 
 from connectors.remote100k import (
     Remote100kConnector,
+    _MAX_NEW,
     _extract_ats_url,
     _extract_job,
     _is_engineering_url,
     _parse_sitemap,
     _strip_ref_param,
 )
+
+
+def _passthrough_unseen(urls, source, max_new=None):
+    urls = list(urls)
+    return urls[:max_new] if max_new is not None else urls
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -137,7 +143,8 @@ class TestExtractAtsUrl:
 class TestParseSitemap:
     def test_returns_remote_job_urls_only(self):
         xml = _sitemap_xml("acme-senior-engineer", "stripe-backend-developer")
-        urls = _parse_sitemap(xml)
+        urls, newest_first = _parse_sitemap(xml)
+        assert newest_first is True
         assert all("remote100k.com/remote-job/" in u for u in urls)
         assert not any("companies" in u for u in urls)
 
@@ -147,12 +154,26 @@ class TestParseSitemap:
   <url><loc>https://remote100k.com/remote-job/old-job</loc><lastmod>2026-01-01</lastmod></url>
   <url><loc>https://remote100k.com/remote-job/new-job</loc><lastmod>2026-04-08</lastmod></url>
 </urlset>"""
-        urls = _parse_sitemap(xml)
+        urls, newest_first = _parse_sitemap(xml)
+        assert newest_first is True
         assert urls[0].endswith("new-job")
         assert urls[1].endswith("old-job")
 
+    def test_urlset_without_lastmod_is_not_newest_first(self):
+        xml = b"""<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://remote100k.com/remote-job/acme-senior-engineer</loc></url>
+  <url><loc>https://remote100k.com/remote-job/zzz-backend-developer</loc></url>
+</urlset>"""
+        urls, newest_first = _parse_sitemap(xml)
+        assert newest_first is False
+        assert [u.rsplit("/", 1)[-1] for u in urls] == [
+            "acme-senior-engineer",
+            "zzz-backend-developer",
+        ]
+
     def test_malformed_xml_returns_empty(self):
-        assert _parse_sitemap(b"not xml") == []
+        assert _parse_sitemap(b"not xml") == ([], False)
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +252,12 @@ class TestExtractJob:
 # ---------------------------------------------------------------------------
 
 class TestRemote100kFetch:
+    @pytest.fixture(autouse=True)
+    def _no_db(self):
+        with patch("connectors.remote100k.unseen_listing_urls", side_effect=_passthrough_unseen), \
+             patch("connectors.remote100k.remember_listing_urls"):
+            yield
+
     @patch("connectors.remote100k.time.sleep")
     @patch("connectors.remote100k.requests.get")
     def test_returns_engineering_jobs(self, mock_get, mock_sleep):
@@ -273,6 +300,24 @@ class TestRemote100kFetch:
         jobs = Remote100kConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["company"] == "Stripe"
+
+    @patch("connectors.remote100k.time.sleep")
+    @patch("connectors.remote100k.requests.get")
+    def test_no_lastmod_does_not_slice_to_max_new(self, mock_get, mock_sleep):
+        slugs = [f"acme-engineer-{i}" for i in range(_MAX_NEW + 10)]
+        items = "\n".join(
+            f"  <url><loc>https://remote100k.com/remote-job/{s}</loc></url>" for s in slugs
+        )
+        xml = (
+            '<?xml version="1.0"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f"{items}\n</urlset>"
+        ).encode()
+        mock_get.side_effect = [_mock_response(xml)] + [
+            _mock_response(_job_html()) for _ in slugs
+        ]
+        Remote100kConnector().fetch_jobs()
+        assert mock_get.call_count == 1 + _MAX_NEW + 10
 
 
 # ---------------------------------------------------------------------------
