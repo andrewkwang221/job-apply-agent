@@ -38,6 +38,7 @@ from connectors.remote100k import Remote100kConnector
 from connectors.wearedistributed import WeAreDistributedConnector
 from connectors.flexa import FlexaConnector
 from connectors.remotejobsio import RemoteJobsIoConnector
+from connectors.remotejobsfinder import RemoteJobsFinderConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -74,6 +75,7 @@ CONNECTORS = {
     "wearedistributed": WeAreDistributedConnector,
     "flexa": FlexaConnector,
     "remotejobsio": RemoteJobsIoConnector,
+    "remotejobsfinder": RemoteJobsFinderConnector,
 }
 
 _SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
@@ -742,7 +744,7 @@ def help_command():
         ("", "SOURCES", ""),
         ("", "remotive  arbeitnow  jobicy  jobspresso  dynamitejobs", ""),
         ("", "workingnomads  getonboard  himalayas  adzuna  ashby  greenhouse  lever  direct_ats", ""),
-        ("", "nodesk  remote100k  wearedistributed  flexa  remotejobsio  (all = all enabled sources)", ""),
+        ("", "nodesk  remote100k  wearedistributed  flexa  remotejobsio  remotejobsfinder  (all = all enabled sources)", ""),
         ("", "remoteok  (disabled by default)", ""),
         ("", "weworkremotely  (disabled — requires paid subscription)", ""),
     ]

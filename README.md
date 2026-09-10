@@ -200,6 +200,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [We Are Distributed](https://wearedistributed.org/jobs) | Sitemap + JSON-LD | Distributed-work focused jobs; engineering keyword filter; expired postings skipped |
 | [Flexa Careers](https://flexa.careers/jobs) | GraphQL API + JSON-LD | Flexible-work focused jobs; newest-first via `sort: DATE_DESC`; engineering title filter; description from per-page JSON-LD |
 | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js listing HTML | Developer category listings from `__NEXT_DATA__`; engineering title filter; apply is subscription-gated (capped at review) |
+| [RemoteJobsFinder](https://remotejobsfinder.co/en) | Sitemap + JSON-LD | English remote listings from `sitemap_listings_active.xml`; engineering slug filter; JobPosting JSON-LD for company/dates |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |

@@ -251,3 +251,31 @@ class TestRemoteJobsIoNormalize:
         n = RemoteJobsIoConnector().normalize(self._raw())
         assert n["title"] == "Senior Backend Engineer"
         assert n["company"] == "Acme"
+
+
+# ---------------------------------------------------------------------------
+# RemoteJobsFinder
+# ---------------------------------------------------------------------------
+
+class TestRemoteJobsFinderNormalize:
+    def _raw(self):
+        return {
+            "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "url": "https://remotejobsfinder.co/en/remote-jobs/usa/senior-engineer_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "title": "Senior Engineer",
+            "company": "Acme",
+            "location": "USA",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remotejobsfinder import RemoteJobsFinderConnector
+        n = RemoteJobsFinderConnector().normalize(self._raw())
+        _assert_shape(n, "remotejobsfinder")
+
+    def test_title_and_company(self):
+        from connectors.remotejobsfinder import RemoteJobsFinderConnector
+        n = RemoteJobsFinderConnector().normalize(self._raw())
+        assert n["title"] == "Senior Engineer"
+        assert n["company"] == "Acme"
