@@ -421,3 +421,32 @@ class TestWaasNormalize:
         assert n["title"] == "Backend Engineer"
         assert n["url"].startswith("https://www.workatastartup.com/jobs/")
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# Tech Jobs for Good
+# ---------------------------------------------------------------------------
+
+class TestTechJobsForGoodNormalize:
+    def _raw(self):
+        return {
+            "id": "36090",
+            "url": "https://techjobsforgood.com/jobs/36090/",
+            "title": "Senior Engineering Manager, Platform",
+            "company": "GiveDirectly",
+            "location": "Remote",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.techjobsforgood import TechJobsForGoodConnector
+        n = TechJobsForGoodConnector().normalize(self._raw())
+        _assert_shape(n, "techjobsforgood")
+
+    def test_title_and_listing_url(self):
+        from connectors.techjobsforgood import TechJobsForGoodConnector
+        n = TechJobsForGoodConnector().normalize(self._raw())
+        assert n["title"] == "Senior Engineering Manager, Platform"
+        assert n["url"].startswith("https://techjobsforgood.com/jobs/")
+        assert isinstance(n["location"], str)

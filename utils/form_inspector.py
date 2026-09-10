@@ -71,6 +71,7 @@ _LISTING_DOMAINS = [
     "flexjobs.com",
     "ycombinator.com",
     "workatastartup.com",
+    "techjobsforgood.com",
 ]
 
 

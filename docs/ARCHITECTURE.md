@@ -109,6 +109,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `FlexJobsConnector` | [FlexJobs](https://www.flexjobs.com) | Playwright login + homepage `/search` `__NEXT_DATA__`; opt-in `--source flexjobs`; apply paywalled (review cap) |
 | `YCombinatorConnector` | [Y Combinator jobs](https://www.ycombinator.com/jobs/role/software-engineer/remote) | Guest Inertia `jobPostings`; truncated mixed-date list, no age filter; apply account-gated (review cap) |
 | `WaasConnector` | [Work at a Startup](https://www.workatastartup.com/companies?jobType=fulltime&remote=yes&remote=only&role=eng&sortBy=created_desc) | Playwright login (`WAAS_EMAIL` / `WAAS_PASSWORD`); infinite-scroll full-time remote eng directory then `/companies/fetch` jobs; apply account-gated (review cap) |
+| `TechJobsForGoodConnector` | [Tech Jobs for Good](https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=2&sort_by=date) | Guest remote HTML list + JobPosting JSON-LD; `sort_by=date` newest-first; apply account-gated (review cap) |
 
 **Direct ATS connectors:**
 
