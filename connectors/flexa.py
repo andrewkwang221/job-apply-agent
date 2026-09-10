@@ -105,7 +105,7 @@ class FlexaConnector(BaseConnector):
     def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
         url = raw_job.get("url", "")
         description = raw_job.get("description", "")
-        location = raw_job.get("location") or "Worldwide"
+        location = _stringify_location(raw_job.get("location") or "Worldwide")
 
         return {
             "external_id": raw_job.get("id") or url,
@@ -152,6 +152,35 @@ def _is_engineering_title(title: str) -> bool:
     return any(kw in t for kw in _ENGINEERING_KEYWORDS)
 
 
+def _stringify_location(value: Any) -> str:
+    """Turn GraphQL strings or JSON-LD Place/PostalAddress objects into text."""
+    if value is None or value == "":
+        return "Worldwide"
+    if isinstance(value, str):
+        return value.strip() or "Worldwide"
+    if isinstance(value, list):
+        parts = [_stringify_location(v) for v in value]
+        parts = [p for p in parts if p and p != "Worldwide"]
+        return ", ".join(parts) or "Worldwide"
+    if isinstance(value, dict):
+        nested = value.get("address")
+        if nested is not None:
+            nested_text = _stringify_location(nested)
+            if nested_text != "Worldwide":
+                return nested_text
+        parts = [
+            str(value[k]).strip()
+            for k in ("addressLocality", "addressRegion", "addressCountry")
+            if value.get(k)
+        ]
+        if parts:
+            return ", ".join(parts)
+        name = value.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return "Worldwide"
+
+
 def _enrich_from_page(gql_job: Dict[str, Any]) -> Dict[str, Any] | None:
     """Fetch the Flexa job page and merge JSON-LD data into the GraphQL job dict."""
     url = (gql_job.get("url") or "").strip()
@@ -192,7 +221,7 @@ def _enrich_from_page(gql_job: Dict[str, Any]) -> Dict[str, Any] | None:
         or ((jsonld or {}).get("hiringOrganization") or {}).get("name")
         or "Unknown"
     )
-    location = (
+    location = _stringify_location(
         gql_job.get("location")
         or ((jsonld or {}).get("jobLocation") or {}).get("address")
         or "Worldwide"
