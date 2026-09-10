@@ -11,6 +11,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "arcdev",          # Arc Exclusive / Fast apply requires an Arc account
     "flexjobs",        # employer/apply details require a FlexJobs subscription
     "ycombinator",     # apply goes through a YC Work at a Startup account
+    "waas",            # Work at a Startup apply requires a YC profile
 })
 
 TITLE_REJECT_KEYWORDS = [

@@ -108,6 +108,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `ArcDevConnector` | [Arc.dev](https://arc.dev/remote-jobs) | Public `__NEXT_DATA__` board + engineering categories; Fast apply gated (review cap) |
 | `FlexJobsConnector` | [FlexJobs](https://www.flexjobs.com) | Playwright login + homepage `/search` `__NEXT_DATA__`; opt-in `--source flexjobs`; apply paywalled (review cap) |
 | `YCombinatorConnector` | [Y Combinator jobs](https://www.ycombinator.com/jobs/role/software-engineer/remote) | Guest Inertia `jobPostings`; truncated mixed-date list, no age filter; apply account-gated (review cap) |
+| `WaasConnector` | [Work at a Startup](https://www.workatastartup.com/companies?jobType=fulltime&remote=yes&remote=only&role=eng&sortBy=created_desc) | Playwright login (`WAAS_EMAIL` / `WAAS_PASSWORD`); infinite-scroll full-time remote eng directory then `/companies/fetch` jobs; apply account-gated (review cap) |
 
 **Direct ATS connectors:**
 

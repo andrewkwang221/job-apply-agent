@@ -10,7 +10,7 @@ more"). Walk that single page, keep engineering titles, skip known URLs.
 Do not age-filter: the public set is already small.
 
 Apply goes through a YC account, so scoring caps this source at review.
-Logged-in Work at a Startup crawl is not implemented yet.
+The logged-in Work at a Startup directory is ``connectors/waas.py``.
 """
 from __future__ import annotations
 

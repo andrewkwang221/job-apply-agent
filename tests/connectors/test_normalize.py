@@ -392,3 +392,32 @@ class TestYCombinatorNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"].startswith("https://www.ycombinator.com/companies/")
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# Work at a Startup
+# ---------------------------------------------------------------------------
+
+class TestWaasNormalize:
+    def _raw(self):
+        return {
+            "id": "85113",
+            "url": "https://www.workatastartup.com/jobs/85113-backend-engineer",
+            "title": "Backend Engineer",
+            "company": "PropelAuth",
+            "location": "US / Remote (US)",
+            "description": "# Backend\n\nAuth role",
+            "posted_date": datetime(2026, 9, 8, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.waas import WaasConnector
+        n = WaasConnector().normalize(self._raw())
+        _assert_shape(n, "waas")
+
+    def test_title_and_listing_url(self):
+        from connectors.waas import WaasConnector
+        n = WaasConnector().normalize(self._raw())
+        assert n["title"] == "Backend Engineer"
+        assert n["url"].startswith("https://www.workatastartup.com/jobs/")
+        assert isinstance(n["location"], str)

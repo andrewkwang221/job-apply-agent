@@ -204,14 +204,15 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated (capped at review) |
 | [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated (capped at review) |
 | [FlexJobs](https://www.flexjobs.com) | Next.js search HTML | Opt-in (`--source flexjobs`, not in `all`). Playwright login via `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD`; homepage search sorted by date; apply is subscription-gated (capped at review) |
-| [Y Combinator](https://www.ycombinator.com/jobs/role/software-engineer/remote) | Inertia listing HTML | Guest software-engineer remote list (truncated; no login). Mixed dates, no age filter. Apply is YC-account gated (capped at review). Work at a Startup login crawl is not implemented yet |
+| [Y Combinator](https://www.ycombinator.com/jobs/role/software-engineer/remote) | Inertia listing HTML | Guest software-engineer remote list (truncated; no login). Mixed dates, no age filter. Apply is YC-account gated (capped at review) |
+| [Work at a Startup](https://www.workatastartup.com/companies?jobType=fulltime&remote=yes&remote=only&role=eng&sortBy=created_desc) | Playwright + infinite scroll | Logged-in full-time remote engineering directory via `WAAS_EMAIL` / `WAAS_PASSWORD`. Scrolls companies, hydrates jobs via `/companies/fetch`. Included in `all`; skipped if credentials are missing. Apply is YC-account gated (capped at review) |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |
 | Lever | JSON API | DB-discovered Lever boards not already in Direct ATS |
 | [Working Nomads](https://www.workingnomads.com) | JSON API | Remote jobs from the public exposed_jobs API |
 
-Jobs older than 10 days are filtered out at fetch time, except the Y Combinator public list (already truncated for guests).
+Jobs older than 10 days are filtered out at fetch time, except the Y Combinator public guest list (already truncated).
 
 Adding a board: see [docs/CONNECTOR_PLAYBOOK.md](docs/CONNECTOR_PLAYBOOK.md). Pagination caps apply only when the list is newest-first.
 
@@ -343,7 +344,7 @@ python run_pipeline.py setup-credentials
 
 Credentials are stored in Windows Credential Manager — never written to disk.
 
-Copy `.env.example` to `.env` and set `EMAIL_SMTP_HOST` / `EMAIL_SMTP_PORT` if needed (defaults to Gmail). For FlexJobs, set `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD` and run `python run_pipeline.py fetch --source flexjobs` (this source is not included in `--source all`).
+Copy `.env.example` to `.env` and set `EMAIL_SMTP_HOST` / `EMAIL_SMTP_PORT` if needed (defaults to Gmail). For FlexJobs, set `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD` and run `python run_pipeline.py fetch --source flexjobs` (this source is not included in `--source all`). For Work at a Startup, set `WAAS_EMAIL` / `WAAS_PASSWORD` and run `python run_pipeline.py fetch --source waas` (included in `all`; skipped when credentials are missing).
 
 ### 5. (Optional) Schedule automated runs
 
