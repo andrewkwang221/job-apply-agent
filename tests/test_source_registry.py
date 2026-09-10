@@ -20,6 +20,7 @@ def test_public_board_connectors_are_registered():
     assert "dailyremote" in CONNECTORS
     assert "arcdev" in CONNECTORS
     assert "flexjobs" in CONNECTORS
+    assert "ycombinator" in CONNECTORS
 
 
 def test_flexjobs_is_opt_in_not_in_all():
@@ -37,3 +38,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "dailyremote" in _NO_DIRECT_APPLY_SOURCES
     assert "arcdev" in _NO_DIRECT_APPLY_SOURCES
     assert "flexjobs" in _NO_DIRECT_APPLY_SOURCES
+    assert "ycombinator" in _NO_DIRECT_APPLY_SOURCES

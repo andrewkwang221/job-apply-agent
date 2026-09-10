@@ -363,3 +363,32 @@ class TestFlexJobsNormalize:
         n = FlexJobsConnector().normalize(self._raw())
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"].endswith("/senior-backend-engineer-abc-123")
+
+
+# ---------------------------------------------------------------------------
+# Y Combinator
+# ---------------------------------------------------------------------------
+
+class TestYCombinatorNormalize:
+    def _raw(self):
+        return {
+            "id": "100106",
+            "url": "https://www.ycombinator.com/companies/kilvin/jobs/5WEK19z-senior-backend-engineer",
+            "title": "Senior Backend Engineer",
+            "company": "Kilvin",
+            "location": "New York, NY, US / Remote (US)",
+            "description": "# Backend\n\nPython role",
+            "posted_date": datetime(2026, 7, 1, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.ycombinator import YCombinatorConnector
+        n = YCombinatorConnector().normalize(self._raw())
+        _assert_shape(n, "ycombinator")
+
+    def test_title_and_listing_url(self):
+        from connectors.ycombinator import YCombinatorConnector
+        n = YCombinatorConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].startswith("https://www.ycombinator.com/companies/")
+        assert isinstance(n["location"], str)
