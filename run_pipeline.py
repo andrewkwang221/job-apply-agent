@@ -37,6 +37,7 @@ from connectors.nodesk import NodeskConnector
 from connectors.remote100k import Remote100kConnector
 from connectors.wearedistributed import WeAreDistributedConnector
 from connectors.flexa import FlexaConnector
+from connectors.remotejobsio import RemoteJobsIoConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -72,7 +73,10 @@ CONNECTORS = {
     "remote100k": Remote100kConnector,
     "wearedistributed": WeAreDistributedConnector,
     "flexa": FlexaConnector,
+    "remotejobsio": RemoteJobsIoConnector,
 }
+
+_SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
 
 # Job listing domains that block Playwright (bot detection / OAuth walls).
 # URLs from these domains are opened in the user's default system browser.
@@ -82,6 +86,7 @@ SYSTEM_BROWSER_DOMAINS = {
     "jobicy.com",
     "getonbrd.com",
     "himalayas.app",
+    "remotejobs.io",
 }
 
 # Sources disabled from 'all' by default.
@@ -514,7 +519,7 @@ def triage():
         session.close()
 
 @cli.command()
-@click.option('--source', required=True, type=click.Choice(['remotive', 'remoteok', 'weworkremotely', 'arbeitnow', 'jobicy', 'jobspresso', 'dynamitejobs', 'workingnomads', 'getonboard', 'himalayas', 'adzuna', 'ashby', 'greenhouse', 'lever', 'direct_ats', 'all']), help='Job source to fetch from')
+@click.option('--source', required=True, type=click.Choice(_SOURCE_CHOICES), help='Job source to fetch from')
 @click.option('--dry-run', is_flag=True, help='Run pipeline without inserting jobs into database')
 def fetch(source: str, dry_run: bool):
     """Fetch remote jobs from the specified source."""
@@ -549,7 +554,7 @@ def analyze(profile: str, model: str, target_status: str, limit: int, dry_run: b
     _run_analyze(profile, model, target_status, limit, dry_run)
 
 @cli.command(name='full-run')
-@click.option('--source', default='all', type=click.Choice(['remotive', 'remoteok', 'weworkremotely', 'arbeitnow', 'jobicy', 'jobspresso', 'dynamitejobs', 'workingnomads', 'getonboard', 'himalayas', 'adzuna', 'ashby', 'greenhouse', 'lever', 'direct_ats', 'all']), show_default=True, help='Job source to fetch from')
+@click.option('--source', default='all', type=click.Choice(_SOURCE_CHOICES), show_default=True, help='Job source to fetch from')
 @click.option('--profile', default='profile.yaml', help='Path to candidate profile YAML')
 @click.option('--model', default=config.OLLAMA_MODEL, help='Ollama model name')
 @click.option('--analyze-status', default=config.LLM_STATUS_DEFAULT, type=click.Choice(['review', 'shortlisted', 'rejected']), show_default=True, help='Job status bucket to analyze after evaluation')
@@ -736,7 +741,8 @@ def help_command():
         ("", "", ""),
         ("", "SOURCES", ""),
         ("", "remotive  arbeitnow  jobicy  jobspresso  dynamitejobs", ""),
-        ("", "workingnomads  getonboard  himalayas  adzuna  ashby  greenhouse  lever  direct_ats  (all = all enabled sources)", ""),
+        ("", "workingnomads  getonboard  himalayas  adzuna  ashby  greenhouse  lever  direct_ats", ""),
+        ("", "nodesk  remote100k  wearedistributed  flexa  remotejobsio  (all = all enabled sources)", ""),
         ("", "remoteok  (disabled by default)", ""),
         ("", "weworkremotely  (disabled — requires paid subscription)", ""),
     ]

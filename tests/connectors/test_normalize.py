@@ -223,3 +223,31 @@ class TestRemote100kNormalize:
         from connectors.remote100k import Remote100kConnector
         n = Remote100kConnector().normalize(self._raw())
         assert n["ats_type"] == "ashby"
+
+
+# ---------------------------------------------------------------------------
+# RemoteJobs.io
+# ---------------------------------------------------------------------------
+
+class TestRemoteJobsIoNormalize:
+    def _raw(self):
+        return {
+            "id": "abc-123",
+            "url": "https://www.remotejobs.io/jobs/senior-backend-engineer-abc-123",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Worldwide",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 1, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remotejobsio import RemoteJobsIoConnector
+        n = RemoteJobsIoConnector().normalize(self._raw())
+        _assert_shape(n, "remotejobsio")
+
+    def test_title_and_company(self):
+        from connectors.remotejobsio import RemoteJobsIoConnector
+        n = RemoteJobsIoConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["company"] == "Acme"

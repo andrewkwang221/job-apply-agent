@@ -6,6 +6,7 @@ from utils.remote_filter import classify_remote_eligibility
 # Jobs from these sources are capped at 'review' so they never reach shortlisted.
 _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "weworkremotely",  # subscription required to view full job / apply
+    "remotejobsio",    # apply / company details gated behind a subscription
 })
 
 TITLE_REJECT_KEYWORDS = [

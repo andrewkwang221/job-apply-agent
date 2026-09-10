@@ -91,6 +91,10 @@ def test_is_system_browser_domain_wwr():
     assert is_system_browser_domain("https://weworkremotely.com/remote-jobs/123") is True
 
 
+def test_is_system_browser_domain_remotejobsio():
+    assert is_system_browser_domain("https://www.remotejobs.io/jobs/abc") is True
+
+
 def test_is_system_browser_domain_false():
     assert is_system_browser_domain("https://jobs.ashbyhq.com/acme/123") is False
 

@@ -65,6 +65,7 @@ _LISTING_DOMAINS = [
     "nodesk.co",
     "remote100k.com",
     "himalayas.app",
+    "remotejobs.io",
 ]
 
 
