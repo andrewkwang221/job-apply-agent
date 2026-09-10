@@ -8,10 +8,10 @@ def test_weworkremotely_is_registered_and_enabled():
     assert "weworkremotely" not in DISABLED_SOURCES
 
 
-def test_no_sources_are_skipped_on_all():
+def test_no_sources_are_skipped_on_all_except_flexjobs():
     from run_pipeline import DISABLED_SOURCES
 
-    assert DISABLED_SOURCES == set()
+    assert DISABLED_SOURCES == {"flexjobs"}
 
 
 def test_public_board_connectors_are_registered():
@@ -19,6 +19,14 @@ def test_public_board_connectors_are_registered():
 
     assert "dailyremote" in CONNECTORS
     assert "arcdev" in CONNECTORS
+    assert "flexjobs" in CONNECTORS
+
+
+def test_flexjobs_is_opt_in_not_in_all():
+    from run_pipeline import CONNECTORS, DISABLED_SOURCES
+
+    assert "flexjobs" in CONNECTORS
+    assert "flexjobs" in DISABLED_SOURCES
 
 
 def test_gated_apply_sources_stay_capped_at_review():
@@ -28,3 +36,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "remotejobsio" in _NO_DIRECT_APPLY_SOURCES
     assert "dailyremote" in _NO_DIRECT_APPLY_SOURCES
     assert "arcdev" in _NO_DIRECT_APPLY_SOURCES
+    assert "flexjobs" in _NO_DIRECT_APPLY_SOURCES

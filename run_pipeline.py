@@ -42,6 +42,7 @@ from connectors.remotejobsio import RemoteJobsIoConnector
 from connectors.remotejobsfinder import RemoteJobsFinderConnector
 from connectors.dailyremote import DailyRemoteConnector
 from connectors.arcdev import ArcDevConnector
+from connectors.flexjobs import FlexJobsConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -81,6 +82,7 @@ CONNECTORS = {
     "remotejobsfinder": RemoteJobsFinderConnector,
     "dailyremote": DailyRemoteConnector,
     "arcdev": ArcDevConnector,
+    "flexjobs": FlexJobsConnector,
 }
 
 _SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
@@ -98,8 +100,9 @@ SYSTEM_BROWSER_DOMAINS = {
 
 # Sources skipped when --source all is used. Enable individually with --source <name>.
 # We Work Remotely, DailyRemote, and Arc.dev are fetched; apply is gated so scoring
-# caps them at review (see _NO_DIRECT_APPLY_SOURCES).
-DISABLED_SOURCES: set[str] = set()
+# caps them at review (see _NO_DIRECT_APPLY_SOURCES). FlexJobs is paid-login and
+# opt-in only (`--source flexjobs`).
+DISABLED_SOURCES: set[str] = {"flexjobs"}
 
 engine = create_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -760,8 +763,8 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev", ""),
-        ("", "all = every registered source (WWR / DailyRemote / Arc apply gated → review)", ""),
+        ("", "dailyremote  arcdev  flexjobs", ""),
+        ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 
     HIGHLIGHT = {"full-run", "open-job"}

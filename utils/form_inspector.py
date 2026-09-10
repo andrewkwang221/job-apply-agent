@@ -68,6 +68,7 @@ _LISTING_DOMAINS = [
     "himalayas.app",
     "remotejobs.io",
     "remotejobsfinder.co",
+    "flexjobs.com",
 ]
 
 

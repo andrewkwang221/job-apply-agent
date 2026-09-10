@@ -203,6 +203,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Sitemap + JSON-LD | English remote listings from `sitemap_listings_active.xml`; engineering slug filter; JobPosting JSON-LD for company/dates |
 | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated (capped at review) |
 | [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated (capped at review) |
+| [FlexJobs](https://www.flexjobs.com) | Next.js search HTML | Opt-in (`--source flexjobs`, not in `all`). Playwright login via `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD`; homepage search sorted by date; apply is subscription-gated (capped at review) |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |
@@ -341,7 +342,7 @@ python run_pipeline.py setup-credentials
 
 Credentials are stored in Windows Credential Manager — never written to disk.
 
-Copy `.env.example` to `.env` and set `EMAIL_SMTP_HOST` / `EMAIL_SMTP_PORT` if needed (defaults to Gmail).
+Copy `.env.example` to `.env` and set `EMAIL_SMTP_HOST` / `EMAIL_SMTP_PORT` if needed (defaults to Gmail). For FlexJobs, set `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD` and run `python run_pipeline.py fetch --source flexjobs` (this source is not included in `--source all`).
 
 ### 5. (Optional) Schedule automated runs
 

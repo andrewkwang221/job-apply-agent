@@ -335,3 +335,31 @@ class TestRemoteJobsFinderNormalize:
         n = RemoteJobsFinderConnector().normalize(self._raw())
         assert n["title"] == "Senior Engineer"
         assert n["company"] == "Acme"
+
+
+# ---------------------------------------------------------------------------
+# FlexJobs
+# ---------------------------------------------------------------------------
+
+class TestFlexJobsNormalize:
+    def _raw(self):
+        return {
+            "id": "abc-123",
+            "url": "https://www.flexjobs.com/jobs/senior-backend-engineer-abc-123",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Worldwide",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 8, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.flexjobs import FlexJobsConnector
+        n = FlexJobsConnector().normalize(self._raw())
+        _assert_shape(n, "flexjobs")
+
+    def test_title_and_listing_url(self):
+        from connectors.flexjobs import FlexJobsConnector
+        n = FlexJobsConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].endswith("/senior-backend-engineer-abc-123")

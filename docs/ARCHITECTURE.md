@@ -106,6 +106,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Active-listings sitemap + JobPosting JSON-LD; `/en/remote-jobs/` only; engineering slug filter |
 | `DailyRemoteConnector` | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Software-board HTML cards; relative dates; company/apply Premium-gated (review cap) |
 | `ArcDevConnector` | [Arc.dev](https://arc.dev/remote-jobs) | Public `__NEXT_DATA__` board + engineering categories; Fast apply gated (review cap) |
+| `FlexJobsConnector` | [FlexJobs](https://www.flexjobs.com) | Playwright login + homepage `/search` `__NEXT_DATA__`; opt-in `--source flexjobs`; apply paywalled (review cap) |
 
 **Direct ATS connectors:**
 
