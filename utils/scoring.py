@@ -10,6 +10,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "dailyremote",     # company name and apply URL are Premium-gated
     "arcdev",          # Arc Exclusive / Fast apply requires an Arc account
     "flexjobs",        # employer/apply details require a FlexJobs subscription
+    "wellfound",       # apply is account-gated on Wellfound
 })
 
 TITLE_REJECT_KEYWORDS = [

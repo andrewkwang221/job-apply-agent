@@ -204,6 +204,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated (capped at review) |
 | [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated (capped at review) |
 | [FlexJobs](https://www.flexjobs.com) | Next.js search HTML | Opt-in (`--source flexjobs`, not in `all`). Playwright login via `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD`; homepage search sorted by date; apply is subscription-gated (capped at review) |
+| [Wellfound](https://wellfound.com/role/r/software-engineer) | Next.js listing HTML | Guest Playwright crawl of the software-engineer SEO board; mixed dates so all pages are walked; apply is account-gated (capped at review) |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |

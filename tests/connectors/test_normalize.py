@@ -363,3 +363,31 @@ class TestFlexJobsNormalize:
         n = FlexJobsConnector().normalize(self._raw())
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"].endswith("/senior-backend-engineer-abc-123")
+
+
+# ---------------------------------------------------------------------------
+# Wellfound
+# ---------------------------------------------------------------------------
+
+class TestWellfoundNormalize:
+    def _raw(self):
+        return {
+            "id": "12345",
+            "url": "https://wellfound.com/jobs/12345-senior-backend-engineer",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Worldwide",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 8, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.wellfound import WellfoundConnector
+        n = WellfoundConnector().normalize(self._raw())
+        _assert_shape(n, "wellfound")
+
+    def test_title_and_listing_url(self):
+        from connectors.wellfound import WellfoundConnector
+        n = WellfoundConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].endswith("/12345-senior-backend-engineer")
