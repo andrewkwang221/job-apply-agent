@@ -5,7 +5,7 @@ DATABASE_URL = "sqlite:///job_apply_agent.db"
 # Safety settings
 DRY_RUN = True  # Default to safe mode
 SAFETY_LIMITS = {
-    "max_applications_per_day": 5,
+    "max_applications_per_day": 300,
     "max_auto_opens_per_session": 10,
     "require_confirmation_after": 3
 }
@@ -23,7 +23,7 @@ REMOTEOK_API_URL = "https://remoteok.com/api"
 OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen2.5:7b"
 LLM_TIMEOUT = 120
-LLM_MAX_JOBS_PER_RUN = 20
+LLM_MAX_JOBS_PER_RUN = 300
 MAX_JOB_AGE_DAYS = 10  # Jobs older than this are skipped at fetch time
 LLM_STATUS_DEFAULT = "review"
 LLM_PROMOTION_CONFIDENCE = 75
