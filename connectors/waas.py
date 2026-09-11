@@ -32,6 +32,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
+import requests
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 
@@ -40,7 +41,7 @@ from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
-from utils.text_cleaning import clean_description
+from utils.text_cleaning import clean_description, sanitize_skill_object_dumps
 
 load_dotenv()
 
@@ -61,6 +62,10 @@ _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 )
+_PUBLIC_HEADERS = {
+    "User-Agent": _UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 _FETCH_DELAY = 0.4
 _NAV_TIMEOUT_MS = 45_000
 _SCROLL_WAIT_MS = 8_000
@@ -811,6 +816,17 @@ def _parse_dt(value: Any) -> datetime | None:
         return None
 
 
+def _skill_label(value: Any) -> str:
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("label") or "").strip()
+    if isinstance(value, str):
+        text = value.strip()
+        if "jobs_skill" in text:
+            return sanitize_skill_object_dumps(text)
+        return text
+    return ""
+
+
 def _listing_description(item: dict[str, Any]) -> str:
     chunks: list[str] = []
     one_liner = (item.get("companyOneLiner") or item.get("one_liner") or "").strip()
@@ -835,7 +851,8 @@ def _listing_description(item: dict[str, Any]) -> str:
         chunks.append(f"Equity: {equity}")
     skills = item.get("skills")
     if isinstance(skills, list):
-        names = [str(s).strip() for s in skills if s]
+        names = [_skill_label(s) for s in skills]
+        names = [n for n in names if n]
         if names:
             chunks.append("Skills: " + ", ".join(names))
     return "\n".join(chunks)
@@ -846,14 +863,25 @@ def _merge_detail(job: dict[str, Any], html: str) -> None:
     detail = props.get("job")
     if not isinstance(detail, dict):
         return
+    company_blob = props.get("company") if isinstance(props.get("company"), dict) else {}
     description = (detail.get("description") or "").strip()
-    if description:
-        extra = _listing_description(detail)
-        job["description"] = description if not extra else f"{description}\n\n{extra}"
+    listing_src = dict(detail)
+    if company_blob.get("description") and not listing_src.get("companyOneLiner") and not listing_src.get("one_liner"):
+        listing_src["one_liner"] = str(company_blob.get("description") or "")
+    extra = _listing_description(listing_src)
+    html_body = detail.get("descriptionHtml") if isinstance(detail.get("descriptionHtml"), str) else ""
+    html_body = html_body.strip()
+    interview = detail.get("interviewProcessHtml") if isinstance(detail.get("interviewProcessHtml"), str) else ""
+    interview = interview.strip()
+    body = description or html_body
+    if interview:
+        body = f"{body}\n\nInterview process\n{interview}" if body else interview
+    if body:
+        job["description"] = body if not extra else f"{body}\n\n{extra}"
     loc = _location_text(detail.get("location")) or ""
     if loc:
         job["location"] = loc
-    company = (detail.get("companyName") or "").strip()
+    company = (detail.get("companyName") or company_blob.get("name") or "").strip()
     if company:
         job["company"] = company
     title = (detail.get("title") or "").strip()
@@ -862,6 +890,22 @@ def _merge_detail(job: dict[str, Any], html: str) -> None:
     created = _parse_dt(detail.get("createdAt") or detail.get("created_at"))
     if created:
         job["posted_date"] = created
+
+
+def hydrate_job_from_public_page(url: str) -> str | None:
+    """Load descriptionHtml from the public WAAS job page."""
+    if not url or not _is_waas_host(url):
+        return None
+    try:
+        resp = requests.get(url, headers=_PUBLIC_HEADERS, timeout=20)
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning(f"WAAS public hydrate failed for {url}: {e}")
+        return None
+    parsed: dict[str, Any] = {"url": url, "description": ""}
+    _merge_detail(parsed, resp.text)
+    text = (parsed.get("description") or "").strip()
+    return text or None
 
 
 def _jobs_from_companies(

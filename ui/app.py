@@ -34,6 +34,7 @@ from sqlalchemy.orm import sessionmaker
 import config
 from models.database import InterviewPrepSheet, Job, ensure_job_columns
 from utils.scoring import REJECT_LABELS
+from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
 # ---------------------------------------------------------------------------
 # App + DB
@@ -281,6 +282,8 @@ def _plain_str(value) -> str:
 def _job_to_dict(job: Job) -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
     reject_code = _plain_str(job.reject_code) or None
+    desc = job.description_text or job.description or ""
+    desc = sanitize_skill_object_dumps(desc)
     return {
         "id": job.id,
         "title": job.title or "",
@@ -296,7 +299,7 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
         "gaps": _parse_json_list(job.skill_gaps),
         "reasoning": job.fit_explanation or "",
         "cover_letter": job.cover_letter or "",
-        "description": job.description_text or job.description or "",
+        "description": desc,
         "url": job.url or "",
         "posted_date": job.posted_date.isoformat() if job.posted_date else None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
@@ -383,6 +386,17 @@ async def get_job(job_id: int):
         job = session.query(Job).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(404, f"Job {job_id} not found")
+        if (job.source or "") == "waas":
+            current = job.description_text or job.description or ""
+            if len(current) < 800:
+                from connectors.waas import hydrate_job_from_public_page
+                refreshed = hydrate_job_from_public_page(job.url or "")
+                if refreshed:
+                    cleaned = clean_description(refreshed)
+                    if len(cleaned) > len(current):
+                        job.description = refreshed
+                        job.description_text = cleaned
+                        session.commit()
         return _job_to_dict(job)
     finally:
         session.close()

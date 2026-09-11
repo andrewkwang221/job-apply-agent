@@ -124,3 +124,14 @@ class TestCleanDescription:
     def test_malformed_html_does_not_crash(self):
         result = clean_description("<<<div>broken>>text</p")
         assert isinstance(result, str)
+
+    def test_replaces_serialized_skill_objects_with_names(self):
+        raw = (
+            "AI Native Consumer Loan Servicer Salary: $125K - $200K "
+            "Skills: {'_type': 'jobs_skill', 'id': 5, 'name': 'Amazon Web Services (AWS)', 'popularity': 125}, "
+            "{'_type': 'jobs_skill', 'id': 99, 'name': 'PostgreSQL', 'popularity': 79}"
+        )
+        result = clean_description(raw)
+        assert "jobs_skill" not in result
+        assert "Amazon Web Services (AWS)" in result
+        assert "PostgreSQL" in result

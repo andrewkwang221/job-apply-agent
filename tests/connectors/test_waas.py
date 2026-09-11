@@ -22,6 +22,8 @@ from connectors.waas import (
     _is_waas_algolia_request,
     _is_waas_host,
     _jobs_from_companies,
+    _listing_description,
+    _merge_detail,
     _on_companies_directory,
     _parse_waas_job,
     _unwrap_algolia,
@@ -29,10 +31,15 @@ from connectors.waas import (
 )
 
 
-def _detail_html(job: dict, description="# Backend\n\nAuth role") -> str:
+def _detail_html(job: dict, description="# Backend\n\nAuth role", html_body=None) -> str:
+    payload_job = {**job}
+    if html_body is not None:
+        payload_job["descriptionHtml"] = html_body
+    else:
+        payload_job["description"] = description
     payload = {
         "component": "WaasShowJobPage",
-        "props": {"job": {**job, "description": description}},
+        "props": {"job": payload_job},
         "url": job.get("url") or "",
     }
     blob = html_lib.escape(json.dumps(payload), quote=True)
@@ -253,6 +260,47 @@ def test_login_failure_returns_empty(mock_session, _creds):
     mock_session.return_value.__enter__.return_value = None
     mock_session.return_value.__exit__.return_value = False
     assert WaasConnector().fetch_jobs() == []
+
+
+def test_listing_description_uses_skill_names_not_dict_repr():
+    text = _listing_description({
+        "one_liner": "AI Native Consumer Loan Servicer",
+        "pretty_salary_range": "$125K - $200K",
+        "pretty_equity_range": "0.25% - 2.00%",
+        "skills": [
+            {"_type": "jobs_skill", "id": 5, "name": "Amazon Web Services (AWS)", "popularity": 125},
+            {"_type": "jobs_skill", "id": 99, "name": "PostgreSQL", "popularity": 79},
+            {"_type": "jobs_skill", "id": 111, "name": "React", "popularity": 174},
+        ],
+    })
+    assert "jobs_skill" not in text
+    assert "{'_type'" not in text
+    assert "Amazon Web Services (AWS)" in text
+    assert "PostgreSQL" in text
+    assert "React" in text
+    assert "Salary: $125K - $200K" in text
+
+
+def test_merge_detail_uses_description_html_when_description_missing():
+    job = {
+        "url": "https://www.workatastartup.com/jobs/90198",
+        "description": "AI Native Consumer Loan Servicer",
+    }
+    html = _detail_html(
+        {
+            "id": 90198,
+            "title": "Infra Engineer",
+            "companyName": "Finosu",
+            "salaryRange": "$125K - $200K",
+            "interviewProcessHtml": "<p>Work trial</p>",
+        },
+        html_body="<p><strong>About Finosu</strong></p><p>Finosu is an AI-native loan servicer.</p>",
+    )
+    _merge_detail(job, html)
+    assert "About Finosu" in job["description"]
+    assert "AI-native loan servicer" in job["description"]
+    assert "Work trial" in job["description"]
+    assert job["company"] == "Finosu"
 
 
 class TestWaasNormalize:
