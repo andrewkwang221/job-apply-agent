@@ -22,7 +22,7 @@ _SALARY_LABELED = re.compile(
     rf"(?i)(?:{_SALARY_LABEL})\s*[:\-–]\s*(.+?){_STOP}"
 )
 _EQUITY_LABELED = re.compile(
-    rf"(?i)equity(?:\s*range)?\s*[:\-–]\s*(.+?)(?=\s+skills\s*[:\-–]|\n|$)"
+    r"(?i)equity(?:\s*range)?\s*[:\-–]\s*(.+?)(?=\s+skills\s*[:\-–]|\n|$)"
 )
 _MONEY_RANGE_RE = re.compile(rf"{_MONEY_RANGE}{_PERIOD}")
 _LEADING_RANGE = re.compile(rf"^\s*{_MONEY_RANGE}{_PERIOD}")
