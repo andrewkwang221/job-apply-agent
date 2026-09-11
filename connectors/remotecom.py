@@ -11,7 +11,9 @@ newest-first: stop at a fully stale page. Default cap is 30 pages.
 
 Keep engineering titles, skip expired/stale/known listing URLs. Detail pages
 expose JobPosting JSON-LD. Apply is Quick apply / sign-in (or a third-party
-ATS URL when present); scoring caps this source at review.
+ATS URL when present); scoring caps this source at review. Detail-fetch and
+emit each kept page before the next pager request so an abort still stores
+those jobs.
 """
 from __future__ import annotations
 
@@ -81,8 +83,8 @@ class RemoteComConnector(BaseConnector):
     def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info("Fetching jobs from remote.com remote/US-anywhere list…")
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
-        parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        kept_jobs: list[dict[str, Any]] = []
 
         try:
             for page in range(1, _MAX_PAGES + 1):
@@ -92,6 +94,7 @@ class RemoteComConnector(BaseConnector):
                 cards, dated = _extract_page(html)
                 if not cards and not dated:
                     break
+                page_jobs: list[dict[str, Any]] = []
                 kept = 0
                 for raw in cards:
                     posted = raw.get("posted_date")
@@ -100,11 +103,12 @@ class RemoteComConnector(BaseConnector):
                     if raw["id"] in seen_ids:
                         continue
                     seen_ids.add(raw["id"])
-                    parsed.append(raw)
+                    page_jobs.append(raw)
                     kept += 1
                 logger.info(
                     f"remote.com page {page}: {len(cards)} eng cards, {kept} kept"
                 )
+                self._emit_page(page_jobs, kept_jobs, cutoff)
                 if (
                     page >= _NEWEST_FIRST_FROM_PAGE
                     and dated
@@ -112,22 +116,31 @@ class RemoteComConnector(BaseConnector):
                 ):
                     logger.info(f"remote.com page {page} is fully stale — stopping")
                     break
+                if page < _MAX_PAGES:
+                    time.sleep(_FETCH_DELAY)
         except Exception as e:
             logger.error(f"Error fetching remote.com listing: {e}")
             logger.debug(traceback.format_exc())
-            return []
+            return kept_jobs
 
-        listing_urls = [job["listing_url"] for job in parsed]
-        unseen = set(unseen_listing_urls(listing_urls, self.source_name))
-        jobs = [job for job in parsed if job["listing_url"] in unseen]
-        logger.info(
-            f"remote.com listing: {len(parsed)} engineering jobs, "
-            f"fetching {len(jobs)} unseen"
+        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from remotecom")
+        return kept_jobs
+
+    def _emit_page(
+        self,
+        page_jobs: list[dict[str, Any]],
+        kept_jobs: list[dict[str, Any]],
+        cutoff: datetime,
+    ) -> None:
+        if not page_jobs:
+            return
+        unseen = set(
+            unseen_listing_urls(
+                [job["listing_url"] for job in page_jobs], self.source_name
+            )
         )
-
-        remembered: list[str] = []
-        kept_jobs: list[dict[str, Any]] = []
-        for i, job in enumerate(jobs):
+        pending = [job for job in page_jobs if job["listing_url"] in unseen]
+        for i, job in enumerate(pending):
             try:
                 detail_html = _fetch_html(job["listing_url"])
                 if _merge_detail(job, detail_html, cutoff):
@@ -138,14 +151,12 @@ class RemoteComConnector(BaseConnector):
                 logger.debug(traceback.format_exc())
                 job["url"] = _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
                 self._emit(job, kept_jobs)
-            remembered.append(job["listing_url"])
-            if i + 1 < len(jobs):
+            if i + 1 < len(pending):
                 time.sleep(_FETCH_DELAY)
-
-        if remembered:
-            remember_listing_urls(self.source_name, remembered)
-        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from remotecom")
-        return kept_jobs
+        if pending:
+            remember_listing_urls(
+                self.source_name, [job["listing_url"] for job in pending]
+            )
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         url = raw_job.get("url") or raw_job.get("listing_url") or ""

@@ -285,7 +285,8 @@ def test_fetch_merges_keywords_stops_stale_and_keeps_jobs_on_429(
         if (c.kwargs.get("json") or {}).get("method") == "tools/call"
     ]
     assert all(a and "posted_date" not in a for a in search_args if a)
-    mock_remember.assert_called_once()
+    remembered = [u for c in mock_remember.call_args_list for u in c.args[1]]
+    assert {j["listing_url"] for j in jobs} <= set(remembered)
 
 
 class TestDiceNormalize:

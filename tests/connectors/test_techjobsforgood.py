@@ -200,8 +200,8 @@ def test_fetch_stops_on_stale_page_and_skips_known(
     )
     mock_fetch.side_effect = [
         recent,
-        stale,
         _detail_html(title="Senior Engineering Manager, Platform", company="GiveDirectly"),
+        stale,
     ]
     mock_unseen.return_value = ["https://techjobsforgood.com/jobs/36090/"]
 
@@ -209,12 +209,14 @@ def test_fetch_stops_on_stale_page_and_skips_known(
     assert len(jobs) == 1
     assert jobs[0]["company"] == "GiveDirectly"
     mock_remember.assert_called_once()
-    listing_urls = [
-        c.args[0] for c in mock_fetch.call_args_list if "sort_by=date" in c.args[0]
-    ]
+    fetch_urls = [c.args[0] for c in mock_fetch.call_args_list]
+    listing_urls = [u for u in fetch_urls if "sort_by=date" in u]
     assert any("page=1&sort_by=date" in u for u in listing_urls)
     assert any("page=2&sort_by=date" in u for u in listing_urls)
     assert not any("page=3" in u for u in listing_urls)
+    detail_idx = fetch_urls.index("https://techjobsforgood.com/jobs/36090/")
+    page2_idx = next(i for i, u in enumerate(fetch_urls) if "page=2&sort_by=date" in u)
+    assert detail_idx < page2_idx
 
 
 class TestTechJobsForGoodNormalize:

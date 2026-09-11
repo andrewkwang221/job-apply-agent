@@ -132,8 +132,8 @@ def test_fetch_enriches_unseen_details(mock_get, _sleep, mock_unseen, mock_remem
     jobs = YCombinatorConnector().fetch_jobs()
     assert len(jobs) == 1
     assert "Python role" in jobs[0]["description"]
-    mock_remember.assert_called_once()
-    assert mock_remember.call_args[0][1] == [job_url]
+    remembered = [u for c in mock_remember.call_args_list for u in c.args[1]]
+    assert remembered == [job_url]
 
 
 @patch("connectors.ycombinator.remember_listing_urls")

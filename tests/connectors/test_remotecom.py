@@ -299,8 +299,8 @@ def test_fetch_page1_mixed_then_stops_on_first_stale_newest_page(
     mock_fetch.side_effect = [
         page1,
         page2,
-        page3,
         _detail_html(title="Staff Security Engineer", company="Aledade"),
+        page3,
     ]
     mock_unseen.return_value = [listing_url]
 
@@ -311,13 +311,15 @@ def test_fetch_page1_mixed_then_stops_on_first_stale_newest_page(
     mock_remember.assert_called_once()
     remembered = mock_remember.call_args.args[1]
     assert remembered == [listing_url]
-    listing_calls = [
-        c.args[0] for c in mock_fetch.call_args_list if "workplaceLocation=remote" in c.args[0]
-    ]
+    fetch_urls = [c.args[0] for c in mock_fetch.call_args_list]
+    listing_calls = [u for u in fetch_urls if "workplaceLocation=remote" in u]
     assert any("page=1" in u for u in listing_calls)
     assert any("page=2" in u for u in listing_calls)
     assert any("page=3" in u for u in listing_calls)
     assert not any("page=4" in u for u in listing_calls)
+    detail_idx = fetch_urls.index(listing_url)
+    page3_idx = next(i for i, u in enumerate(fetch_urls) if "page=3" in u)
+    assert detail_idx < page3_idx
     unseen_arg = mock_unseen.call_args.args[0]
     assert listing_url in unseen_arg
 

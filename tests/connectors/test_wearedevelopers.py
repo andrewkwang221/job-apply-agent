@@ -153,16 +153,20 @@ def test_fetch_stops_on_stale_page(mock_fetch, _sleep, mock_unseen, mock_remembe
         cursor="CUR3",
     )
     extra = _listing_md(_job_md(job_url="https://www.wearedevelopers.com/jobs/3-extra"), cursor="CUR4")
-    mock_fetch.side_effect = [recent, stale, extra, "# unused detail"]
+    mock_fetch.side_effect = [recent, "# unused detail", stale, extra]
     mock_unseen.return_value = [listing]
 
     jobs = WeAreDevelopersConnector().fetch_jobs()
     assert len(jobs) == 1
     assert jobs[0]["id"] == "48497"
-    listing_calls = [c.args[0] for c in mock_fetch.call_args_list if "jobs.md" in c.args[0]]
+    fetch_urls = [c.args[0] for c in mock_fetch.call_args_list]
+    listing_calls = [u for u in fetch_urls if "jobs.md" in u]
     assert listing_calls[0] == LISTING_URL
     assert listing_calls[1].endswith("&page=CUR2")
     assert not any("CUR3" in u for u in listing_calls)
+    detail_idx = next(i for i, u in enumerate(fetch_urls) if u.rstrip("/").endswith(".md") and "jobs.md" not in u)
+    assert detail_idx == 1
+    assert listing_calls[1] == fetch_urls[2]
     mock_remember.assert_called_once()
 
 
@@ -185,7 +189,7 @@ def test_failed_load_more_retries_and_keeps_prior_jobs(
         ),
         cursor=None,
     )
-    mock_fetch.side_effect = [page1, None, page2, "# detail", "# detail"]
+    mock_fetch.side_effect = [page1, "# detail", None, page2, "# detail"]
     mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
 
     jobs = WeAreDevelopersConnector().fetch_jobs()
@@ -196,7 +200,8 @@ def test_failed_load_more_retries_and_keeps_prior_jobs(
         LISTING_URL + "&page=CUR2",
         LISTING_URL + "&page=CUR2",
     ]
-    mock_remember.assert_called_once()
+    remembered = [u for c in mock_remember.call_args_list for u in c.args[1]]
+    assert set(remembered) == {listing_1, listing_2}
 
 
 class TestWeAreDevelopersNormalize:

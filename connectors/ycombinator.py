@@ -7,7 +7,8 @@ https://www.ycombinator.com/jobs/role/software-engineer/remote
 The page is Inertia SSR (``data-page`` JSON). There is no RSS. Dates on the
 cards are mixed, and the guest list is truncated ("Create a profile to see
 more"). Walk that single page, keep engineering titles, skip known URLs.
-Do not age-filter: the public set is already small.
+Do not age-filter: the public set is already small. Detail-fetch and emit
+each unseen job before the next so an abort still stores those jobs.
 
 Apply goes through a YC account, so scoring caps this source at review.
 The logged-in Work at a Startup directory is ``connectors/waas.py``.
@@ -109,6 +110,7 @@ class YCombinatorConnector(BaseConnector):
         )
 
         crawled: list[str] = []
+        kept_jobs: list[dict[str, Any]] = []
         for i, job in enumerate(jobs):
             try:
                 detail_html = _fetch_html(job["url"])
@@ -117,13 +119,15 @@ class YCombinatorConnector(BaseConnector):
                 logger.warning(f"Failed to fetch YC job {job['url']}: {e}")
                 logger.debug(traceback.format_exc())
             crawled.append(job["url"])
-            self._emit(job)
+            self._emit(job, kept_jobs)
+            remember_listing_urls(self.source_name, [job["url"]])
             if i + 1 < len(jobs):
                 time.sleep(_FETCH_DELAY)
 
-        remember_listing_urls(self.source_name, crawled)
-        logger.info(f"Successfully fetched {len(jobs)} jobs from ycombinator")
-        return jobs
+        if not crawled:
+            remember_listing_urls(self.source_name, crawled)
+        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from ycombinator")
+        return kept_jobs
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         url = raw_job.get("url", "")

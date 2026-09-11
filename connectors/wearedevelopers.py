@@ -9,7 +9,8 @@ cursor on ``/jobs.turbo_stream?country=all&page=``.
 Walk load-more cursors and stop at the first fully stale page
 (``MAX_JOB_AGE_DAYS``), an empty batch, or a missing next cursor.
 A single failed load-more keeps jobs already collected and retries that
-cursor so later pages are not dropped.
+cursor so later pages are not dropped. Detail-fetch and emit each kept
+page before the next cursor so an abort still stores those jobs.
 
 Listing cards already include company, location, published date, and apply
 URL. Fetch ``/jobs/{id}.md`` for the description. ``location`` is a string.
@@ -79,11 +80,11 @@ class WeAreDevelopersConnector(BaseConnector):
     def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info("Fetching jobs from WeAreDevelopers (newest-first load more)…")
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
-        parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
         cursor: str | None = None
         consecutive_failures = 0
         pages = 0
+        kept_jobs: list[dict[str, Any]] = []
 
         while pages < _MAX_PAGES:
             try:
@@ -106,6 +107,7 @@ class WeAreDevelopersConnector(BaseConnector):
                 if not raw_items:
                     break
                 dated: list[datetime] = []
+                page_jobs: list[dict[str, Any]] = []
                 kept = 0
                 for item in raw_items:
                     raw = _parse_raw_job(item, cutoff)
@@ -117,13 +119,14 @@ class WeAreDevelopersConnector(BaseConnector):
                     if raw["id"] in seen_ids:
                         continue
                     seen_ids.add(raw["id"])
-                    parsed.append(raw)
+                    page_jobs.append(raw)
                     kept += 1
                 pages += 1
                 all_stale = bool(dated) and all(dt < cutoff for dt in dated)
                 logger.info(
                     f"wearedevelopers page {pages}: {len(raw_items)} listings, {kept} kept"
                 )
+                self._emit_page(page_jobs, kept_jobs)
                 if all_stale:
                     logger.info(f"wearedevelopers page {pages} is fully stale — stopping")
                     break
@@ -144,12 +147,23 @@ class WeAreDevelopersConnector(BaseConnector):
                     break
                 time.sleep(_FETCH_DELAY)
 
-        listing_urls = [job["listing_url"] for job in parsed]
-        unseen = set(unseen_listing_urls(listing_urls, self.source_name))
-        jobs = [job for job in parsed if job["listing_url"] in unseen]
-        remembered: list[str] = []
-        kept_jobs: list[dict[str, Any]] = []
-        for i, job in enumerate(jobs):
+        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from wearedevelopers")
+        return kept_jobs
+
+    def _emit_page(
+        self,
+        page_jobs: list[dict[str, Any]],
+        kept_jobs: list[dict[str, Any]],
+    ) -> None:
+        if not page_jobs:
+            return
+        unseen = set(
+            unseen_listing_urls(
+                [job["listing_url"] for job in page_jobs], self.source_name
+            )
+        )
+        pending = [job for job in page_jobs if job["listing_url"] in unseen]
+        for i, job in enumerate(pending):
             try:
                 detail = _fetch_text(_detail_md_url(job["listing_url"]))
                 _merge_detail(job, detail)
@@ -157,13 +171,10 @@ class WeAreDevelopersConnector(BaseConnector):
                 logger.warning(f"Failed to fetch WeAreDevelopers job {job['listing_url']}: {e}")
                 logger.debug(traceback.format_exc())
             self._emit(job, kept_jobs)
-            remembered.append(job["listing_url"])
-            if i + 1 < len(jobs):
+            if i + 1 < len(pending):
                 time.sleep(_FETCH_DELAY)
-        if remembered:
-            remember_listing_urls(self.source_name, remembered)
-        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from wearedevelopers")
-        return kept_jobs
+        if pending:
+            remember_listing_urls(self.source_name, [job["listing_url"] for job in pending])
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         location = raw_job.get("location") or "Remote"

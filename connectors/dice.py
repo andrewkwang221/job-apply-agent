@@ -14,7 +14,8 @@ fully stale page (``MAX_JOB_AGE_DAYS``). Do not send Dice's 7-day
 
 On 429: keep jobs already collected, retry the same page with exponential
 backoff. Search ``summary`` is a short excerpt; the full body is loaded from
-each job-detail HTML page (not MCP ``get_job_details``). Other errors retry
+each job-detail HTML page (not MCP ``get_job_details``) and emitted before
+the next search page so an abort still stores those jobs. Other errors retry
 with the page delay, then continue other queries. ``location`` is always a
 string. Apply is on dice.com (review-capped).
 """
@@ -24,6 +25,7 @@ import json
 import re
 import time
 import traceback
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -106,11 +108,19 @@ class DiceConnector(BaseConnector):
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
         parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        kept_jobs: list[dict[str, Any]] = []
         client = _McpClient()
 
         try:
             for i, keyword in enumerate(queries):
-                added = _fetch_query(client, keyword, cutoff, parsed, seen_ids)
+                added = _fetch_query(
+                    client,
+                    keyword,
+                    cutoff,
+                    parsed,
+                    seen_ids,
+                    on_page=lambda page_jobs: self._emit_page(page_jobs, kept_jobs),
+                )
                 logger.info(
                     f"dice keyword={keyword!r}: +{added} (total {len(parsed)})"
                 )
@@ -120,12 +130,23 @@ class DiceConnector(BaseConnector):
             logger.error(f"Error fetching jobs from Dice: {e}")
             logger.debug(traceback.format_exc())
 
-        listing_urls = [job["listing_url"] for job in parsed]
-        unseen = set(unseen_listing_urls(listing_urls, self.source_name))
-        jobs = [job for job in parsed if job["listing_url"] in unseen]
-        remembered: list[str] = []
-        kept_jobs: list[dict[str, Any]] = []
-        for i, job in enumerate(jobs):
+        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from dice")
+        return kept_jobs
+
+    def _emit_page(
+        self,
+        page_jobs: list[dict[str, Any]],
+        kept_jobs: list[dict[str, Any]],
+    ) -> None:
+        if not page_jobs:
+            return
+        unseen = set(
+            unseen_listing_urls(
+                [job["listing_url"] for job in page_jobs], self.source_name
+            )
+        )
+        pending = [job for job in page_jobs if job["listing_url"] in unseen]
+        for i, job in enumerate(pending):
             try:
                 html = _fetch_detail_html(job["listing_url"])
                 _merge_detail(job, html)
@@ -135,13 +156,12 @@ class DiceConnector(BaseConnector):
                 )
                 logger.debug(traceback.format_exc())
             self._emit(job, kept_jobs)
-            remembered.append(job["listing_url"])
-            if i + 1 < len(jobs):
+            if i + 1 < len(pending):
                 time.sleep(_FETCH_DELAY)
-        if remembered:
-            remember_listing_urls(self.source_name, remembered)
-        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from dice")
-        return kept_jobs
+        if pending:
+            remember_listing_urls(
+                self.source_name, [job["listing_url"] for job in pending]
+            )
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         location = raw_job.get("location") or "Remote"
@@ -400,6 +420,7 @@ def _fetch_query(
     cutoff: datetime,
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
+    on_page: Callable[[list[dict[str, Any]]], None] | None = None,
 ) -> int:
     added = 0
     consecutive_failures = 0
@@ -436,6 +457,7 @@ def _fetch_query(
         if not raw_items:
             break
         dated: list[datetime] = []
+        page_jobs: list[dict[str, Any]] = []
         kept = 0
         for item in raw_items:
             posted = _item_posted(item)
@@ -448,12 +470,15 @@ def _fetch_query(
                 continue
             seen_ids.add(raw["id"])
             parsed.append(raw)
+            page_jobs.append(raw)
             kept += 1
             added += 1
         all_stale = bool(dated) and all(dt < cutoff for dt in dated)
         logger.info(
             f"dice {keyword!r} page {page}: {len(raw_items)} listings, {kept} new"
         )
+        if on_page:
+            on_page(page_jobs)
         if all_stale:
             logger.info(f"dice {keyword!r} page {page} is fully stale — stopping")
             break

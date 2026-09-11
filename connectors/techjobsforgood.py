@@ -8,7 +8,8 @@ https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=2&sort_by=date
 Guests see ~49 jobs across two pages ("Upgrade to see 349 additional").
 Sitemap job URLs beyond that set have no JobPosting without an account.
 Walk the date pager, keep engineering titles, skip expired/stale/known URLs.
-Stop at empty/404 or the first fully stale page.
+Stop at empty/404 or the first fully stale page. Detail-fetch and emit each
+kept page before the next pager request so an abort still stores those jobs.
 
 Apply requires sign-in (``JobApplicationInterest``), so scoring caps this
 source at review.
@@ -99,8 +100,8 @@ class TechJobsForGoodConnector(BaseConnector):
     def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info("Fetching jobs from Tech Jobs for Good remote list…")
         cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
-        parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        kept: list[dict[str, Any]] = []
 
         try:
             for page in range(1, _MAX_PAGES + 1):
@@ -111,7 +112,8 @@ class TechJobsForGoodConnector(BaseConnector):
                 if not cards:
                     break
                 dated: list[datetime] = []
-                kept = 0
+                page_jobs: list[dict[str, Any]] = []
+                page_kept = 0
                 for card in cards:
                     raw = _parse_card(card)
                     if not raw:
@@ -124,30 +126,38 @@ class TechJobsForGoodConnector(BaseConnector):
                     if raw["id"] in seen_ids:
                         continue
                     seen_ids.add(raw["id"])
-                    parsed.append(raw)
-                    kept += 1
+                    page_jobs.append(raw)
+                    page_kept += 1
                 logger.info(
-                    f"TJFG page {page}: {len(cards)} cards, {kept} kept"
+                    f"TJFG page {page}: {len(cards)} cards, {page_kept} kept"
                 )
+                self._emit_page(page_jobs, kept, cutoff)
                 if dated and all(dt < cutoff for dt in dated):
                     logger.info(f"TJFG page {page} is fully stale — stopping")
                     break
+                if page < _MAX_PAGES:
+                    time.sleep(_FETCH_DELAY)
         except Exception as e:
             logger.error(f"Error fetching Tech Jobs for Good listing: {e}")
             logger.debug(traceback.format_exc())
-            return []
+            return kept
 
-        urls = [job["url"] for job in parsed]
-        unseen = set(unseen_listing_urls(urls, self.source_name))
-        jobs = [job for job in parsed if job["url"] in unseen]
-        logger.info(
-            f"TJFG listing: {len(parsed)} engineering jobs, "
-            f"fetching {len(jobs)} unseen"
+        logger.info(f"Successfully fetched {len(kept)} jobs from techjobsforgood")
+        return kept
+
+    def _emit_page(
+        self,
+        page_jobs: list[dict[str, Any]],
+        kept: list[dict[str, Any]],
+        cutoff: datetime,
+    ) -> None:
+        if not page_jobs:
+            return
+        unseen = set(
+            unseen_listing_urls([job["url"] for job in page_jobs], self.source_name)
         )
-
-        remembered: list[str] = []
-        kept: list[dict[str, Any]] = []
-        for i, job in enumerate(jobs):
+        pending = [job for job in page_jobs if job["url"] in unseen]
+        for i, job in enumerate(pending):
             try:
                 detail_html = _fetch_html(job["url"])
                 if _merge_detail(job, detail_html, cutoff):
@@ -156,14 +166,10 @@ class TechJobsForGoodConnector(BaseConnector):
                 logger.warning(f"Failed to fetch TJFG job {job['url']}: {e}")
                 logger.debug(traceback.format_exc())
                 self._emit(job, kept)
-            remembered.append(job["url"])
-            if i + 1 < len(jobs):
+            if i + 1 < len(pending):
                 time.sleep(_FETCH_DELAY)
-
-        if remembered:
-            remember_listing_urls(self.source_name, remembered)
-        logger.info(f"Successfully fetched {len(kept)} jobs from techjobsforgood")
-        return kept
+        if pending:
+            remember_listing_urls(self.source_name, [job["url"] for job in pending])
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         url = raw_job.get("url", "")
