@@ -539,3 +539,33 @@ class TestDevRemoteNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"] == "https://jobs.lever.co/acme/abc"
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# wearedevelopers.com
+# ---------------------------------------------------------------------------
+
+class TestWeAreDevelopersNormalize:
+    def _raw(self):
+        return {
+            "id": "48497",
+            "listing_url": "https://www.wearedevelopers.com/jobs/48497-senior-backend-engineer",
+            "url": "https://jobs.lever.co/acme/abc",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Berlin, Germany (Remote available)",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.wearedevelopers import WeAreDevelopersConnector
+        n = WeAreDevelopersConnector().normalize(self._raw())
+        _assert_shape(n, "wearedevelopers")
+
+    def test_title_and_apply_url(self):
+        from connectors.wearedevelopers import WeAreDevelopersConnector
+        n = WeAreDevelopersConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"] == "https://jobs.lever.co/acme/abc"
+        assert isinstance(n["location"], str)
