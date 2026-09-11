@@ -632,3 +632,33 @@ class TestRemoteRocketshipNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"] == "https://jobs.lever.co/acme/abc"
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# dice.com
+# ---------------------------------------------------------------------------
+
+class TestDiceNormalize:
+    def _raw(self):
+        return {
+            "id": "c1f084d0-90b3-486b-8323-f4a5e586f3ab",
+            "listing_url": "https://www.dice.com/job-detail/c1f084d0-90b3-486b-8323-f4a5e586f3ab",
+            "url": "https://www.dice.com/job-detail/c1f084d0-90b3-486b-8323-f4a5e586f3ab",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Austin, Texas, USA",
+            "description": "Salary: USD 150,000.00 - 180,000.00 per year",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.dice import DiceConnector
+        n = DiceConnector().normalize(self._raw())
+        _assert_shape(n, "dice")
+
+    def test_title_and_listing_url(self):
+        from connectors.dice import DiceConnector
+        n = DiceConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].startswith("https://www.dice.com/job-detail/")
+        assert isinstance(n["location"], str)

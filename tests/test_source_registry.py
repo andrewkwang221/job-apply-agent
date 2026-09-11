@@ -29,6 +29,7 @@ def test_public_board_connectors_are_registered():
     assert "wearedevelopers" in CONNECTORS
     assert "anywherepositions" in CONNECTORS
     assert "remoterocketship" in CONNECTORS
+    assert "dice" in CONNECTORS
 
 
 def test_flexjobs_is_opt_in_not_in_all():
@@ -51,3 +52,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "techjobsforgood" in _NO_DIRECT_APPLY_SOURCES
     assert "remotecom" in _NO_DIRECT_APPLY_SOURCES
     assert "remoteco" in _NO_DIRECT_APPLY_SOURCES
+    assert "dice" in _NO_DIRECT_APPLY_SOURCES

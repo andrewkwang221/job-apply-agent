@@ -15,6 +15,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "techjobsforgood", # apply requires a Tech Jobs for Good account
     "remotecom",       # Quick apply / sign-in on remote.com
     "remoteco",        # Remote.co guest apply/company often empty (FlexJobs-powered)
+    "dice",            # apply is on Dice (account / Easy Apply)
 })
 
 TITLE_REJECT_KEYWORDS = [
