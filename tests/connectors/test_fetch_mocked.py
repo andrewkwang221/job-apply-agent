@@ -9,7 +9,7 @@ from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 
 _RECENT_PUB_DATE = (
-    datetime.now(tz=timezone.utc) - timedelta(days=3)
+    datetime.now(tz=timezone.utc) - timedelta(hours=12)
 ).strftime("%a, %d %b %Y %H:%M:%S +0000")
 
 
@@ -103,7 +103,7 @@ class TestRWFAFetch:
         assert jobs == []
 
     def test_keeps_recent_jobs(self):
-        recent = datetime.now(tz=timezone.utc) - timedelta(days=3)
+        recent = datetime.now(tz=timezone.utc) - timedelta(hours=12)
         pub_date = recent.strftime("%a, %d %b %Y %H:%M:%S +0000")
         xml = _rss_envelope(_rwfa_item(pub_date=pub_date))
         with patch(self._TARGET, return_value=_mock_response(xml)):

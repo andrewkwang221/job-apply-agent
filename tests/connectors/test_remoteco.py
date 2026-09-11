@@ -11,6 +11,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import config
 from connectors.remoteco import (
     LISTING_URL,
     RemoteCoConnector,
@@ -26,11 +27,12 @@ from connectors.remoteco import (
     _parse_raw_job,
 )
 
-_FUTURE = (datetime.now(tz=timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%dT00:00:00Z")
-_RECENT = (datetime.now(tz=timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%dT00:00:00Z")
-_OLD = (datetime.now(tz=timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%dT00:00:00Z")
-_PAST = (datetime.now(tz=timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT00:00:00Z")
-_CUTOFF = datetime.now(tz=timezone.utc) - timedelta(days=10)
+_NOW = datetime.now(tz=timezone.utc)
+_FUTURE = (_NOW + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_RECENT = (_NOW - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_OLD = (_NOW - timedelta(days=config.MAX_JOB_AGE_DAYS + 30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_PAST = (_NOW - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_CUTOFF = _NOW - timedelta(days=config.MAX_JOB_AGE_DAYS)
 
 
 def _item(
@@ -165,7 +167,7 @@ def test_html_href_fallback_without_next_data():
         "senior-backend-engineer-abc-123",
         "account-executive-zzz",
     ]
-    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=10)
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
     kept = [_parse_raw_job(j, cutoff) for j in jobs]
     kept = [p for p in kept if p]
     assert [j["id"] for j in kept] == ["senior-backend-engineer-abc-123"]

@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import config
 from connectors.flexjobs import (
     FlexJobsConnector,
     _extract_listing_jobs,
@@ -21,11 +22,12 @@ from connectors.flexjobs import (
     _search_url,
 )
 
-_FUTURE = (datetime.now(tz=timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%dT00:00:00Z")
-_RECENT = (datetime.now(tz=timezone.utc) - timedelta(days=3)).strftime("%Y-%m-%dT00:00:00Z")
-_OLD = (datetime.now(tz=timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%dT00:00:00Z")
-_PAST = (datetime.now(tz=timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT00:00:00Z")
-_CUTOFF = datetime.now(tz=timezone.utc) - timedelta(days=10)
+_NOW = datetime.now(tz=timezone.utc)
+_FUTURE = (_NOW + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_RECENT = (_NOW - timedelta(hours=12)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_OLD = (_NOW - timedelta(days=config.MAX_JOB_AGE_DAYS + 30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_PAST = (_NOW - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+_CUTOFF = _NOW - timedelta(days=config.MAX_JOB_AGE_DAYS)
 
 
 def _item(
