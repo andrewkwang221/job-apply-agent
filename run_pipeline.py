@@ -1189,7 +1189,7 @@ Job Apply Agent fetches remote job listings from multiple sources (Remotive, Rem
 == COMMON ERRORS AND FIXES ==
 - "No module named X"            → Run: pip install -r requirements.txt (in the job-apply-agent conda env)
 - "Ollama connection refused"    → Start Ollama: ollama serve  (or check it's running)
-- "model not found"              → Pull the model: ollama pull qwen2.5:7b
+- "model not found"              → Pull the model: ollama pull qwen3.5:4b
 - "profile.yaml not found"      → Copy profile.template.yaml to profile.yaml and fill in your details
 - "DATABASE_URL not set"         → Check .env file exists and has the right values; copy .env.example if missing
 - "NoneType has no attribute"    → Usually a missing field in profile.yaml or a job with null data — check logs
@@ -1210,7 +1210,7 @@ python run_pipeline.py stats                               # Job counts by statu
 python run_pipeline.py ask                                 # This assistant
 
 == CONFIGURATION TIPS ==
-- OLLAMA_MODEL in config.py (default: qwen2.5:7b) — change to any model you have pulled locally
+- OLLAMA_MODEL in config.py (default: qwen3.5:4b) — change to any model you have pulled locally
 - To add a target company: add a line under target_companies in profile.yaml with name + careers_url
 - To blacklist a company: add its name under blacklisted_companies in profile.yaml
 - accepted_regions controls remote eligibility — add regions you can work from (emea, europe, canada, worldwide…)

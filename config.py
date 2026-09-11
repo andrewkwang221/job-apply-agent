@@ -21,7 +21,7 @@ REMOTEOK_API_URL = "https://remoteok.com/api"
 
 # Ollama / LLM analysis
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:7b"
+OLLAMA_MODEL = "qwen3.5:4b"
 LLM_TIMEOUT = 120
 LLM_MAX_JOBS_PER_RUN = 2000
 MAX_JOB_AGE_DAYS = 10  # Jobs older than this are skipped at fetch time

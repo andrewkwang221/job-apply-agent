@@ -170,7 +170,7 @@ Job Apply Agent uses [Ollama](https://ollama.com) for fully local inference — 
 
 Tested models:
 
-- `qwen2.5:7b` (default — good tool calling support)
+- `qwen3.5:4b` (default — good tool calling support)
 - `llama3.1`
 - `mistral`
 
@@ -312,14 +312,14 @@ resumes:         # multiple resumes with tags — best match selected per job
 Install [Ollama](https://ollama.com) and pull a model:
 
 ```powershell
-ollama pull qwen2.5:7b
+ollama pull qwen3.5:4b
 ```
 
 Verify it is running:
 
 ```powershell
-ollama list          # should show qwen2.5:7b in the list
-ollama run qwen2.5:7b "say hello"   # quick smoke test
+ollama list          # should show qwen3.5:4b in the list
+ollama run qwen3.5:4b "say hello"   # quick smoke test
 ```
 
 If the model is missing or Ollama isn't responding, common fixes:
@@ -328,9 +328,9 @@ If the model is missing or Ollama isn't responding, common fixes:
 |---|---|
 | `ollama: command not found` | Restart your terminal after installing Ollama |
 | `connection refused` on port 11434 | Run `ollama serve` in a separate terminal, or check the Ollama tray icon |
-| `model not found` | Run `ollama pull qwen2.5:7b` again |
+| `model not found` | Run `ollama pull qwen3.5:4b` again |
 | Slow or no response | The model is loading — wait ~30 seconds on first run |
-| Want a faster/smaller model | `ollama pull qwen2.5:3b` and update `OLLAMA_MODEL` in `.env` |
+| Want a faster/smaller model | `ollama pull qwen3.5:4b` and update `OLLAMA_MODEL` in `.env` |
 
 **Once Ollama is set up, you can use the built-in assistant for any further troubleshooting:**
 
