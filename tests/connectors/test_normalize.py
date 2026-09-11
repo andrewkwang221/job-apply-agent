@@ -569,3 +569,33 @@ class TestWeAreDevelopersNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"] == "https://jobs.lever.co/acme/abc"
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# anywherepositions.com
+# ---------------------------------------------------------------------------
+
+class TestAnywherePositionsNormalize:
+    def _raw(self):
+        return {
+            "id": "abc-123",
+            "listing_url": "https://www.anywherepositions.com/jobs/acme-senior-backend-engineer-remote-123",
+            "url": "https://www.anywherepositions.com/jobs/acme-senior-backend-engineer-remote-123",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "United States (Remote)",
+            "description": "Salary: $150k - $180k",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.anywherepositions import AnywherePositionsConnector
+        n = AnywherePositionsConnector().normalize(self._raw())
+        _assert_shape(n, "anywherepositions")
+
+    def test_title_and_listing_url(self):
+        from connectors.anywherepositions import AnywherePositionsConnector
+        n = AnywherePositionsConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].startswith("https://www.anywherepositions.com/jobs/")
+        assert isinstance(n["location"], str)
