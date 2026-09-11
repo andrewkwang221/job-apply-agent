@@ -32,7 +32,8 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 
 import config
-from models.database import InterviewPrepSheet, Job
+from models.database import InterviewPrepSheet, Job, ensure_job_columns
+from utils.scoring import REJECT_LABELS
 
 # ---------------------------------------------------------------------------
 # App + DB
@@ -42,6 +43,8 @@ app = FastAPI(title="Job Apply Agent UI")
 
 _engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": False})
 _Session = sessionmaker(bind=_engine)
+if _engine.dialect.name == "sqlite":
+    ensure_job_columns(_engine)
 
 HTML_PATH = Path(__file__).parent / "index.html"
 
@@ -271,8 +274,13 @@ def _parse_json_list(raw) -> List[str]:
         return [s.strip() for s in str(raw).split(",") if s.strip()]
 
 
+def _plain_str(value) -> str:
+    return value if isinstance(value, str) else ""
+
+
 def _job_to_dict(job: Job) -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
+    reject_code = _plain_str(job.reject_code) or None
     return {
         "id": job.id,
         "title": job.title or "",
@@ -294,6 +302,11 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
         "created_at": job.created_at.isoformat() if job.created_at else None,
         "avatar_color": _avatar_color(job.company),
         "avatar_text": _avatar_text(job.company),
+        "reject_code": reject_code,
+        "reject_label": REJECT_LABELS.get(reject_code or "", "Unknown") if (job.status == "rejected" or reject_code) else None,
+        "reject_detail": _plain_str(job.reject_detail) or None,
+        "rule_status": _plain_str(job.rule_status) or None,
+        "llm_status": _plain_str(job.llm_status) or None,
     }
 
 
@@ -335,7 +348,23 @@ async def list_jobs(status: str = "review", limit: int = 200):
             .limit(limit)
             .all()
         )
-        return {"jobs": [_job_to_dict(j) for j in jobs], "total": len(jobs)}
+        payload: Dict[str, Any] = {"jobs": [_job_to_dict(j) for j in jobs], "total": len(jobs)}
+        if status == "rejected":
+            rows = (
+                session.query(Job.reject_code, func.count(Job.id))
+                .filter(Job.status == "rejected")
+                .group_by(Job.reject_code)
+                .all()
+            )
+            payload["reject_counts"] = [
+                {
+                    "code": code or "unknown",
+                    "label": REJECT_LABELS.get(code or "", "Unknown"),
+                    "count": n,
+                }
+                for code, n in sorted(rows, key=lambda r: (-r[1], r[0] or ""))
+            ]
+        return payload
     finally:
         session.close()
 
@@ -366,7 +395,14 @@ async def update_status(job_id: int, body: StatusUpdate):
         job = session.query(Job).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(404, f"Job {job_id} not found")
+        previous = job.status
         job.status = body.status
+        if body.status == "rejected" and previous != "rejected" and not _plain_str(job.reject_code):
+            job.reject_code = "manual"
+            job.reject_detail = "Rejected from triage"
+        elif body.status == "review" and previous == "rejected":
+            job.reject_code = None
+            job.reject_detail = None
         session.commit()
         # Close the Playwright browser when the user marks a job as applied,
         # so they can immediately open the next job without hitting the
@@ -406,8 +442,50 @@ async def bulk_reject_stale(body: BulkRejectStaleRequest):
         count = len(stale)
         for job in stale:
             job.status = "rejected"
+            job.reject_code = "stale"
+            job.reject_detail = f"Created more than {body.older_than_days} days ago"
         session.commit()
         return {"ok": True, "rejected": count}
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(500, str(exc))
+    finally:
+        session.close()
+
+
+@app.post("/api/jobs/{job_id}/explain")
+async def explain_job(job_id: int):
+    """Run a one-job LLM analysis without changing status."""
+    from utils.llm_analysis import analyze_job_with_ollama
+
+    session = _Session()
+    try:
+        job = session.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            raise HTTPException(404, f"Job {job_id} not found")
+        try:
+            with open("profile.yaml", encoding="utf-8") as f:
+                profile = yaml.safe_load(f) or {}
+        except Exception:
+            profile = {}
+        job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
+        analysis = analyze_job_with_ollama(job_dict, profile, config.OLLAMA_MODEL)
+        if analysis.get("llm_status") == "failed":
+            raise HTTPException(500, analysis.get("error") or "LLM analysis failed")
+        job.llm_fit_score = analysis.get("llm_fit_score")
+        job.llm_strengths = json.dumps(analysis.get("llm_strengths", []), ensure_ascii=False)
+        job.fit_explanation = analysis.get("fit_explanation")
+        job.skill_gaps = json.dumps(analysis.get("skill_gaps", []), ensure_ascii=False)
+        job.recommendation = analysis.get("recommendation")
+        job.llm_confidence = analysis.get("llm_confidence")
+        job.llm_status = analysis.get("llm_status")
+        if analysis.get("recommended_resume"):
+            job.recommended_resume = analysis.get("recommended_resume")
+        session.commit()
+        session.refresh(job)
+        return {"ok": True, "job": _job_to_dict(job)}
+    except HTTPException:
+        raise
     except Exception as exc:
         session.rollback()
         raise HTTPException(500, str(exc))

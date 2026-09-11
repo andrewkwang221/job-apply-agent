@@ -230,6 +230,41 @@ def _required_languages_in_text(text: str) -> set[str]:
     return found
 
 
+REJECT_LABELS: dict[str, str] = {
+    "remote": "Location",
+    "blacklist": "Blacklist",
+    "title_keyword": "Title keyword",
+    "language": "Language required",
+    "job_language": "Job language",
+    "title_mismatch": "Title mismatch",
+    "low_score": "Low score",
+    "llm": "LLM",
+    "stale": "Stale",
+    "manual": "Manual",
+    "applied": "Already applied",
+}
+
+
+def _set_reject(result: Dict[str, Any], code: str, detail: str, score: int | None = None) -> Dict[str, Any]:
+    result["recommended_status"] = "rejected"
+    result["reject_code"] = code
+    result["reject_detail"] = detail
+    if score is not None:
+        result["fit_score"] = score
+    return result
+
+
+def _overlap_detail(score: int, matched_skills: list, matched_keywords: list) -> str:
+    parts = [f"Score {score} (need 28+ for review)"]
+    if matched_skills:
+        parts.append("skills: " + ", ".join(str(s) for s in matched_skills[:6]))
+    else:
+        parts.append("no profile skills in the posting")
+    if matched_keywords:
+        parts.append("keywords: " + ", ".join(str(k) for k in matched_keywords[:6]))
+    return "; ".join(parts)
+
+
 def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     """Evaluates a job against a user profile using deterministic rules.
     
@@ -249,32 +284,38 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
         "matched_keywords": [],
         "seniority_match": False,
         "contractor_bonus": False,
-        "recommended_status": "new"
+        "recommended_status": "new",
+        "reject_code": None,
+        "reject_detail": None,
     }
     
     # 1. Hard Rejects
     if result["remote_eligibility"] == "reject":
-        result["recommended_status"] = "rejected"
-        return result
+        loc = (job.get("raw_location_text") or job.get("location") or "").strip() or "unspecified"
+        return _set_reject(result, "remote", f"Location not eligible: {loc}")
 
     blacklist = [str(c).strip().lower() for c in profile.get("blacklisted_companies", []) if str(c).strip()]
     company = str(job.get("company", "")).strip().lower()
-    if blacklist and any(b == company or b in company for b in blacklist):
-        result["recommended_status"] = "rejected"
-        return result
+    blacklist_hit = next((b for b in blacklist if b == company or b in company), None)
+    if blacklist_hit:
+        return _set_reject(result, "blacklist", f'Company matches blacklist "{blacklist_hit}"')
 
-    if any(kw in title for kw in TITLE_REJECT_KEYWORDS):
-        result["recommended_status"] = "rejected"
-        return result
+    title_kw = next((kw for kw in TITLE_REJECT_KEYWORDS if kw in title), None)
+    if title_kw:
+        return _set_reject(result, "title_keyword", f'Title contains "{title_kw}"')
 
     # Hard reject: job explicitly requires a language the candidate doesn't speak.
     # Detect patterns like "fluent mandarin", "japanese speaker", "bilingual chinese".
     profile_langs = {str(lang).strip().lower() for lang in (profile or {}).get("languages", [])}
     _scan_text = title + " " + description[:2_000]
     _required_langs = _required_languages_in_text(_scan_text)
-    if _required_langs - profile_langs:
-        result["recommended_status"] = "rejected"
-        return result
+    missing_langs = _required_langs - profile_langs
+    if missing_langs:
+        return _set_reject(
+            result,
+            "language",
+            "Job requires " + ", ".join(sorted(missing_langs)),
+        )
 
     # Reject jobs written in a language the candidate doesn't speak.
     # Markers per language that rarely appear in English/French/Arabic text.
@@ -290,8 +331,7 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     desc_lower = str(job.get("description_text") or job.get("description") or "").lower()
     for lang, markers in _LANG_MARKERS.items():
         if lang not in profile_langs and sum(1 for m in markers if m in desc_lower) >= 3:
-            result["recommended_status"] = "rejected"
-            return result
+            return _set_reject(result, "job_language", f"Posting appears to be in {lang}")
 
     if "junior" in combined_text or "intern" in title:
         score -= 30
@@ -360,9 +400,14 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
 
     has_title_relevance = _has_title_relevance(title, title_skills, title_keywords, role_score)
     if not has_title_relevance and score < 40:
-        result["fit_score"] = score
-        result["recommended_status"] = "rejected"
-        return result
+        return _set_reject(
+            result,
+            "title_mismatch",
+            "Title is not relevant to profile skills/keywords; " + _overlap_detail(
+                score, matched_skills, matched_keywords
+            ),
+            score=score,
+        )
 
     # Final thresholding
     result["fit_score"] = score
@@ -371,7 +416,7 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     elif score >= 28:
         result["recommended_status"] = "review"
     else:
-        result["recommended_status"] = "rejected"
+        return _set_reject(result, "low_score", _overlap_detail(score, matched_skills, matched_keywords), score=score)
 
     # Sources without a direct apply path are capped at review so they never
     # reach the shortlist (no point surfacing jobs we can't act on).

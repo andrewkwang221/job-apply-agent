@@ -67,7 +67,7 @@ Each job passes through three layers:
 
 | Layer | Fields | Notes |
 |---|---|---|
-| Deterministic | `rule_status`, `fit_score`, `remote_eligibility`, `matched_skills` | Always refreshed on re-evaluate |
+| Deterministic | `rule_status`, `fit_score`, `remote_eligibility`, `matched_skills`, `reject_code`, `reject_detail` | Always refreshed on re-evaluate |
 | Semantic (LLM) | `llm_fit_score`, `recommendation`, `llm_confidence`, `llm_status`, `fit_explanation`, `llm_strengths`, `skill_gaps` | Set by Ollama; preserved across re-evaluate |
 | Decision | `status` | Initialized from rule layer; updated by LLM; manually overridable |
 

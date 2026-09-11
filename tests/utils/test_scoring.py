@@ -55,7 +55,8 @@ class TestReturnShape:
     def test_returns_required_keys(self):
         result = score_job(_job(), PROFILE)
         for key in ("fit_score", "remote_eligibility", "matched_skills",
-                    "matched_keywords", "seniority_match", "recommended_status"):
+                    "matched_keywords", "seniority_match", "recommended_status",
+                    "reject_code", "reject_detail"):
             assert key in result, f"Missing key: {key}"
 
     def test_fit_score_is_integer(self):
@@ -77,18 +78,29 @@ class TestHardRejects:
         # US-only location string to trigger the reject path in the filter.
         result = score_job(_job(location="US Only", raw_location_text="US Only"), PROFILE)
         assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] == "remote"
+        assert "US Only" in result["reject_detail"]
 
     def test_blacklisted_company(self):
         result = score_job(_job(company="BadCorp"), PROFILE)
         assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] == "blacklist"
+
+    def test_title_keyword_reject(self):
+        result = score_job(_job(title="Account Executive"), PROFILE)
+        assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] == "title_keyword"
+        assert "account executive" in result["reject_detail"]
 
     def test_blacklisted_company_case_insensitive(self):
         result = score_job(_job(company="badcorp"), PROFILE)
         assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] == "blacklist"
 
     def test_intern_title_rejected(self):
         result = score_job(_job(title="Software Engineering Intern"), PROFILE)
         assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] in ("title_mismatch", "low_score")
 
     def test_junior_title_penalty_may_reject(self):
         # Junior titles incur a heavy penalty — likely rejected unless other signals strong
@@ -150,6 +162,7 @@ class TestThresholds:
         )
         assert result["fit_score"] >= 28  # at minimum review, likely shortlisted
         assert result["recommended_status"] in ("shortlisted", "review")
+        assert result["reject_code"] is None
 
     def test_low_score_rejected(self):
         result = score_job(
@@ -158,3 +171,4 @@ class TestThresholds:
             PROFILE,
         )
         assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] in ("remote", "title_mismatch", "low_score")

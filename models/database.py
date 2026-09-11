@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, UniqueConstraint, ForeignKey, text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -32,12 +32,32 @@ class Job(Base):
     recommendation = Column(String, nullable=True)
     llm_confidence = Column(Integer, nullable=True)
     llm_status = Column(String, nullable=True)
+    reject_code = Column(String, nullable=True)
+    reject_detail = Column(Text, nullable=True)
     recommended_resume = Column(String, nullable=True)
     cover_letter = Column(Text, nullable=True)
     posted_date = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utc_now)
     updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
     status = Column(String, default="new")
+
+
+def ensure_job_columns(engine) -> None:
+    """Add newly mapped SQLite columns that older DBs may not have yet."""
+    statements = {
+        "reject_code": "ALTER TABLE jobs ADD COLUMN reject_code VARCHAR",
+        "reject_detail": "ALTER TABLE jobs ADD COLUMN reject_detail TEXT",
+    }
+    with engine.connect() as conn:
+        existing = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()
+        }
+        if not existing:
+            return
+        for name, sql in statements.items():
+            if name not in existing:
+                conn.execute(text(sql))
+        conn.commit()
 
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"

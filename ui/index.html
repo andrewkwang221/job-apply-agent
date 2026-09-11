@@ -58,7 +58,17 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-title{font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .list-company{font-size:11.5px;color:var(--text-secondary);}
 .list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;width:46px;text-align:center;flex-shrink:0;}
+.list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .list-date{font-size:11.5px;color:var(--text-muted);width:60px;text-align:right;flex-shrink:0;}
+.list-row{cursor:pointer;}
+.reject-counts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 4px 12px;}
+.reject-count-chip{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:16px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer;}
+.reject-count-chip:hover{border-color:var(--accent-mid);color:var(--accent);}
+.reject-count-chip.active{background:var(--red-mid);border-color:var(--red);color:var(--red);}
+.why-block{background:var(--red-light);border:1px solid var(--red-mid);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;}
+.why-block-label{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--red);margin-bottom:4px;}
+.why-block-code{font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px;}
+.why-block-detail{font-size:13px;color:var(--text-secondary);line-height:1.5;}
 .list-link{width:26px;height:26px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);text-decoration:none;transition:all var(--transition);flex-shrink:0;}
 .list-link:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
 .btn-pipeline{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
@@ -213,6 +223,11 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .btn-defer:hover{background:var(--bg-hover);border-color:var(--text-muted);color:var(--text-primary);transform:translateY(-1px);}
 .btn-shortlist{background:var(--green-light);color:var(--green);border-color:var(--green-mid);}
 .btn-shortlist:hover{background:var(--green);color:#fff;border-color:var(--green);box-shadow:0 4px 16px rgba(16,185,129,.3);transform:translateY(-1px);}
+.btn-restore{background:var(--orange-light);color:var(--orange);border-color:var(--orange-mid);}
+.btn-restore:hover{background:var(--orange-mid);color:var(--orange);transform:translateY(-1px);}
+.btn-explain{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
+.btn-explain:hover{background:var(--accent-mid);color:#fff;transform:translateY(-1px);}
+.btn-explain:disabled{opacity:.55;cursor:default;transform:none;}
 .action-sep{width:1px;height:36px;background:var(--border);flex-shrink:0;}
 .btn-open-apply{display:flex;align-items:center;gap:7px;padding:12px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s ease;box-shadow:0 2px 8px rgba(59,130,246,.3);white-space:nowrap;flex-shrink:0;}
 .btn-open-apply:hover{background:#2563eb;box-shadow:0 4px 16px rgba(59,130,246,.4);transform:translateY(-1px);}
@@ -407,6 +422,9 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       prev
     </button>
+    <button class="nav-btn" id="btnBackList" onclick="backToRejectedList()" style="display:none">
+      list
+    </button>
     <div class="nav-counter" id="navCounter">Loading…</div>
     <button class="nav-btn" id="btnNext" onclick="nextJob()">
       next
@@ -517,12 +535,26 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
         </button>
       </div>
+      <div class="action-bar" id="actionBarRejected" style="display:none">
+        <button class="btn-triage-action btn-explain" id="btnExplain" onclick="explainRejectedJob()">
+          Explain
+        </button>
+        <button class="btn-triage-action btn-restore" onclick="restoreRejectedJob()">
+          Restore to review
+        </button>
+        <div class="action-sep"></div>
+        <button class="btn-open-apply" onclick="openApply()">
+          Open posting
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </div>
     </div>
   </div>
 
   <div class="list-view" id="listView" style="display:none">
+    <div id="rejectCounts" class="reject-counts" style="display:none"></div>
     <div class="list-view-header">
-      <span>Job</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
+      <span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
     </div>
     <div id="listViewRows"></div>
   </div>
@@ -597,6 +629,9 @@ let idx = 0;
 let currentStatus = 'review';
 let activeTab = 'overview';
 let pipelinePoller = null;
+let rejectCounts = [];
+let rejectFilter = null;
+let viewingListCard = false;
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -651,6 +686,9 @@ async function loadJobs(status) {
   try {
     const data = await api(`/api/jobs?status=${status}`);
     jobs = data.jobs || [];
+    rejectCounts = data.reject_counts || [];
+    rejectFilter = null;
+    viewingListCard = false;
     idx = 0;
     if (jobs.length === 0) {
       renderEmpty(status);
@@ -807,17 +845,30 @@ function renderCard(i, direction) {
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;opacity:.7"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         ${esc(jobUrl.display)}
       </a>
+    </div>` : ''}
+    ${job.reject_code ? `
+    <div class="overview-row">
+      <span class="overview-row-label">Rejected</span>
+      <span style="font-size:13px;font-weight:650;color:var(--red)">${esc(job.reject_label || job.reject_code)}</span>
     </div>` : ''}`;
 
   // Analysis
   const strengths = (job.strengths || []).map(s => `<li><span class="dot"></span>${esc(s)}</li>`).join('');
   const gaps = (job.gaps || []).map(g => `<li><span class="dot"></span>${esc(g)}</li>`).join('');
+  const why = job.reject_code ? `
+    <div class="why-block">
+      <div class="why-block-label">Why rejected</div>
+      <div class="why-block-code">${esc(job.reject_label || job.reject_code)}</div>
+      ${job.reject_detail ? `<div class="why-block-detail">${esc(job.reject_detail)}</div>` : ''}
+    </div>` : '';
+  const noLlm = !strengths && !gaps && !job.reasoning;
   document.getElementById('analysisContent').innerHTML = `
+    ${why}
     ${strengths ? `<div class="analysis-section"><div class="analysis-section-title">Strengths</div><ul class="bullet-list strengths">${strengths}</ul></div>` : ''}
     ${gaps ? `<div class="analysis-section"><div class="analysis-section-title">Skill Gaps</div><ul class="bullet-list gaps">${gaps}</ul></div>` : ''}
     ${job.reasoning ? `<div class="analysis-section"><div class="analysis-section-title">Reasoning</div><div class="reasoning-block">${esc(job.reasoning)}</div></div>` : ''}
     ${job.llm_confidence ? `<div class="confidence-row"><span class="confidence-label">Confidence</span><div class="confidence-bar"><div class="confidence-fill" style="width:${job.llm_confidence}%"></div></div><span class="confidence-pct">${job.llm_confidence}%</span></div>` : ''}
-    ${!strengths && !gaps && !job.reasoning ? '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">No LLM analysis yet. Run the pipeline with analyze enabled.</div>' : ''}`;
+    ${noLlm ? `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">${job.status === 'rejected' ? 'No LLM write-up yet. Click Explain to compare this posting to your profile.' : 'No LLM analysis yet. Run the pipeline with analyze enabled.'}</div>` : ''}`;
 
   // Cover letter
   const coverTextEl = document.getElementById('coverText');
@@ -833,22 +884,27 @@ function renderCard(i, direction) {
     : '<span style="color:var(--text-muted)">No description available.</span>';
 
   // Action bar: show/hide triage for read-only statuses
-  const readOnly = ['applied','expired','rejected'].includes(job.status);
-  document.getElementById('actionBar').style.display = readOnly ? 'none' : 'flex';
+  const readOnly = ['applied','expired'].includes(job.status);
+  const rejected = job.status === 'rejected';
+  document.getElementById('actionBar').style.display = (readOnly || rejected) ? 'none' : 'flex';
+  document.getElementById('actionBarRejected').style.display = rejected ? 'flex' : 'none';
 
-  // Reset to overview tab
-  switchTabById('overview');
+  if (rejected) switchTabById('analysis');
+  else switchTabById('overview');
   updateNav();
 }
 
 const _LIST_STATUSES = new Set(['rejected', 'expired']);
 
 function renderEmpty(status) {
+  viewingListCard = false;
   document.getElementById('cardWrap').style.display = 'none';
   document.getElementById('listView').style.display = 'none';
   document.getElementById('emptyTitle').textContent = `No ${status} jobs`;
   document.getElementById('emptyState').style.display = 'flex';
   document.getElementById('navCounter').textContent = `0 ${status} jobs`;
+  const back = document.getElementById('btnBackList');
+  if (back) back.style.display = 'none';
 }
 
 function renderCardWrap() {
@@ -858,26 +914,103 @@ function renderCardWrap() {
 }
 
 function renderList(jobList) {
+  viewingListCard = false;
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('cardWrap').style.display = 'none';
   const scoreColor = s => s >= 70 ? `background:var(--green-mid);color:var(--green)` :
                           s >= 50 ? `background:var(--orange-mid);color:var(--orange)` :
                                     `background:var(--red-mid);color:var(--red)`;
-  document.getElementById('listViewRows').innerHTML = jobList.map(j => `
-    <div class="list-row">
+  const countsEl = document.getElementById('rejectCounts');
+  if (currentStatus === 'rejected' && rejectCounts.length) {
+    countsEl.style.display = 'flex';
+    countsEl.innerHTML = rejectCounts.map(c => `
+      <button class="reject-count-chip${rejectFilter === c.code ? ' active' : ''}" onclick="filterRejectedBy('${esc(c.code)}')">
+        ${esc(c.label)} ${c.count}
+      </button>`).join('');
+  } else {
+    countsEl.style.display = 'none';
+    countsEl.innerHTML = '';
+  }
+  const visible = (currentStatus === 'rejected' && rejectFilter)
+    ? jobList.filter(j => (j.reject_code || 'unknown') === rejectFilter)
+    : jobList;
+  document.getElementById('listViewRows').innerHTML = visible.map(j => {
+    const original = jobList.indexOf(j);
+    const label = j.reject_label || 'Unknown';
+    return `
+    <div class="list-row" onclick="openListJob(${original})">
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
       <div class="list-info">
         <div class="list-title">${esc(j.title)}</div>
         <div class="list-company">${esc(j.company)}</div>
       </div>
+      <div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(j.reject_detail || label)}">${esc(label)}</div>
       <div class="list-score" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'color:var(--text-muted)'}">${j.fit_score != null ? j.fit_score : '—'}</div>
       <div class="list-date">${j.created_at ? relativeDate(j.created_at) : '—'}</div>
-      <a class="list-link" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open job posting">
+      <a class="list-link" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open job posting" onclick="event.stopPropagation()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   document.getElementById('listView').style.display = '';
-  document.getElementById('navCounter').textContent = `${jobList.length} ${currentStatus} jobs`;
+  document.getElementById('navCounter').textContent = `${visible.length} ${currentStatus} jobs`;
+  const back = document.getElementById('btnBackList');
+  if (back) back.style.display = 'none';
+}
+
+function filterRejectedBy(code) {
+  rejectFilter = rejectFilter === code ? null : code;
+  renderList(jobs);
+}
+
+function openListJob(i) {
+  idx = i;
+  viewingListCard = true;
+  renderCardWrap();
+  renderCard(idx);
+}
+
+function backToRejectedList() {
+  viewingListCard = false;
+  renderList(jobs);
+}
+
+async function explainRejectedJob() {
+  const job = jobs[idx];
+  if (!job) return;
+  const btn = document.getElementById('btnExplain');
+  if (btn) { btn.disabled = true; btn.textContent = 'Explaining…'; }
+  switchTabById('analysis');
+  document.getElementById('analysisContent').innerHTML =
+    '<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">Comparing this posting to your profile…</div>';
+  try {
+    const data = await api(`/api/jobs/${job.id}/explain`, 'POST');
+    if (data.job) jobs[idx] = data.job;
+    renderCard(idx);
+    showToast('Explanation ready', 'success');
+  } catch (e) {
+    showToast(e.message || 'Explain failed — is Ollama running?', 'error');
+    renderCard(idx);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Explain'; }
+  }
+}
+
+async function restoreRejectedJob() {
+  const job = jobs[idx];
+  if (!job) return;
+  try {
+    await api(`/api/jobs/${job.id}/status`, 'POST', {status: 'review'});
+    showToast('Moved to review', 'success');
+    jobs.splice(idx, 1);
+    if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
+    if (idx >= jobs.length) idx = jobs.length - 1;
+    if (viewingListCard) { renderCardWrap(); renderCard(idx); }
+    else renderList(jobs);
+    loadStats();
+  } catch (e) {
+    showToast('Failed to restore', 'error');
+  }
 }
 
 // ── Navigation ─────────────────────────────────────────────────────────────
@@ -889,10 +1022,12 @@ function updateNav() {
   const next = document.getElementById('btnNext');
   if (prev) prev.disabled = idx <= 0;
   if (next) next.disabled = idx >= total - 1;
+  const back = document.getElementById('btnBackList');
+  if (back) back.style.display = (_LIST_STATUSES.has(currentStatus) && viewingListCard) ? '' : 'none';
 }
 
-function prevJob() { if (idx > 0) { idx--; renderCard(idx); } }
-function nextJob() { if (idx < jobs.length - 1) { idx++; renderCard(idx); } }
+function prevJob() { if (idx > 0) { idx--; viewingListCard = _LIST_STATUSES.has(currentStatus); renderCardWrap(); renderCard(idx); } }
+function nextJob() { if (idx < jobs.length - 1) { idx++; viewingListCard = _LIST_STATUSES.has(currentStatus); renderCardWrap(); renderCard(idx); } }
 
 // ── Triage ─────────────────────────────────────────────────────────────────
 async function triageAction(newStatus) {

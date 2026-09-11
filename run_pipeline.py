@@ -15,7 +15,7 @@ import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-from models.database import Job, PipelineRun, ApplicationHistory
+from models.database import Job, PipelineRun, ApplicationHistory, ensure_job_columns
 from connectors.remotive import RemotiveConnector
 from connectors.remoteok import RemoteOKConnector
 from connectors.weworkremotely import WeWorkRemotelyConnector
@@ -114,6 +114,8 @@ DISABLED_SOURCES: set[str] = {"flexjobs"}
 
 engine = create_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+if engine.dialect.name == "sqlite":
+    ensure_job_columns(engine)
 
 @click.group()
 def cli():
@@ -126,6 +128,19 @@ def _load_profile(profile_path: str):
 
 def _should_preserve_final_status(job: Job) -> bool:
     return bool(job.llm_status == "completed" and job.status not in (None, "new", "applied"))
+
+
+def _apply_reject_reason(job: Job, scoring_result: dict, preserve_final_status: bool) -> None:
+    code = scoring_result.get("reject_code")
+    detail = scoring_result.get("reject_detail")
+    if code:
+        job.reject_code = code
+        job.reject_detail = detail
+        return
+    if preserve_final_status and job.status == "rejected":
+        return
+    job.reject_code = None
+    job.reject_detail = None
 
 def _run_fetch(source: str, dry_run: bool):
     if source == "all":
@@ -255,6 +270,8 @@ def _run_evaluate(profile: str, dry_run: bool, all_jobs: bool):
                 if has_already_applied(job_dict, session):
                     job.rule_status = "applied"
                     job.status = "applied"
+                    job.reject_code = "applied"
+                    job.reject_detail = "Already in application history"
                     counts["applied"] += 1
                 else:
                     scoring_result = score_job(job_dict, candidate_profile)
@@ -264,6 +281,7 @@ def _run_evaluate(profile: str, dry_run: bool, all_jobs: bool):
                     job.fit_score = scoring_result.get("fit_score", 0)
                     job.remote_eligibility = scoring_result.get("remote_eligibility")
                     job.rule_status = scoring_result.get("recommended_status", "review")
+                    _apply_reject_reason(job, scoring_result, preserve_final_status)
 
                     if previous_status in (None, "new"):
                         job.status = job.rule_status
@@ -376,9 +394,13 @@ def _run_analyze(profile: str, model: str, target_status: str, limit: int, dry_r
 
                     if recommendation == "shortlist" and confidence >= config.LLM_PROMOTION_CONFIDENCE:
                         job.status = "shortlisted"
+                        job.reject_code = None
+                        job.reject_detail = None
                         counts["promoted"] += 1
                     elif recommendation == "reject" and confidence >= config.LLM_PROMOTION_CONFIDENCE:
                         job.status = "rejected"
+                        job.reject_code = "llm"
+                        job.reject_detail = (analysis.get("fit_explanation") or "")[:400] or "LLM recommended reject"
                         counts["rejected"] += 1
                     elif original_status == "review":
                         job.status = "review"
