@@ -126,7 +126,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .pipeline-stat .num{font-size:22px;font-weight:800;color:var(--text-primary);}
 .pipeline-stat .lbl{font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:500;}
 .pipeline-log{background:var(--bg-subtle);border-radius:var(--radius);padding:12px;font-size:11px;font-family:monospace;color:var(--text-secondary);max-height:150px;overflow-y:auto;line-height:1.6;}
-.triage-area{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:32px 24px 24px;max-width:720px;margin:0 auto;width:100%;overflow:auto;}
+.triage-area{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:32px 24px 24px;max-width:880px;margin:0 auto;width:100%;overflow:auto;}
 .triage-area.list-mode{overflow:hidden;align-items:stretch;padding-top:20px;}
 .nav-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;width:100%;flex-shrink:0;}
 .nav-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
@@ -173,7 +173,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .overview-row-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--text-muted);width:80px;flex-shrink:0;}
 .skills-chips{display:flex;flex-wrap:wrap;gap:5px;}
 .skill-chip{padding:3px 9px;border-radius:6px;font-size:12px;font-weight:500;background:var(--accent-light);color:var(--accent);border:1px solid var(--accent-mid);}
-.job-url-link{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px;transition:color .15s;}.job-url-link:hover{color:var(--accent);}
+.job-url-link{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--text-secondary);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px;transition:color .15s;}.job-url-link:hover{color:var(--accent);}
 .analysis-section{margin-bottom:20px;}
 .analysis-section:last-child{margin-bottom:0;}
 .analysis-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--text-muted);margin-bottom:10px;}
@@ -903,6 +903,17 @@ function renderCard(i, direction) {
       <span class="overview-row-label">Highlights</span>
       <div class="skills-chips">${skills || '<span style="color:var(--text-muted);font-size:12px">—</span>'}</div>
     </div>
+    <div class="overview-row">
+      <span class="overview-row-label" data-tip="Posted salary or range from the listing when the board published one">Salary</span>
+      ${job.salary
+        ? `<span style="font-size:13px;font-weight:650;color:var(--text-primary)">${esc(job.salary)}</span>`
+        : '<span style="color:var(--text-muted);font-size:13px">Not listed</span>'}
+    </div>
+    ${job.equity ? `
+    <div class="overview-row">
+      <span class="overview-row-label">Equity</span>
+      <span style="font-size:13px;color:var(--text-secondary)">${esc(job.equity)}</span>
+    </div>` : ''}
     <div class="overview-row">
       <span class="overview-row-label">Posted</span>
       <span style="font-size:13px;color:var(--text-secondary)">${postedStr}</span>

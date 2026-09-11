@@ -33,6 +33,7 @@ from sqlalchemy.orm import sessionmaker
 
 import config
 from models.database import InterviewPrepSheet, Job, ensure_job_columns
+from utils.compensation import extract_compensation
 from utils.scoring import REJECT_LABELS
 from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
@@ -284,6 +285,7 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
     reject_code = _plain_str(job.reject_code) or None
     desc = job.description_text or job.description or ""
     desc = sanitize_skill_object_dumps(desc)
+    compensation = extract_compensation(desc)
     return {
         "id": job.id,
         "title": job.title or "",
@@ -300,6 +302,8 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
         "reasoning": job.fit_explanation or "",
         "cover_letter": job.cover_letter or "",
         "description": desc,
+        "salary": compensation.salary,
+        "equity": compensation.equity,
         "url": job.url or "",
         "posted_date": job.posted_date.isoformat() if job.posted_date else None,
         "created_at": job.created_at.isoformat() if job.created_at else None,

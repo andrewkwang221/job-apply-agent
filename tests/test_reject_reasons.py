@@ -30,6 +30,22 @@ def test_language_requirement_reason():
     assert "mandarin" in result["reject_detail"]
 
 
+def test_job_to_dict_includes_salary_and_equity():
+    job = Job(
+        external_id="comp-1",
+        source="waas",
+        company="Acme",
+        title="Staff Engineer",
+        location="Remote",
+        url="https://example.com/jobs/comp-1",
+        description_text="Salary: $125K - $200K\nEquity: 0.25% - 2.00%",
+        status="review",
+    )
+    data = _job_to_dict(job)
+    assert data["salary"] == "$125K - $200K"
+    assert data["equity"] == "0.25% - 2.00%"
+
+
 def test_job_to_dict_includes_reject_fields():
     job = Job(
         external_id="reject-1",
