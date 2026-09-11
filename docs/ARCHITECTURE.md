@@ -112,6 +112,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `TechJobsForGoodConnector` | [Tech Jobs for Good](https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=2&sort_by=date) | Guest remote HTML list + JobPosting JSON-LD; `sort_by=date` newest-first; apply account-gated (review cap) |
 | `RemoteComConnector` | [Remote](https://remote.com/jobs/all?workplaceLocation=remote&country=anywhere&country=USA) | Guest RSC `jobsData.jobs` list + JobPosting JSON-LD; page 1 mixed, page 2+ newest-first (cap 30); apply account-gated (review cap) |
 | `RemoteCoConnector` | [Remote.co](https://remote.co/remote-jobs/search?remoteoptions=100%25%20Remote%20Work&useclocation=false&anywhereinus=1) | Guest `__NEXT_DATA__` search (exact listing URL; first 10 pages); Chrome-TLS `curl_cffi`; apply/company often empty (review cap) |
+| `DevRemoteConnector` | [DevRemote](https://devremote.io/) | Guest `POST /api/jobs/filter` (`pageSize`/`skip`); newest-first stale-page stop |
 
 **Direct ATS connectors:**
 

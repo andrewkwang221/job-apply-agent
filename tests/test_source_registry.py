@@ -25,6 +25,7 @@ def test_public_board_connectors_are_registered():
     assert "techjobsforgood" in CONNECTORS
     assert "remotecom" in CONNECTORS
     assert "remoteco" in CONNECTORS
+    assert "devremote" in CONNECTORS
 
 
 def test_flexjobs_is_opt_in_not_in_all():

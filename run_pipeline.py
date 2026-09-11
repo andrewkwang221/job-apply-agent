@@ -48,6 +48,7 @@ from connectors.waas import WaasConnector
 from connectors.techjobsforgood import TechJobsForGoodConnector
 from connectors.remotecom import RemoteComConnector
 from connectors.remoteco import RemoteCoConnector
+from connectors.devremote import DevRemoteConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -93,6 +94,7 @@ CONNECTORS = {
     "techjobsforgood": TechJobsForGoodConnector,
     "remotecom": RemoteComConnector,
     "remoteco": RemoteCoConnector,
+    "devremote": DevRemoteConnector,
 }
 
 _SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
@@ -800,7 +802,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

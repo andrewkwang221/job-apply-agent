@@ -74,6 +74,7 @@ _LISTING_DOMAINS = [
     "techjobsforgood.com",
     "remote.com",
     "remote.co",
+    "devremote.io",
 ]
 
 

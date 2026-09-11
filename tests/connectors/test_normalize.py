@@ -509,3 +509,33 @@ class TestRemoteCoNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"] == "https://remote.co/job-details/senior-backend-engineer-abc-123"
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# devremote.io
+# ---------------------------------------------------------------------------
+
+class TestDevRemoteNormalize:
+    def _raw(self):
+        return {
+            "id": "abc-123",
+            "listing_url": "https://devremote.io/jobs/remote---Senior-Backend-Engineer---1",
+            "url": "https://jobs.lever.co/acme/abc",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Worldwide",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.devremote import DevRemoteConnector
+        n = DevRemoteConnector().normalize(self._raw())
+        _assert_shape(n, "devremote")
+
+    def test_title_and_apply_url(self):
+        from connectors.devremote import DevRemoteConnector
+        n = DevRemoteConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"] == "https://jobs.lever.co/acme/abc"
+        assert isinstance(n["location"], str)
