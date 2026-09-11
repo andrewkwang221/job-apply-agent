@@ -212,6 +212,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [DevRemote](https://devremote.io/) | JSON filter API | Guest recent list via `POST /api/jobs/filter` (`pageSize` + `skip`). Newest-first; stop at first stale page. Engineering title filter. Offsite apply URL when present. |
 | [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=all) | Markdown jobs feed | Guest worldwide list (`country=all`). Load-more cursor is newest-first; stop at first stale page. Engineering title filter. Offsite apply URL when present. |
 | [Anywhere Positions](https://www.anywherepositions.com/) | JSON jobs API | Guest salary-transparent remote list. Separate `regions=Anywhere` and `regions=US` searches; `search` once per profile tag/role/keyword/skill; merge by id. Newest-first page walk; keep jobs if a later page 403s. |
+| [Remote Rocketship](https://www.remoterocketship.com/remote-jobs/?page=1&sort=DateAdded) | JSON jobs API | Guest `POST /api/fetch_job_openings/` (no login). Page 1 / 40 items max. 16 titles × Worldwide/US × mid/senior (64 combos), merge by id. Newest-first `DateAdded`. Offsite apply URL when present. |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |

@@ -599,3 +599,36 @@ class TestAnywherePositionsNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"].startswith("https://www.anywherepositions.com/jobs/")
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# remoterocketship.com
+# ---------------------------------------------------------------------------
+
+class TestRemoteRocketshipNormalize:
+    def _raw(self):
+        return {
+            "id": "20172332",
+            "listing_url": (
+                "https://www.remoterocketship.com/company/acme/jobs/"
+                "senior-backend-engineer-worldwide-remote"
+            ),
+            "url": "https://jobs.lever.co/acme/abc",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Worldwide",
+            "description": "Salary: $111,000 - $130,000 per year",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remoterocketship import RemoteRocketshipConnector
+        n = RemoteRocketshipConnector().normalize(self._raw())
+        _assert_shape(n, "remoterocketship")
+
+    def test_title_and_apply_url(self):
+        from connectors.remoterocketship import RemoteRocketshipConnector
+        n = RemoteRocketshipConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"] == "https://jobs.lever.co/acme/abc"
+        assert isinstance(n["location"], str)

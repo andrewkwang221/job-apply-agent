@@ -28,6 +28,7 @@ def test_public_board_connectors_are_registered():
     assert "devremote" in CONNECTORS
     assert "wearedevelopers" in CONNECTORS
     assert "anywherepositions" in CONNECTORS
+    assert "remoterocketship" in CONNECTORS
 
 
 def test_flexjobs_is_opt_in_not_in_all():

@@ -115,6 +115,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `DevRemoteConnector` | [DevRemote](https://devremote.io/) | Guest `POST /api/jobs/filter` (`pageSize`/`skip`); newest-first stale-page stop |
 | `WeAreDevelopersConnector` | [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=all) | Guest `/jobs.md` load-more cursor; newest-first stale-page stop |
 | `AnywherePositionsConnector` | [Anywhere Positions](https://www.anywherepositions.com/) | Guest `api-jobs` `search`+`regions` (Anywhere and US); merge profile queries |
+| `RemoteRocketshipConnector` | [Remote Rocketship](https://www.remoterocketship.com/remote-jobs/?page=1&sort=DateAdded) | Guest `POST /api/fetch_job_openings/`; page 1 / 40 items; 64 title×location×seniority combos |
 
 **Direct ATS connectors:**
 

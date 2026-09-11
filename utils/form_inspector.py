@@ -77,6 +77,7 @@ _LISTING_DOMAINS = [
     "devremote.io",
     "wearedevelopers.com",
     "anywherepositions.com",
+    "remoterocketship.com",
 ]
 
 
