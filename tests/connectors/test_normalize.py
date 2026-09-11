@@ -480,3 +480,32 @@ class TestRemoteComNormalize:
         assert n["title"] == "Staff Security Engineer"
         assert n["url"] == "https://jobs.lever.co/aledade/13c05dc3"
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# remote.co
+# ---------------------------------------------------------------------------
+
+class TestRemoteCoNormalize:
+    def _raw(self):
+        return {
+            "id": "abc-123",
+            "url": "https://remote.co/job-details/senior-backend-engineer-abc-123",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "US National",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 1, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remoteco import RemoteCoConnector
+        n = RemoteCoConnector().normalize(self._raw())
+        _assert_shape(n, "remoteco")
+
+    def test_title_and_listing_url(self):
+        from connectors.remoteco import RemoteCoConnector
+        n = RemoteCoConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"] == "https://remote.co/job-details/senior-backend-engineer-abc-123"
+        assert isinstance(n["location"], str)

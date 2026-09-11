@@ -73,6 +73,7 @@ _LISTING_DOMAINS = [
     "workatastartup.com",
     "techjobsforgood.com",
     "remote.com",
+    "remote.co",
 ]
 
 

@@ -47,6 +47,7 @@ from connectors.ycombinator import YCombinatorConnector
 from connectors.waas import WaasConnector
 from connectors.techjobsforgood import TechJobsForGoodConnector
 from connectors.remotecom import RemoteComConnector
+from connectors.remoteco import RemoteCoConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -91,6 +92,7 @@ CONNECTORS = {
     "waas": WaasConnector,
     "techjobsforgood": TechJobsForGoodConnector,
     "remotecom": RemoteComConnector,
+    "remoteco": RemoteCoConnector,
 }
 
 _SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
@@ -104,6 +106,7 @@ SYSTEM_BROWSER_DOMAINS = {
     "getonbrd.com",
     "himalayas.app",
     "remotejobs.io",
+    "remote.co/",
 }
 
 # Sources skipped when --source all is used. Enable individually with --source <name>.
@@ -797,7 +800,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

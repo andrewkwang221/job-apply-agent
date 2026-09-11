@@ -26,6 +26,7 @@ SYSTEM_BROWSER_DOMAINS = {
     "jobicy.com",
     "getonbrd.com",
     "remotejobs.io",
+    "remote.co/",
 }
 
 
