@@ -12,7 +12,7 @@ import sys
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover — apscheduler optional at import time
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, or_
 from sqlalchemy.orm import sessionmaker
 
 import config
@@ -337,17 +337,24 @@ async def stats():
         session.close()
 
 
+_LIST_STATUSES = frozenset({"rejected", "expired", "archived"})
+
+
 @app.get("/api/jobs")
-async def list_jobs(status: str = "review", limit: int = 200):
+async def list_jobs(status: str = "review", limit: Optional[int] = None):
     session = _Session()
     try:
-        jobs = (
+        query = (
             session.query(Job)
             .filter(Job.status == status)
             .order_by(Job.fit_score.desc().nullslast(), Job.id.desc())
-            .limit(limit)
-            .all()
         )
+        cap = limit
+        if cap is None:
+            cap = 0 if status in _LIST_STATUSES else 200
+        if cap and cap > 0:
+            query = query.limit(cap)
+        jobs = query.all()
         payload: Dict[str, Any] = {"jobs": [_job_to_dict(j) for j in jobs], "total": len(jobs)}
         if status == "rejected":
             rows = (
@@ -387,7 +394,7 @@ class StatusUpdate(BaseModel):
 
 @app.post("/api/jobs/{job_id}/status")
 async def update_status(job_id: int, body: StatusUpdate):
-    allowed = {"shortlisted", "rejected", "deferred", "review", "applied", "expired"}
+    allowed = {"shortlisted", "rejected", "deferred", "review", "applied", "expired", "archived"}
     if body.status not in allowed:
         raise HTTPException(400, f"Invalid status: {body.status}")
     session = _Session()
@@ -400,7 +407,7 @@ async def update_status(job_id: int, body: StatusUpdate):
         if body.status == "rejected" and previous != "rejected" and not _plain_str(job.reject_code):
             job.reject_code = "manual"
             job.reject_detail = "Rejected from triage"
-        elif body.status == "review" and previous == "rejected":
+        elif body.status == "review" and previous in ("rejected", "archived"):
             job.reject_code = None
             job.reject_detail = None
         session.commit()
@@ -414,6 +421,38 @@ async def update_status(job_id: int, body: StatusUpdate):
         return {"ok": True, "id": job_id, "status": body.status}
     except HTTPException:
         raise
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(500, str(exc))
+    finally:
+        session.close()
+
+
+class BulkArchiveRequest(BaseModel):
+    reject_codes: Optional[List[str]] = None
+
+
+@app.post("/api/jobs/bulk-archive")
+async def bulk_archive(body: BulkArchiveRequest):
+    session = _Session()
+    try:
+        query = session.query(Job).filter(Job.status == "rejected")
+        codes = [c for c in (body.reject_codes or []) if c is not None]
+        if codes:
+            named = [c for c in codes if c and c != "unknown"]
+            clauses = []
+            if named:
+                clauses.append(Job.reject_code.in_(named))
+            if any((not c) or c == "unknown" for c in codes):
+                clauses.append(or_(Job.reject_code.is_(None), Job.reject_code == ""))
+            if clauses:
+                query = query.filter(or_(*clauses) if len(clauses) > 1 else clauses[0])
+        rows = query.all()
+        count = len(rows)
+        for job in rows:
+            job.status = "archived"
+        session.commit()
+        return {"ok": True, "archived": count}
     except Exception as exc:
         session.rollback()
         raise HTTPException(500, str(exc))

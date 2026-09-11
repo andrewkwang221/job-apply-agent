@@ -127,7 +127,9 @@ def _load_profile(profile_path: str):
         return yaml.safe_load(f)
 
 def _should_preserve_final_status(job: Job) -> bool:
-    return bool(job.llm_status == "completed" and job.status not in (None, "new", "applied"))
+    if job.status in ("applied", "archived", "expired", "deferred"):
+        return True
+    return bool(job.llm_status == "completed" and job.status not in (None, "new"))
 
 
 def _apply_reject_reason(job: Job, scoring_result: dict, preserve_final_status: bool) -> None:
@@ -251,11 +253,13 @@ def _run_evaluate(profile: str, dry_run: bool, all_jobs: bool):
     try:
         query = session.query(Job)
         if all_jobs:
-            jobs_to_evaluate = query.filter(Job.status.notin_(["applied", "deferred"])).all()
+            jobs_to_evaluate = query.filter(
+                Job.status.notin_(["applied", "deferred", "archived", "expired"])
+            ).all()
         else:
             jobs_to_evaluate = query.filter(Job.status == "new").all()
         total_eval = len(jobs_to_evaluate)
-        scope = "non-applied/non-deferred" if all_jobs else "new"
+        scope = "active queues" if all_jobs else "new"
         logger.info(f"Found {total_eval} {scope} jobs to evaluate.")
         
         counts = {"shortlisted": 0, "review": 0, "rejected": 0, "applied": 0, "errors": 0}
@@ -577,7 +581,7 @@ def fetch(source: str, dry_run: bool):
 @cli.command()
 @click.option('--profile', default='profile.yaml', help='Path to candidate profile YAML')
 @click.option('--dry-run', is_flag=True, help='Evaluate without saving to DB')
-@click.option('--all-jobs', is_flag=True, help='Re-evaluate all non-applied jobs instead of only status=new')
+@click.option('--all-jobs', is_flag=True, help='Re-evaluate jobs except applied, deferred, archived, and expired')
 def evaluate(profile: str, dry_run: bool, all_jobs: bool):
     """Evaluate raw jobs against candidate profile and assign scores."""
     try:

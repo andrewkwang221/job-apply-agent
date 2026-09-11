@@ -22,8 +22,9 @@
   --radius:10px; --radius-lg:16px; --radius-xl:20px; --transition:.18s ease;
 }
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%,#0d1a22 40%,#112030 70%,#152840 100%);background-attachment:fixed;color:var(--text-primary);min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden;}
-.status-strip{background:var(--bg-card);border-bottom:1px solid var(--border);padding:12px 28px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+html,body{height:100%;}
+body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%,#0d1a22 40%,#112030 70%,#152840 100%);background-attachment:fixed;color:var(--text-primary);min-height:100vh;display:flex;flex-direction:column;overflow:hidden;}
+.status-strip{background:var(--bg-card);border-bottom:1px solid var(--border);padding:12px 28px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex-shrink:0;}
 .strip-logo{font-size:14px;font-weight:800;color:var(--text-primary);margin-right:12px;letter-spacing:-.5px;}
 .strip-logo span{color:var(--accent);}
 .strip-divider{width:1px;height:20px;background:var(--border);margin-right:4px;}
@@ -41,6 +42,9 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .pill-rejected{background:var(--red-light);color:var(--red);}
 .pill-rejected.active{background:var(--red-mid);box-shadow:0 0 0 2px var(--red);}
 .pill-expired{background:var(--bg-subtle);color:var(--text-muted);}
+.pill-expired.active{background:var(--bg-hover);box-shadow:0 0 0 2px var(--text-muted);}
+.pill-archived{background:var(--bg-subtle);color:var(--text-muted);}
+.pill-archived.active{background:var(--bg-hover);box-shadow:0 0 0 2px var(--text-muted);}
 .pill-new.active{background:var(--accent-mid);box-shadow:0 0 0 2px var(--accent);}
 .strip-spacer{flex:1;}
 .btn-fill-url{display:flex;align-items:center;gap:6px;padding:7px 13px;background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:all var(--transition);margin-right:6px;}
@@ -48,9 +52,12 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .btn-reject-stale{display:none;align-items:center;gap:6px;padding:7px 13px;background:var(--red-light);color:var(--red);border:1px solid var(--red-mid);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:all var(--transition);margin-right:6px;}
 .btn-reject-stale:hover{background:var(--red-mid);color:var(--red);border-color:var(--red);}
 .btn-reject-stale.visible{display:flex;}
-.list-view{padding:20px 28px;overflow-y:auto;flex:1;}
-.list-view-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;display:flex;gap:12px;}
+.list-view{padding:0 4px 12px;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;overflow:hidden;}
+.list-view-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;display:flex;gap:12px;flex-shrink:0;}
 .list-view-header span:first-child{flex:1}
+.list-view-rows{flex:1;min-height:0;overflow-y:auto;padding-right:4px;}
+.list-view-rows::-webkit-scrollbar{width:8px;}
+.list-view-rows::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
 .list-row{display:flex;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px solid var(--border-subtle);transition:background var(--transition);}
 .list-row:hover{background:var(--bg-hover);border-radius:6px;}
 .list-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;}
@@ -61,7 +68,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .list-date{font-size:11.5px;color:var(--text-muted);width:60px;text-align:right;flex-shrink:0;}
 .list-row{cursor:pointer;}
-.reject-counts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 4px 12px;}
+.reject-counts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 4px 12px;flex-shrink:0;}
 .reject-count-chip{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:16px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer;}
 .reject-count-chip:hover{border-color:var(--accent-mid);color:var(--accent);}
 .reject-count-chip.active{background:var(--red-mid);border-color:var(--red);color:var(--red);}
@@ -71,6 +78,11 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .why-block-detail{font-size:13px;color:var(--text-secondary);line-height:1.5;}
 .list-link{width:26px;height:26px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);text-decoration:none;transition:all var(--transition);flex-shrink:0;}
 .list-link:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
+.list-archive{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
+.list-archive:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--text-muted);}
+.list-archive:disabled{opacity:.45;cursor:default;}
+.list-archive:disabled:hover{background:var(--bg-subtle);color:var(--text-secondary);border-color:var(--border);}
+.list-view-header .list-archive{text-transform:none;letter-spacing:0;width:78px;padding:3px 6px;white-space:nowrap;}
 .btn-pipeline{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
 .btn-pipeline:hover{background:#2563eb;box-shadow:0 0 0 3px rgba(59,130,246,.25);}
 .btn-pipeline svg{width:14px;height:14px;}
@@ -114,8 +126,9 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .pipeline-stat .num{font-size:22px;font-weight:800;color:var(--text-primary);}
 .pipeline-stat .lbl{font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:500;}
 .pipeline-log{background:var(--bg-subtle);border-radius:var(--radius);padding:12px;font-size:11px;font-family:monospace;color:var(--text-secondary);max-height:150px;overflow-y:auto;line-height:1.6;}
-.triage-area{flex:1;display:flex;flex-direction:column;align-items:center;padding:32px 24px 24px;max-width:720px;margin:0 auto;width:100%;}
-.nav-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;width:100%;}
+.triage-area{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:32px 24px 24px;max-width:720px;margin:0 auto;width:100%;overflow:auto;}
+.triage-area.list-mode{overflow:hidden;align-items:stretch;padding-top:20px;}
+.nav-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;width:100%;flex-shrink:0;}
 .nav-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
 .nav-btn:hover{border-color:var(--accent-mid);color:var(--accent);background:var(--accent-light);}
 .nav-btn:disabled{opacity:.4;cursor:default;}
@@ -228,6 +241,8 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .btn-explain{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
 .btn-explain:hover{background:var(--accent-mid);color:#fff;transform:translateY(-1px);}
 .btn-explain:disabled{opacity:.55;cursor:default;transform:none;}
+.btn-archive{background:var(--bg-subtle);color:var(--text-secondary);border-color:var(--border);}
+.btn-archive:hover{background:var(--bg-hover);color:var(--text-primary);transform:translateY(-1px);}
 .action-sep{width:1px;height:36px;background:var(--border);flex-shrink:0;}
 .btn-open-apply{display:flex;align-items:center;gap:7px;padding:12px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s ease;box-shadow:0 2px 8px rgba(59,130,246,.3);white-space:nowrap;flex-shrink:0;}
 .btn-open-apply:hover{background:#2563eb;box-shadow:0 4px 16px rgba(59,130,246,.4);transform:translateY(-1px);}
@@ -315,6 +330,9 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
   </div>
   <div class="status-pill pill-expired" data-status="expired" onclick="filterJobs('expired',this)">
     <span>Expired</span><span class="count">—</span>
+  </div>
+  <div class="status-pill pill-archived" data-status="archived" onclick="filterJobs('archived',this)">
+    <span>Archived</span><span class="count">—</span>
   </div>
   <div class="strip-spacer"></div>
   <button class="btn-reject-stale" id="rejectStaleBtn" onclick="openRejectStaleModal()" title="Reject all jobs in this tab older than 2 weeks">
@@ -542,6 +560,22 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
         <button class="btn-triage-action btn-restore" onclick="restoreRejectedJob()">
           Restore to review
         </button>
+        <button class="btn-triage-action btn-archive" onclick="archiveCurrentJob()">
+          Archive
+        </button>
+        <div class="action-sep"></div>
+        <button class="btn-open-apply" onclick="openApply()">
+          Open posting
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+        </button>
+      </div>
+      <div class="action-bar" id="actionBarArchived" style="display:none">
+        <button class="btn-triage-action btn-restore" onclick="restoreArchivedJob('rejected')">
+          Restore to rejected
+        </button>
+        <button class="btn-triage-action btn-restore" onclick="restoreArchivedJob('review')">
+          Restore to review
+        </button>
         <div class="action-sep"></div>
         <button class="btn-open-apply" onclick="openApply()">
           Open posting
@@ -553,10 +587,10 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 
   <div class="list-view" id="listView" style="display:none">
     <div id="rejectCounts" class="reject-counts" style="display:none"></div>
-    <div class="list-view-header">
+    <div class="list-view-header" id="listViewHeader">
       <span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
     </div>
-    <div id="listViewRows"></div>
+    <div class="list-view-rows" id="listViewRows"></div>
   </div>
 </div>
 
@@ -622,6 +656,22 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
   </div>
 </div>
 
+<!-- Archive All modal -->
+<div class="modal-overlay" id="archiveAllOverlay" onclick="closeArchiveAllModal()" style="display:none"></div>
+<div class="modal-box" id="archiveAllModal" style="display:none">
+  <div class="modal-header">
+    <span class="modal-title">Archive All</span>
+    <button class="btn-close" onclick="closeArchiveAllModal()">×</button>
+  </div>
+  <div class="modal-body">
+    <p class="modal-hint" id="archiveAllMsg"></p>
+  </div>
+  <div class="modal-footer">
+    <button class="btn-modal-cancel" onclick="closeArchiveAllModal()">Cancel</button>
+    <button class="btn-modal-fill" id="archiveAllConfirmBtn" onclick="confirmArchiveVisibleRejected()">Archive All</button>
+  </div>
+</div>
+
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let jobs = [];
@@ -684,7 +734,7 @@ async function loadStats() {
 async function loadJobs(status) {
   currentStatus = status;
   try {
-    const data = await api(`/api/jobs?status=${status}`);
+    const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${_LIST_STATUSES.has(status) ? '&limit=0' : ''}`);
     jobs = data.jobs || [];
     rejectCounts = data.reject_counts || [];
     rejectFilter = null;
@@ -868,7 +918,7 @@ function renderCard(i, direction) {
     ${gaps ? `<div class="analysis-section"><div class="analysis-section-title">Skill Gaps</div><ul class="bullet-list gaps">${gaps}</ul></div>` : ''}
     ${job.reasoning ? `<div class="analysis-section"><div class="analysis-section-title">Reasoning</div><div class="reasoning-block">${esc(job.reasoning)}</div></div>` : ''}
     ${job.llm_confidence ? `<div class="confidence-row"><span class="confidence-label">Confidence</span><div class="confidence-bar"><div class="confidence-fill" style="width:${job.llm_confidence}%"></div></div><span class="confidence-pct">${job.llm_confidence}%</span></div>` : ''}
-    ${noLlm ? `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">${job.status === 'rejected' ? 'No LLM write-up yet. Click Explain to compare this posting to your profile.' : 'No LLM analysis yet. Run the pipeline with analyze enabled.'}</div>` : ''}`;
+    ${noLlm ? `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">${job.status === 'rejected' ? 'No LLM write-up yet. Click Explain to compare this posting to your profile.' : job.status === 'archived' ? 'No LLM write-up for this archived job.' : 'No LLM analysis yet. Run the pipeline with analyze enabled.'}</div>` : ''}`;
 
   // Cover letter
   const coverTextEl = document.getElementById('coverText');
@@ -886,18 +936,21 @@ function renderCard(i, direction) {
   // Action bar: show/hide triage for read-only statuses
   const readOnly = ['applied','expired'].includes(job.status);
   const rejected = job.status === 'rejected';
-  document.getElementById('actionBar').style.display = (readOnly || rejected) ? 'none' : 'flex';
+  const archived = job.status === 'archived';
+  document.getElementById('actionBar').style.display = (readOnly || rejected || archived) ? 'none' : 'flex';
   document.getElementById('actionBarRejected').style.display = rejected ? 'flex' : 'none';
+  document.getElementById('actionBarArchived').style.display = archived ? 'flex' : 'none';
 
-  if (rejected) switchTabById('analysis');
+  if (rejected || archived) switchTabById('analysis');
   else switchTabById('overview');
   updateNav();
 }
 
-const _LIST_STATUSES = new Set(['rejected', 'expired']);
+const _LIST_STATUSES = new Set(['rejected', 'expired', 'archived']);
 
 function renderEmpty(status) {
   viewingListCard = false;
+  document.getElementById('triageArea').classList.remove('list-mode');
   document.getElementById('cardWrap').style.display = 'none';
   document.getElementById('listView').style.display = 'none';
   document.getElementById('emptyTitle').textContent = `No ${status} jobs`;
@@ -908,18 +961,36 @@ function renderEmpty(status) {
 }
 
 function renderCardWrap() {
+  document.getElementById('triageArea').classList.remove('list-mode');
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('listView').style.display = 'none';
   document.getElementById('cardWrap').style.display = '';
 }
 
+function _rejectCountsFromJobs(jobList) {
+  const tallies = new Map();
+  for (const j of jobList) {
+    const code = j.reject_code || 'unknown';
+    const label = j.reject_label || 'Unknown';
+    const row = tallies.get(code) || {code, label, count: 0};
+    row.count += 1;
+    tallies.set(code, row);
+  }
+  return [...tallies.values()].sort((a, b) => b.count - a.count || String(a.code).localeCompare(String(b.code)));
+}
+
 function renderList(jobList) {
   viewingListCard = false;
+  document.getElementById('triageArea').classList.add('list-mode');
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('cardWrap').style.display = 'none';
   const scoreColor = s => s >= 70 ? `background:var(--green-mid);color:var(--green)` :
                           s >= 50 ? `background:var(--orange-mid);color:var(--orange)` :
                                     `background:var(--red-mid);color:var(--red)`;
+  if (currentStatus === 'rejected') {
+    rejectCounts = _rejectCountsFromJobs(jobList);
+    if (rejectFilter && !rejectCounts.some(c => c.code === rejectFilter)) rejectFilter = null;
+  }
   const countsEl = document.getElementById('rejectCounts');
   if (currentStatus === 'rejected' && rejectCounts.length) {
     countsEl.style.display = 'flex';
@@ -931,12 +1002,21 @@ function renderList(jobList) {
     countsEl.style.display = 'none';
     countsEl.innerHTML = '';
   }
+  const header = document.getElementById('listViewHeader');
+  if (header) {
+    header.innerHTML = currentStatus === 'rejected'
+      ? `<span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span><span style="width:26px"></span>`
+      : `<span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>`;
+  }
   const visible = (currentStatus === 'rejected' && rejectFilter)
     ? jobList.filter(j => (j.reject_code || 'unknown') === rejectFilter)
     : jobList;
   document.getElementById('listViewRows').innerHTML = visible.map(j => {
     const original = jobList.indexOf(j);
     const label = j.reject_label || 'Unknown';
+    const archiveBtn = currentStatus === 'rejected'
+      ? `<button class="list-archive" type="button" title="Archive" style="width:78px" onclick="archiveJobAt(${original}, event)">Archive</button>`
+      : '';
     return `
     <div class="list-row" onclick="openListJob(${original})">
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
@@ -947,6 +1027,7 @@ function renderList(jobList) {
       <div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(j.reject_detail || label)}">${esc(label)}</div>
       <div class="list-score" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'color:var(--text-muted)'}">${j.fit_score != null ? j.fit_score : '—'}</div>
       <div class="list-date">${j.created_at ? relativeDate(j.created_at) : '—'}</div>
+      ${archiveBtn}
       <a class="list-link" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open job posting" onclick="event.stopPropagation()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>
@@ -954,6 +1035,13 @@ function renderList(jobList) {
   }).join('');
   document.getElementById('listView').style.display = '';
   document.getElementById('navCounter').textContent = `${visible.length} ${currentStatus} jobs`;
+  const archiveAll = document.getElementById('btnArchiveAll');
+  if (archiveAll) {
+    archiveAll.disabled = visible.length === 0;
+    archiveAll.title = rejectFilter
+      ? `Archive ${visible.length} visible job${visible.length === 1 ? '' : 's'} for this Why filter`
+      : `Archive all ${visible.length} rejected job${visible.length === 1 ? '' : 's'}`;
+  }
   const back = document.getElementById('btnBackList');
   if (back) back.style.display = 'none';
 }
@@ -997,11 +1085,96 @@ async function explainRejectedJob() {
 }
 
 async function restoreRejectedJob() {
+  await _moveCurrentJob('review', 'Moved to review');
+}
+
+async function archiveCurrentJob() {
+  await _moveCurrentJob('archived', 'Archived');
+}
+
+async function restoreArchivedJob(target) {
+  const toast = target === 'review' ? 'Moved to review' : 'Moved to rejected';
+  await _moveCurrentJob(target, toast);
+}
+
+function _visibleRejectedJobs() {
+  if (currentStatus !== 'rejected') return [];
+  return rejectFilter
+    ? jobs.filter(j => (j.reject_code || 'unknown') === rejectFilter)
+    : jobs;
+}
+
+function openArchiveAllModal() {
+  const visible = _visibleRejectedJobs();
+  if (!visible.length) {
+    showToast('Nothing to archive', '');
+    return;
+  }
+  const why = rejectFilter
+    ? (visible[0].reject_label || rejectFilter)
+    : null;
+  const n = visible.length;
+  document.getElementById('archiveAllMsg').textContent = why
+    ? `Archive ${n} rejected job${n === 1 ? '' : 's'} with Why "${why}"? They move to Archived and can be restored later.`
+    : `Archive all ${n} rejected job${n === 1 ? '' : 's'}? They move to Archived and can be restored later.`;
+  document.getElementById('archiveAllOverlay').style.display = '';
+  document.getElementById('archiveAllModal').style.display = '';
+}
+
+function closeArchiveAllModal() {
+  document.getElementById('archiveAllOverlay').style.display = 'none';
+  document.getElementById('archiveAllModal').style.display = 'none';
+}
+
+async function confirmArchiveVisibleRejected() {
+  const visible = _visibleRejectedJobs();
+  if (!visible.length) {
+    closeArchiveAllModal();
+    showToast('Nothing to archive', '');
+    return;
+  }
+  const headerBtn = document.getElementById('btnArchiveAll');
+  const confirmBtn = document.getElementById('archiveAllConfirmBtn');
+  if (headerBtn) headerBtn.disabled = true;
+  if (confirmBtn) confirmBtn.disabled = true;
+  closeArchiveAllModal();
+  try {
+    const payload = rejectFilter ? {reject_codes: [rejectFilter]} : {};
+    const res = await api('/api/jobs/bulk-archive', 'POST', payload);
+    const n = res.archived ?? visible.length;
+    showToast(`Archived ${n} job${n === 1 ? '' : 's'}`, 'success');
+    loadStats();
+    loadJobs('rejected');
+  } catch (e) {
+    showToast('Failed to archive', 'error');
+    if (headerBtn) headerBtn.disabled = false;
+  } finally {
+    if (confirmBtn) confirmBtn.disabled = false;
+  }
+}
+
+async function archiveJobAt(i, evt) {
+  if (evt) evt.stopPropagation();
+  const job = jobs[i];
+  if (!job) return;
+  try {
+    await api(`/api/jobs/${job.id}/status`, 'POST', {status: 'archived'});
+    showToast('Archived', 'success');
+    jobs.splice(i, 1);
+    if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
+    renderList(jobs);
+    loadStats();
+  } catch (e) {
+    showToast('Failed to archive', 'error');
+  }
+}
+
+async function _moveCurrentJob(newStatus, toastMsg) {
   const job = jobs[idx];
   if (!job) return;
   try {
-    await api(`/api/jobs/${job.id}/status`, 'POST', {status: 'review'});
-    showToast('Moved to review', 'success');
+    await api(`/api/jobs/${job.id}/status`, 'POST', {status: newStatus});
+    showToast(toastMsg, 'success');
     jobs.splice(idx, 1);
     if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
     if (idx >= jobs.length) idx = jobs.length - 1;
@@ -1009,7 +1182,7 @@ async function restoreRejectedJob() {
     else renderList(jobs);
     loadStats();
   } catch (e) {
-    showToast('Failed to restore', 'error');
+    showToast('Failed to update status', 'error');
   }
 }
 

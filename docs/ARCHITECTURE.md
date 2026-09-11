@@ -69,7 +69,7 @@ Each job passes through three layers:
 |---|---|---|
 | Deterministic | `rule_status`, `fit_score`, `remote_eligibility`, `matched_skills`, `reject_code`, `reject_detail` | Always refreshed on re-evaluate |
 | Semantic (LLM) | `llm_fit_score`, `recommendation`, `llm_confidence`, `llm_status`, `fit_explanation`, `llm_strengths`, `skill_gaps` | Set by Ollama; preserved across re-evaluate |
-| Decision | `status` | Initialized from rule layer; updated by LLM; manually overridable |
+| Decision | `status` | Lifecycle: `new` → `review`/`shortlisted`/`rejected`; `rejected` ↔ `archived`; `expired` is prune-only. Initialized from rule layer; updated by LLM; manually overridable. `evaluate --all-jobs` skips `applied`, `deferred`, `archived`, and `expired`. |
 
 Evaluation policy: `evaluate` always refreshes `rule_status` but only touches final `status` when the job has not already been refined by a successful LLM analysis. This prevents `evaluate --all-jobs` from erasing prior LLM promotions or manual decisions.
 

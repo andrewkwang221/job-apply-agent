@@ -102,7 +102,7 @@ A browser-based triage interface for reviewing and acting on jobs without using 
 
 **What it does:**
 
-- **Status strip** — live counts across all pipeline stages (New, Review, Shortlisted, Applied, Deferred, Rejected, Expired). Click any pill to jump to that queue.
+- **Status strip** — live counts across all pipeline stages (New, Review, Shortlisted, Applied, Deferred, Rejected, Expired, Archived). Click any pill to jump to that queue.
 - **Job card** — one job at a time. Tabs for Overview (score, highlights, LLM confidence), Analysis (strengths, gaps, reasoning), Cover Letter (generate via Ollama, copy to clipboard, or download as PDF), and full Description.
 - **Triage buttons** — Reject / Defer / Shortlist with a single click. The card advances automatically to the next job.
 - **Open & Apply** — opens the job in a Playwright browser with ATS prefill. After confirming you applied, the card advances to the next shortlisted job.

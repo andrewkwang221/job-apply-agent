@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from models.database import Job, PipelineRun
 
 # Valid status values shared across schemas and validation
-_STATUSES = ["new", "review", "shortlisted", "rejected", "applied", "deferred"]
+_STATUSES = ["new", "review", "shortlisted", "rejected", "applied", "deferred", "expired", "archived"]
 
 
 # ---------------------------------------------------------------------------
@@ -305,10 +305,11 @@ _VALID_TRANSITIONS: dict[str, set] = {
     "new":        {"review", "shortlisted", "rejected", "deferred"},
     "review":     {"shortlisted", "rejected", "deferred"},
     "shortlisted":{"applied", "rejected", "deferred"},
-    "rejected":   {"review"},
+    "rejected":   {"review", "archived"},
     "deferred":   {"review", "rejected"},
     "applied":    set(),  # terminal
     "expired":    {"review"},  # can be rescued manually
+    "archived":   {"rejected", "review"},
 }
 
 
@@ -641,7 +642,7 @@ TOOL_SCHEMAS = [
                 "Update the lifecycle status of a job. "
                 "Use this when the user says 'mark job N as applied', 'reject job N', 'shortlist job N', etc. "
                 "Valid transitions: review→shortlisted/rejected/deferred, shortlisted→applied/rejected/deferred, "
-                "rejected→review (undo), applied is terminal. "
+                "rejected→review (undo) or archived, archived→rejected/review, applied is terminal. "
                 "Requires confirmation before executing."
             ),
             "parameters": {

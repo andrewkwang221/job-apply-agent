@@ -151,7 +151,7 @@ class TestPolicyRunPipeline:
 
 class TestTransitionTable:
     def test_all_statuses_present(self):
-        statuses = {"new", "review", "shortlisted", "rejected", "applied", "deferred", "expired"}
+        statuses = {"new", "review", "shortlisted", "rejected", "applied", "deferred", "expired", "archived"}
         assert statuses == set(_VALID_TRANSITIONS.keys())
 
     def test_applied_has_no_transitions(self):
@@ -162,6 +162,12 @@ class TestTransitionTable:
 
     def test_rejected_can_be_undone(self):
         assert "review" in _VALID_TRANSITIONS["rejected"]
+
+    def test_rejected_can_be_archived(self):
+        assert "archived" in _VALID_TRANSITIONS["rejected"]
+
+    def test_archived_can_return_to_rejected_or_review(self):
+        assert _VALID_TRANSITIONS["archived"] == {"rejected", "review"}
 
 
 # ---------------------------------------------------------------------------
