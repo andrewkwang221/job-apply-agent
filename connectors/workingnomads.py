@@ -29,6 +29,7 @@ class WorkingNomadsConnector(BaseConnector):
                 return all_jobs
 
             all_jobs = jobs
+            self._emit_many(all_jobs)
             logger.info(f"Successfully fetched {len(all_jobs)} jobs from {self.source_name}")
         except Exception as e:
             logger.error(f"Error fetching jobs from {self.source_name}: {e}")

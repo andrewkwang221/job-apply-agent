@@ -108,7 +108,7 @@ class LeverConnector(BaseConnector):
         for slug in sorted(slugs):
             try:
                 jobs = self._fetch_company(slug, target_roles, seen_ids)
-                all_jobs.extend(jobs)
+                self._emit_many(jobs, all_jobs)
             except Exception as e:
                 logger.error(f"Error fetching Lever slug '{slug}': {e}")
                 logger.debug(traceback.format_exc())

@@ -41,7 +41,7 @@ class WeWorkRemotelyConnector(BaseConnector):
                     job = self._parse_item(item)
                     if job and job["id"] not in seen_ids:
                         seen_ids.add(job["id"])
-                        all_jobs.append(job)
+                        self._emit(job, all_jobs)
             except Exception as e:
                 logger.error(f"Error fetching feed {feed_url}: {e}")
                 logger.debug(traceback.format_exc())

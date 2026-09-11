@@ -132,12 +132,12 @@ class RemoteComConnector(BaseConnector):
                 detail_html = _fetch_html(job["listing_url"])
                 if _merge_detail(job, detail_html, cutoff):
                     job["url"] = _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
-                    kept_jobs.append(job)
+                    self._emit(job, kept_jobs)
             except Exception as e:
                 logger.warning(f"Failed to fetch remote.com job {job['listing_url']}: {e}")
                 logger.debug(traceback.format_exc())
                 job["url"] = _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
-                kept_jobs.append(job)
+                self._emit(job, kept_jobs)
             remembered.append(job["listing_url"])
             if i + 1 < len(jobs):
                 time.sleep(_FETCH_DELAY)

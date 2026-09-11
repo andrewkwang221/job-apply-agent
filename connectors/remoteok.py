@@ -61,6 +61,7 @@ class RemoteOKConnector(BaseConnector):
                 and item.get("position")
                 and _extract_ats_url(item.get("description", ""))
             ]
+            self._emit_many(jobs)
             logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
             return jobs
         except Exception as e:

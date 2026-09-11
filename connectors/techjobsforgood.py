@@ -151,11 +151,11 @@ class TechJobsForGoodConnector(BaseConnector):
             try:
                 detail_html = _fetch_html(job["url"])
                 if _merge_detail(job, detail_html, cutoff):
-                    kept.append(job)
+                    self._emit(job, kept)
             except Exception as e:
                 logger.warning(f"Failed to fetch TJFG job {job['url']}: {e}")
                 logger.debug(traceback.format_exc())
-                kept.append(job)
+                self._emit(job, kept)
             remembered.append(job["url"])
             if i + 1 < len(jobs):
                 time.sleep(_FETCH_DELAY)

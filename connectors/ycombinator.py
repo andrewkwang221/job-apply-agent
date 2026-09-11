@@ -117,6 +117,7 @@ class YCombinatorConnector(BaseConnector):
                 logger.warning(f"Failed to fetch YC job {job['url']}: {e}")
                 logger.debug(traceback.format_exc())
             crawled.append(job["url"])
+            self._emit(job)
             if i + 1 < len(jobs):
                 time.sleep(_FETCH_DELAY)
 

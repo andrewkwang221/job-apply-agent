@@ -119,6 +119,7 @@ class DailyRemoteConnector(BaseConnector):
                         continue
                     seen_ids.add(job_id)
                     all_jobs.append(parsed)
+                    self._emit(parsed)
                     new_on_page += 1
 
                 remember_listing_urls(self.source_name, crawled)

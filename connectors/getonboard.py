@@ -64,7 +64,7 @@ class GetOnBoardConnector(BaseConnector):
         for category in CATEGORIES:
             try:
                 category_jobs = self._fetch_category(category, seen_ids, allowed_langs)
-                all_jobs.extend(category_jobs)
+                self._emit_many(category_jobs, all_jobs)
             except Exception as e:
                 logger.error(f"Error fetching category '{category}' from {self.source_name}: {e}")
                 logger.debug(traceback.format_exc())
@@ -117,7 +117,7 @@ class GetOnBoardConnector(BaseConnector):
                 job_id = job.get("id")
                 if job_id and job_id not in seen_ids:
                     seen_ids.add(job_id)
-                    jobs.append(job)
+                    self._emit(job, jobs)
 
             meta = data.get("meta", {})
             total_pages = meta.get("total_pages", 1)

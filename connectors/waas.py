@@ -144,7 +144,7 @@ class WaasConnector(BaseConnector):
                     f"{len(all_jobs)} unseen engineering jobs "
                     f"({dated_kept} dated, {len(dated)} date samples)"
                 )
-                _enrich_details(page, all_jobs)
+                _enrich_details(page, all_jobs, on_job=self._emit)
                 remembered = [job["url"] for job in all_jobs]
         except Exception as e:
             logger.error(f"Error fetching WAAS jobs: {e}")
@@ -725,7 +725,7 @@ def _collect_via_scroll(
             last_count = len(store)
 
 
-def _enrich_details(page: Any, jobs: list[dict[str, Any]]) -> None:
+def _enrich_details(page: Any, jobs: list[dict[str, Any]], on_job=None) -> None:
     total = len(jobs)
     for i, job in enumerate(jobs):
         try:
@@ -734,6 +734,8 @@ def _enrich_details(page: Any, jobs: list[dict[str, Any]]) -> None:
         except Exception as e:
             logger.warning(f"Failed to fetch WAAS job {job['url']}: {e}")
             logger.debug(traceback.format_exc())
+        if on_job:
+            on_job(job)
         done = i + 1
         if done == total or done % 25 == 0:
             logger.info(f"WAAS details {done}/{total}")

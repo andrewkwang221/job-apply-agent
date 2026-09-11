@@ -65,7 +65,7 @@ class EURemoteJobsConnector(BaseConnector):
                     continue
                 if raw.get("posted_date") and raw["posted_date"] < cutoff:
                     continue
-                jobs.append(raw)
+                self._emit(raw, jobs)
 
             logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
             return jobs

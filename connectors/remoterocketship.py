@@ -102,7 +102,8 @@ class RemoteRocketshipConnector(BaseConnector):
         try:
             for i, (title, location, seniority) in enumerate(combos):
                 added = _fetch_combo(
-                    title, location, seniority, cutoff, parsed, seen_ids
+                    title, location, seniority, cutoff, parsed, seen_ids,
+                    on_job=self._emit,
                 )
                 logger.info(
                     f"remoterocketship {title!r}/{location!r}/{seniority}: "
@@ -197,6 +198,7 @@ def _fetch_combo(
     cutoff: datetime,
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
+    on_job=None,
 ) -> int:
     data = _post_filter(_filter_payload(title, location, seniority))
     if data is None:
@@ -215,6 +217,8 @@ def _fetch_combo(
             continue
         seen_ids.add(raw["id"])
         parsed.append(raw)
+        if on_job:
+            on_job(raw)
         added += 1
     total = data.get("totalCount")
     logger.info(

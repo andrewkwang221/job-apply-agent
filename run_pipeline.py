@@ -157,6 +157,48 @@ def _apply_reject_reason(job: Job, scoring_result: dict, preserve_final_status: 
     job.reject_code = None
     job.reject_detail = None
 
+def _persist_raw_job(connector, raw_job, session, run, dry_run: bool) -> None:
+    """Normalize one grabbed job and commit it immediately."""
+    normalized = None
+    try:
+        normalized = connector.normalize(raw_job)
+        logger.debug(
+            f"Normalized job: '{normalized.get('title')}' at '{normalized.get('company')}'"
+        )
+
+        posted_date = normalized.get("posted_date")
+        if posted_date:
+            cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+                days=config.MAX_JOB_AGE_DAYS
+            )
+            if posted_date.tzinfo is None:
+                posted_date = posted_date.replace(tzinfo=datetime.timezone.utc)
+            if posted_date < cutoff:
+                run.jobs_duplicates += 1
+                return
+
+        if is_duplicate(normalized, session):
+            run.jobs_duplicates += 1
+            return
+
+        job_record = Job(**normalized)
+        if not dry_run:
+            session.add(job_record)
+        run.jobs_new += 1
+        if not dry_run:
+            session.commit()
+    except IntegrityError:
+        session.rollback()
+        run.jobs_duplicates += 1
+        logger.debug(
+            f"Skipped duplicate job (unique constraint): "
+            f"{(normalized or {}).get('url')}"
+        )
+    except Exception as e:
+        session.rollback()
+        logger.error(f"Error processing job: {e}")
+
+
 def _run_fetch(source: str, dry_run: bool):
     if source == "all":
         for s in CONNECTORS:
@@ -191,50 +233,22 @@ def _run_fetch(source: str, dry_run: bool):
     try:
         connector_class = CONNECTORS[source]
         connector = connector_class()
+        seen_raw_ids: set[int] = set()
+
+        def persist(raw_job):
+            raw_id = id(raw_job)
+            if raw_id in seen_raw_ids:
+                return
+            seen_raw_ids.add(raw_id)
+            run.jobs_fetched += 1
+            _persist_raw_job(connector, raw_job, session, run, dry_run)
+
+        connector._on_raw_job = persist
         raw_jobs = connector.fetch_jobs()
-        
-        run.jobs_fetched = len(raw_jobs)
-        normalized = None
+        if raw_jobs:
+            for raw_job in raw_jobs:
+                persist(raw_job)
 
-        for raw_job in raw_jobs:
-            try:
-                normalized = connector.normalize(raw_job)
-                logger.debug(f"Normalized job: '{normalized.get('title')}' at '{normalized.get('company')}'")
-
-                posted_date = normalized.get("posted_date")
-                if posted_date:
-                    cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(days=config.MAX_JOB_AGE_DAYS)
-                    if posted_date.tzinfo is None:
-                        posted_date = posted_date.replace(tzinfo=datetime.timezone.utc)
-                    if posted_date < cutoff:
-                        run.jobs_duplicates += 1
-                        continue
-
-                if is_duplicate(normalized, session):
-                    run.jobs_duplicates += 1
-                    continue
-                    
-                job_record = Job(**normalized)
-                if not dry_run:
-                    session.add(job_record)
-                
-                run.jobs_new += 1
-                
-                # Batch commit to avoid losing all progress if an error occurs late in a large batch
-                if not dry_run and run.jobs_new % 20 == 0:
-                    session.commit()
-                
-            except IntegrityError:
-                session.rollback()
-                run.jobs_duplicates += 1
-                logger.debug(
-                    f"Skipped duplicate job (unique constraint): "
-                    f"{(normalized or {}).get('url')}"
-                )
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Error processing job: {e}")
-                
         run.status = "completed"
         run.completed_at = datetime.datetime.now(datetime.timezone.utc)
         if not dry_run:

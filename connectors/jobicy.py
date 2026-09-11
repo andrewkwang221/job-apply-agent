@@ -27,6 +27,7 @@ class JobicyConnector(BaseConnector):
             response.raise_for_status()
             data = response.json()
             jobs = data.get("jobs", [])
+            self._emit_many(jobs)
             logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
             return jobs
         except Exception as e:

@@ -30,6 +30,7 @@ class JobspressoConnector(BaseConnector):
                 return []
             jobs = [self._parse_item(item) for item in channel.findall("item")]
             jobs = [j for j in jobs if j]
+            self._emit_many(jobs)
             logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
             return jobs
         except Exception as e:

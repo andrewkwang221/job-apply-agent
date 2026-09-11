@@ -57,7 +57,7 @@ class HimalayasConnector(BaseConnector):
                     guid = job.get("guid") or job.get("applicationLink", "")
                     if guid and guid not in seen_guids:
                         seen_guids.add(guid)
-                        all_jobs.append(job)
+                        self._emit(job, all_jobs)
 
                 total = data.get("totalCount", 0)
                 if page * PAGE_SIZE >= total:

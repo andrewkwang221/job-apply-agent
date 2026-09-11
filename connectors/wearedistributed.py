@@ -82,7 +82,7 @@ class WeAreDistributedConnector(BaseConnector):
             try:
                 raw = _fetch_job_page(url)
                 if raw:
-                    jobs.append(raw)
+                    self._emit(raw, jobs)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {url}: {e}")

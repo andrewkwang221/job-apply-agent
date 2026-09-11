@@ -93,7 +93,7 @@ class FlexaConnector(BaseConnector):
             try:
                 enriched = _enrich_from_page(gql_job)
                 if enriched:
-                    jobs.append(enriched)
+                    self._emit(enriched, jobs)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {gql_job.get('url', '')}: {e}")

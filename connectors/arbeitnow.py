@@ -74,6 +74,7 @@ class ArbeitnowConnector(BaseConnector):
                     if key:
                         seen_keys.add(key)
                     all_jobs.append(job)
+                    self._emit(job)
 
                 if not data.get("links", {}).get("next"):
                     break

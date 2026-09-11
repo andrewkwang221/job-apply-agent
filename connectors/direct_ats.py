@@ -348,7 +348,7 @@ class DirectATSConnector(BaseConnector):
                     dedup_key = f"{ats}_{slug}_{uid}"
                     if dedup_key not in seen_ids:
                         seen_ids.add(dedup_key)
-                        all_jobs.append(job)
+                        self._emit(job, all_jobs)
                 if jobs:
                     logger.info(f"  {name} ({ats}/{slug}): {len(jobs)} remote jobs")
             except Exception as e:

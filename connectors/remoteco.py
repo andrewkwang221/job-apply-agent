@@ -114,6 +114,7 @@ class RemoteCoConnector(BaseConnector):
                         continue
                     seen_ids.add(raw["id"])
                     parsed.append(raw)
+                    self._emit(raw)
                     kept += 1
                 search_pages = min(max(total_pages, 1), _MAX_PAGES)
                 if page == 1:

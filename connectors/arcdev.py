@@ -128,7 +128,7 @@ class ArcDevConnector(BaseConnector):
                     if job_id in seen_ids:
                         continue
                     seen_ids.add(job_id)
-                    all_jobs.append(parsed)
+                    self._emit(parsed, all_jobs)
                     new_on_page += 1
                 logger.info(
                     f"{url}: {len(raw_items)} listings, {new_on_page} kept "

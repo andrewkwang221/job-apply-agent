@@ -113,6 +113,7 @@ class DevRemoteConnector(BaseConnector):
                         continue
                     seen_ids.add(raw["id"])
                     parsed.append(raw)
+                    self._emit(raw)
                     kept += 1
                 all_stale = bool(dated) and all(dt < cutoff for dt in dated)
                 logger.info(

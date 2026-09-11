@@ -134,7 +134,7 @@ class DiceConnector(BaseConnector):
                     f"Failed to fetch Dice job detail {job['listing_url']}: {e}"
                 )
                 logger.debug(traceback.format_exc())
-            kept_jobs.append(job)
+            self._emit(job, kept_jobs)
             remembered.append(job["listing_url"])
             if i + 1 < len(jobs):
                 time.sleep(_FETCH_DELAY)

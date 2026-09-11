@@ -107,6 +107,7 @@ class FlexJobsConnector(BaseConnector):
                         seen_ids,
                         all_jobs,
                         remembered,
+                        on_job=self._emit,
                     )
         except Exception as e:
             logger.error(f"Error fetching jobs from flexjobs: {e}")
@@ -168,6 +169,7 @@ def _search_term(
     seen_ids: set[str],
     all_jobs: list[dict[str, Any]],
     remembered: list[str],
+    on_job=None,
 ) -> None:
     page = 1
     total_pages = 1
@@ -206,6 +208,8 @@ def _search_term(
                 continue
             seen_ids.add(parsed["id"])
             all_jobs.append(parsed)
+            if on_job:
+                on_job(parsed)
             new_on_page += 1
 
         logger.info(

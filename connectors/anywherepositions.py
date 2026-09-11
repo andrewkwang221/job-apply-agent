@@ -92,7 +92,7 @@ class AnywherePositionsConnector(BaseConnector):
         try:
             for region in REGIONS:
                 for search in queries:
-                    added = _fetch_query(region, search, cutoff, parsed, seen_ids)
+                    added = _fetch_query(region, search, cutoff, parsed, seen_ids, on_job=self._emit)
                     logger.info(
                         f"anywherepositions region={region!r} search={search!r}: "
                         f"+{added} (total {len(parsed)})"
@@ -188,6 +188,7 @@ def _fetch_query(
     cutoff: datetime,
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
+    on_job=None,
 ) -> int:
     added = 0
     consecutive_failures = 0
@@ -221,6 +222,8 @@ def _fetch_query(
                 continue
             seen_ids.add(raw["id"])
             parsed.append(raw)
+            if on_job:
+                on_job(raw)
             kept += 1
             added += 1
         all_stale = bool(dated) and all(dt < cutoff for dt in dated)

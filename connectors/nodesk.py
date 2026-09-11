@@ -92,7 +92,7 @@ class NodeskConnector(BaseConnector):
                 raw = _fetch_job_page(url)
                 crawled.append(url)
                 if raw:
-                    jobs.append(raw)
+                    self._emit(raw, jobs)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {url}: {e}")

@@ -68,7 +68,7 @@ class AdzunaConnector(BaseConnector):
         for country in COUNTRIES:
             try:
                 country_jobs = self._fetch_country(country, seen_ids, cutoff)
-                all_jobs.extend(country_jobs)
+                self._emit_many(country_jobs, all_jobs)
             except Exception as e:
                 logger.error(f"Error fetching country '{country}': {e}")
                 logger.debug(traceback.format_exc())
@@ -120,7 +120,7 @@ class AdzunaConnector(BaseConnector):
                 if job_id and job_id not in seen_ids:
                     seen_ids.add(job_id)
                     job["_country"] = country
-                    jobs.append(job)
+                    self._emit(job, jobs)
 
             if stop_early:
                 break
