@@ -119,6 +119,7 @@ _ALREADY_SOURCED_HOSTS = frozenset({
     "remotescout24.com",
     "trulyremote.co",
     "aijobs.com",
+    "aijobs.ai",
 })
 
 

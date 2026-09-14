@@ -83,6 +83,7 @@ _LISTING_DOMAINS = [
     "remotescout24.com",
     "trulyremote.co",
     "aijobs.com",
+    "aijobs.ai",
 ]
 
 

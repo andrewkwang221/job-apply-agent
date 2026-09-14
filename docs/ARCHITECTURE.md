@@ -121,6 +121,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RemoteScout24Connector` | [RemoteScout24](https://remotescout24.com/en/jobs/search?page=1&country=us&worktype=remote&experience=professional%2Csenior%2Cmanager&jobtitle=engineer) | Guest SSR search + `GET /api/jobs/job?id=`; profile `target_roles` + `engineer`; remote+hybrid; newest-first stale-page stop; employer `targetUrl` |
 | `TrulyRemoteConnector` | [Truly Remote](https://trulyremote.co/?category=Development&locations=North+America%252BAnywhere+in+the+world) | Guest `POST /api/getListing`; Development + North America/Anywhere; later pages send `offset`+`industry` cursor; newest-first stale-page stop; teaser `listingSummary`; employer `roleApplyURL` |
 | `AIJobsConnector` | [AIJobs.com](https://www.aijobs.com/jobs?remote=1&order=posted_at) | Guest remote Date HTML list; engineering title filter; newest-first stale-page stop; JobPosting JSON-LD; apply 302 to employer ATS |
+| `AIJobsAIConnector` | [AIJobs.ai](https://aijobs.ai/remote) | Guest Latest Jobs HTML list (skip Featured); engineering title filter; newest-first stale-page stop; job-page description; employer ATS href |
 
 **Direct ATS connectors:**
 

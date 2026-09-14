@@ -786,3 +786,30 @@ class TestAIJobsNormalize:
         assert n["url"].startswith("https://jobs.workable.com/")
         assert isinstance(n["location"], str)
         assert n["ats_type"] == "workable"
+
+
+class TestAIJobsAINormalize:
+    def _raw(self):
+        return {
+            "id": "data-scientist-analytics-remote-canada",
+            "listing_url": "https://aijobs.ai/job/data-scientist-analytics-remote-canada",
+            "url": "https://job-boards.greenhouse.io/embed/job_app?for=zestyai&token=7809591003",
+            "title": "Data Scientist, Analytics (Remote, Canada)",
+            "company": "Zesty.ai",
+            "location": "Remote, Canada",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 13, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.aijobsai import AIJobsAIConnector
+        n = AIJobsAIConnector().normalize(self._raw())
+        _assert_shape(n, "aijobsai")
+
+    def test_title_and_apply_url(self):
+        from connectors.aijobsai import AIJobsAIConnector
+        n = AIJobsAIConnector().normalize(self._raw())
+        assert n["title"] == "Data Scientist, Analytics (Remote, Canada)"
+        assert n["url"].startswith("https://job-boards.greenhouse.io/")
+        assert isinstance(n["location"], str)
+        assert n["ats_type"] == "greenhouse"
