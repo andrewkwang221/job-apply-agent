@@ -35,7 +35,8 @@ import config
 from models.database import CompanyProfile, InterviewPrepSheet, Job, ensure_company_profiles, ensure_job_columns
 from utils.compensation import extract_compensation
 from utils.company_research import company_name_key
-from utils.scoring import REJECT_LABELS
+from utils.job_inclusion import job_as_dict, load_candidate_profile
+from utils.scoring import REJECT_LABELS, _NO_DIRECT_APPLY_SOURCES, score_components
 from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
 # ---------------------------------------------------------------------------
@@ -282,12 +283,43 @@ def _plain_str(value) -> str:
     return value if isinstance(value, str) else ""
 
 
+EVAL_LABELS: dict[str, str] = {
+    "gated": "No direct apply",
+    "location": "Location",
+    "llm_shortlist": "LLM shortlist",
+    "llm_review": "LLM review",
+    "llm_reject": "LLM reject",
+    "unanalyzed": "Not analyzed",
+}
+
+
+def _eval_bucket(job: Job) -> tuple[str, str]:
+    """Primary evaluation chip for review / shortlisted list view."""
+    source = (job.source or "").strip().lower()
+    if source in _NO_DIRECT_APPLY_SOURCES:
+        return "gated", EVAL_LABELS["gated"]
+    if (job.rule_status or "") == "shortlisted" and (job.status or "") == "review":
+        return "gated", EVAL_LABELS["gated"]
+    remote = (job.remote_eligibility or "").strip().lower()
+    if remote == "review":
+        return "location", EVAL_LABELS["location"]
+    rec = (job.recommendation or "").strip().lower()
+    if rec in ("shortlist", "shortlisted"):
+        return "llm_shortlist", EVAL_LABELS["llm_shortlist"]
+    if rec == "review":
+        return "llm_review", EVAL_LABELS["llm_review"]
+    if rec in ("reject", "rejected"):
+        return "llm_reject", EVAL_LABELS["llm_reject"]
+    return "unanalyzed", EVAL_LABELS["unanalyzed"]
+
+
 def _job_to_dict(job: Job, company_website: str = "") -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
     reject_code = _plain_str(job.reject_code) or None
     plain = sanitize_skill_object_dumps(job.description_text or job.description or "")
     display = sanitize_skill_object_dumps(job.description or job.description_text or "")
     compensation = extract_compensation(plain)
+    eval_code, eval_label = _eval_bucket(job)
     return {
         "id": job.id,
         "title": job.title or "",
@@ -317,6 +349,9 @@ def _job_to_dict(job: Job, company_website: str = "") -> Dict[str, Any]:
         "reject_detail": _plain_str(job.reject_detail) or None,
         "rule_status": _plain_str(job.rule_status) or None,
         "llm_status": _plain_str(job.llm_status) or None,
+        "eval_code": eval_code,
+        "eval_label": eval_label,
+        "remote_eligibility": _plain_str(job.remote_eligibility) or None,
     }
 
 
@@ -368,6 +403,13 @@ async def stats():
 
 
 _LIST_STATUSES = frozenset({"rejected", "expired", "archived"})
+_QUEUE_LIST_STATUSES = frozenset({"review", "shortlisted"})
+
+
+def _attach_score_breakdown(jobs: List[Job], rows: List[Dict[str, Any]]) -> None:
+    profile = load_candidate_profile() or {}
+    for job, row in zip(jobs, rows):
+        row["score_breakdown"] = score_components(job_as_dict(job), profile)
 
 
 @app.get("/api/jobs")
@@ -386,11 +428,14 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
             query = query.limit(cap)
         jobs = query.all()
         sites = _company_website_map(session, [j.company or "" for j in jobs])
+        rows = [
+            _job_to_dict(j, sites.get(company_name_key(j.company or ""), ""))
+            for j in jobs
+        ]
+        if status in _QUEUE_LIST_STATUSES:
+            _attach_score_breakdown(jobs, rows)
         payload: Dict[str, Any] = {
-            "jobs": [
-                _job_to_dict(j, sites.get(company_name_key(j.company or ""), ""))
-                for j in jobs
-            ],
+            "jobs": rows,
             "total": len(jobs),
         }
         if status == "rejected":

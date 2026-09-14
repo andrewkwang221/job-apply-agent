@@ -95,6 +95,86 @@ def test_job_to_dict_includes_reject_fields():
     assert "account executive" in data["reject_detail"]
 
 
+def test_job_to_dict_includes_eval_bucket():
+    gated = Job(
+        external_id="eval-gated",
+        source="dice",
+        company="Acme",
+        title="Staff Engineer",
+        location="Remote",
+        url="https://example.com/jobs/eval-gated",
+        status="review",
+        fit_score=80,
+        rule_status="shortlisted",
+        recommendation="shortlist",
+    )
+    data = _job_to_dict(gated)
+    assert data["eval_code"] == "gated"
+    assert data["eval_label"] == "No direct apply"
+
+    location = Job(
+        external_id="eval-loc",
+        source="remotive",
+        company="Acme",
+        title="Staff Engineer",
+        location="Remote (CA)",
+        url="https://example.com/jobs/eval-loc",
+        status="review",
+        fit_score=50,
+        remote_eligibility="review",
+        recommendation="review",
+    )
+    loc = _job_to_dict(location)
+    assert loc["eval_code"] == "location"
+    assert loc["eval_label"] == "Location"
+
+    llm = Job(
+        external_id="eval-llm",
+        source="remotive",
+        company="Acme",
+        title="Staff Engineer",
+        location="Remote",
+        url="https://example.com/jobs/eval-llm",
+        status="shortlisted",
+        fit_score=80,
+        remote_eligibility="accept",
+        recommendation="shortlist",
+    )
+    shown = _job_to_dict(llm)
+    assert shown["eval_code"] == "llm_shortlist"
+    assert shown["eval_label"] == "LLM shortlist"
+
+
+@patch("ui.app.load_candidate_profile")
+def test_list_review_includes_score_breakdown(mock_profile, memory_client):
+    mock_profile.return_value = PROFILE
+    client, _job_id = memory_client
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="review-score-1",
+            source="test",
+            company="Acme",
+            title="Senior Backend Engineer",
+            location="Remote",
+            raw_location_text="Worldwide",
+            url="https://example.com/jobs/review-score-1",
+            description_text="Python SQL Docker backend api senior engineer",
+            status="review",
+            fit_score=50,
+        ))
+        session.commit()
+    finally:
+        session.close()
+    data = client.get("/api/jobs?status=review").json()
+    assert data["total"] >= 1
+    job = next(j for j in data["jobs"] if j["title"] == "Senior Backend Engineer")
+    parts = job["score_breakdown"]
+    assert set(parts) == {"skills", "keywords", "role", "remote", "seniority", "contract", "junior", "timezone"}
+    assert parts["skills"] > 0
+    assert parts["remote"] == 20
+
+
 @pytest.fixture()
 def memory_client():
     engine = create_engine(

@@ -187,10 +187,84 @@ REJECT_LABELS: dict[str, str] = {
 }
 
 
+SCORE_COMPONENT_KEYS = (
+    "skills",
+    "keywords",
+    "role",
+    "remote",
+    "seniority",
+    "contract",
+    "junior",
+    "timezone",
+)
+
+
+def empty_score_breakdown() -> dict[str, int]:
+    return {key: 0 for key in SCORE_COMPONENT_KEYS}
+
+
+def score_components(job: Dict[str, Any], profile: Dict[str, Any]) -> dict[str, int]:
+    """Per-criterion points that sum to the rule fit score (before hard rejects)."""
+    parts = empty_score_breakdown()
+    title = str(job.get("title", "")).lower()
+    description = str(job.get("description_text") or job.get("description", "")).lower()
+    combined_text = f"{title} {description}"
+    profile = profile or {}
+
+    if "junior" in combined_text or "intern" in title:
+        parts["junior"] = -30
+    if (
+        "pst hours" in combined_text
+        or "us hours only" in combined_text
+        or "pacific time" in combined_text
+    ):
+        parts["timezone"] = -20
+
+    remote = classify_remote_eligibility(job, profile)
+    if remote == "accept":
+        parts["remote"] = 20
+    elif remote == "review":
+        parts["remote"] = 10
+
+    skills = profile.get("skills", [])
+    title_skills = _find_matches(title, skills)
+    description_skills = [
+        skill for skill in _find_matches(description, skills) if skill not in title_skills
+    ]
+    parts["skills"] = min((len(title_skills) * 12) + (len(description_skills) * 4), 32)
+
+    keywords = _expanded_keywords(profile)
+    title_keywords = _find_matches(title, keywords)
+    description_keywords = [
+        keyword for keyword in _find_matches(description, keywords) if keyword not in title_keywords
+    ]
+    parts["keywords"] = min((len(title_keywords) * 6) + (len(description_keywords) * 2), 12)
+
+    parts["role"] = _title_role_score(title, profile.get("target_roles", []))
+
+    seniority = profile.get("seniority") or {}
+    for level in seniority.get("preferred") or []:
+        if matches_seniority_level(title, level) or matches_seniority_level(description[:500], level):
+            parts["seniority"] = 10
+            break
+    if parts["seniority"] == 0:
+        for level in seniority.get("acceptable") or []:
+            if matches_seniority_level(title, level) or matches_seniority_level(description[:500], level):
+                parts["seniority"] = 5
+                break
+
+    prefs = profile.get("preferences") or {}
+    contract_words = ["contract", "contractor", "freelance", "consulting"]
+    if any(cw in combined_text for cw in contract_words):
+        parts["contract"] = 10 if prefs.get("contractor_ok", False) else -15
+    return parts
+
+
 def _set_reject(result: Dict[str, Any], code: str, detail: str, score: int | None = None) -> Dict[str, Any]:
     result["recommended_status"] = "rejected"
     result["reject_code"] = code
     result["reject_detail"] = detail
+    result.setdefault("score_breakdown", empty_score_breakdown())
     if score is not None:
         result["fit_score"] = score
     return result
@@ -212,11 +286,9 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     
     Returns a dictionary mapping the scoring breakdown and final recommended status.
     """
-    score = 0
     title = str(job.get("title", "")).lower()
     description = str(job.get("description_text") or job.get("description", "")).lower()
-    combined_text = f"{title} {description}"
-    
+
     result = {
         "fit_score": 0,
         # Always recompute remote eligibility from raw job fields so rescoring
@@ -229,6 +301,7 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
         "recommended_status": "new",
         "reject_code": None,
         "reject_detail": None,
+        "score_breakdown": empty_score_breakdown(),
     }
     
     # 1. Hard Rejects
@@ -270,78 +343,31 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     if posting_lang:
         return _set_reject(result, "job_language", f"Posting appears to be in {posting_lang}")
 
-    if "junior" in combined_text or "intern" in title:
-        score -= 30
-        
-    # G. Timezone / Region warnings
-    if "pst hours" in combined_text or "us hours only" in combined_text or "pacific time" in combined_text:
-        score -= 20
-        
-    # E. Remote scoring
-    if result["remote_eligibility"] == "accept":
-        score += 20
-    elif result["remote_eligibility"] == "review":
-        score += 10
-        
-    # A. Skills overlap
+    parts = score_components(job, profile)
+    result["score_breakdown"] = parts
+    score = sum(parts.values())
+    result["seniority_match"] = parts["seniority"] > 0
+    result["contractor_bonus"] = parts["contract"] > 0
+
     skills = profile.get("skills", [])
     title_skills = _find_matches(title, skills)
     description_skills = [skill for skill in _find_matches(description, skills) if skill not in title_skills]
-    matched_skills = _unique(title_skills + description_skills)
-    result["matched_skills"] = matched_skills
-    skills_score = min((len(title_skills) * 12) + (len(description_skills) * 4), 32)
-    score += skills_score
-    
-    # B. Keywords overlap
+    result["matched_skills"] = _unique(title_skills + description_skills)
+
     keywords = _expanded_keywords(profile)
     title_keywords = _find_matches(title, keywords)
-    description_keywords = [keyword for keyword in _find_matches(description, keywords) if keyword not in title_keywords]
-    matched_keywords = _unique(title_keywords + description_keywords)
-    result["matched_keywords"] = matched_keywords
-    keywords_score = min((len(title_keywords) * 6) + (len(description_keywords) * 2), 12)
-    score += keywords_score
-    
-    # C. Role match
-    target_roles = profile.get("target_roles", [])
-    role_score = _title_role_score(title, target_roles)
-    score += role_score
-        
-    # D. Seniority match
-    seniority = profile.get("seniority", {})
-    preferred_levels = seniority.get("preferred", [])
-    acceptable_levels = seniority.get("acceptable", [])
-            
-    for level in preferred_levels:
-        if matches_seniority_level(title, level) or matches_seniority_level(description[:500], level):
-            score += 10
-            result["seniority_match"] = True
-            break
-            
-    if not result["seniority_match"]:
-        for level in acceptable_levels:
-            if matches_seniority_level(title, level) or matches_seniority_level(description[:500], level):
-                score += 5
-                result["seniority_match"] = True
-                break
-                
-    # F. Contractor friendliness
-    prefs = profile.get("preferences", {})
-    contract_words = ["contract", "contractor", "freelance", "consulting"]
-    
-    if any(cw in combined_text for cw in contract_words):
-        if prefs.get("contractor_ok", False):
-            score += 10
-            result["contractor_bonus"] = True
-        else:
-            score -= 15 # Severe penalty if contract isn't wanted
+    description_keywords = [
+        keyword for keyword in _find_matches(description, keywords) if keyword not in title_keywords
+    ]
+    result["matched_keywords"] = _unique(title_keywords + description_keywords)
 
-    has_title_relevance = _has_title_relevance(title, title_skills, title_keywords, role_score)
+    has_title_relevance = _has_title_relevance(title, title_skills, title_keywords, parts["role"])
     if not has_title_relevance and score < 40:
         return _set_reject(
             result,
             "title_mismatch",
             "Title is not relevant to profile skills/keywords; " + _overlap_detail(
-                score, matched_skills, matched_keywords
+                score, result["matched_skills"], result["matched_keywords"]
             ),
             score=score,
         )
@@ -353,7 +379,12 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     elif score >= REVIEW_MIN_SCORE:
         result["recommended_status"] = "review"
     else:
-        return _set_reject(result, "low_score", _overlap_detail(score, matched_skills, matched_keywords), score=score)
+        return _set_reject(
+            result,
+            "low_score",
+            _overlap_detail(score, result["matched_skills"], result["matched_keywords"]),
+            score=score,
+        )
 
     # Sources without a direct apply path are capped at review so they never
     # reach the shortlist (no point surfacing jobs we can't act on).

@@ -64,7 +64,12 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-info{flex:1;min-width:0;}
 .list-title{font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .list-company{font-size:11.5px;color:var(--text-secondary);}
-.list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;width:46px;text-align:center;flex-shrink:0;}
+.list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:46px;width:46px;text-align:center;flex-shrink:0;}
+.list-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0;}
+.list-toolbar .reject-counts{flex:1;padding-bottom:12px;}
+.list-sort{display:none;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text-muted);flex-shrink:0;padding:4px 4px 12px;white-space:nowrap;}
+.list-sort select{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--text-primary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:5px 8px;cursor:pointer;}
+.list-sort select:hover{border-color:var(--accent-mid);}
 .list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .list-date{font-size:11.5px;color:var(--text-muted);width:60px;text-align:right;flex-shrink:0;}
 .list-row{cursor:pointer;}
@@ -72,15 +77,26 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .reject-count-chip{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:16px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer;}
 .reject-count-chip:hover{border-color:var(--accent-mid);color:var(--accent);}
 .reject-count-chip.active{background:var(--red-mid);border-color:var(--red);color:var(--red);}
+.reject-counts[data-tone="review"] .reject-count-chip.active{background:var(--orange-mid);border-color:var(--orange);color:var(--orange);}
+.reject-counts[data-tone="shortlisted"] .reject-count-chip.active{background:var(--green-mid);border-color:var(--green);color:var(--green);}
+.view-toggle{display:none;align-items:center;border:1px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;margin-left:8px;}
+.view-toggle.visible{display:flex;}
+.view-toggle-btn{padding:6px 12px;border:none;background:var(--bg-card);color:var(--text-muted);font-family:'Inter',sans-serif;font-size:12px;font-weight:600;cursor:pointer;transition:all var(--transition);}
+.view-toggle-btn:hover{color:var(--text-secondary);background:var(--bg-hover);}
+.view-toggle-btn.active{background:var(--accent-light);color:var(--accent);}
 .why-block{background:var(--red-light);border:1px solid var(--red-mid);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px;}
 .why-block-label{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--red);margin-bottom:4px;}
 .why-block-code{font-size:13px;font-weight:700;color:var(--text-primary);margin-bottom:4px;}
 .why-block-detail{font-size:13px;color:var(--text-secondary);line-height:1.5;}
 .list-link{width:26px;height:26px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);text-decoration:none;transition:all var(--transition);flex-shrink:0;}
 .list-link:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
+.list-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;width:148px;}
+.list-actions .list-archive,.list-actions .list-shortlist{flex:1;}
 .list-archive{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
 .list-archive:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--text-muted);}
 .list-archive:disabled{opacity:.45;cursor:default;}
+.list-shortlist{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid var(--green-mid);background:var(--green-light);color:var(--green);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
+.list-shortlist:hover{background:var(--green-mid);color:var(--green);border-color:var(--green);}
 .list-archive:disabled:hover{background:var(--bg-subtle);color:var(--text-secondary);border-color:var(--border);}
 .list-view-header .list-archive{text-transform:none;letter-spacing:0;width:78px;padding:3px 6px;white-space:nowrap;}
 .btn-pipeline{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
@@ -458,10 +474,14 @@ a.card-company:hover{text-decoration:underline;}
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
       prev
     </button>
-    <button class="nav-btn" id="btnBackList" onclick="backToRejectedList()" style="display:none">
+    <button class="nav-btn" id="btnBackList" onclick="backToList()" style="display:none">
       list
     </button>
     <div class="nav-counter" id="navCounter">Loading…</div>
+    <div class="view-toggle" id="viewToggle">
+      <button class="view-toggle-btn active" type="button" id="viewToggleCard" onclick="setQueueView('card')">Card</button>
+      <button class="view-toggle-btn" type="button" id="viewToggleList" onclick="setQueueView('list')">List</button>
+    </div>
     <button class="nav-btn" id="btnNext" onclick="nextJob()">
       next
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
@@ -614,7 +634,23 @@ a.card-company:hover{text-decoration:underline;}
   </div>
 
   <div class="list-view" id="listView" style="display:none">
-    <div id="rejectCounts" class="reject-counts" style="display:none"></div>
+    <div class="list-toolbar" id="listToolbar">
+      <div id="rejectCounts" class="reject-counts" style="display:none"></div>
+      <label class="list-sort" id="listSortWrap">
+        Sort by
+        <select id="listSortSelect" onchange="setListSort(this.value)">
+          <option value="sum">Sum</option>
+          <option value="skills">Skills</option>
+          <option value="keywords">Keywords</option>
+          <option value="role">Target role</option>
+          <option value="remote">Remote</option>
+          <option value="seniority">Seniority</option>
+          <option value="contract">Contract</option>
+          <option value="junior">Junior / intern</option>
+          <option value="timezone">Timezone</option>
+        </select>
+      </label>
+    </div>
     <div class="list-view-header" id="listViewHeader">
       <span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
     </div>
@@ -708,8 +744,12 @@ let currentStatus = 'review';
 let activeTab = 'overview';
 let pipelinePoller = null;
 let rejectCounts = [];
-let rejectFilter = null;
+let listFilter = 'all';
+let listSortBy = 'sum';
 let viewingListCard = false;
+let queueView = 'card';
+const _LIST_STATUSES = new Set(['rejected', 'expired', 'archived']);
+const _QUEUE_LIST_STATUSES = new Set(['review', 'shortlisted']);
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -762,20 +802,25 @@ async function loadStats() {
 async function loadJobs(status) {
   currentStatus = status;
   try {
-    const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${_LIST_STATUSES.has(status) ? '&limit=0' : ''}`);
+    const unlimited = _LIST_STATUSES.has(status) || _QUEUE_LIST_STATUSES.has(status);
+    const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${unlimited ? '&limit=0' : ''}`);
     jobs = data.jobs || [];
     rejectCounts = data.reject_counts || [];
-    rejectFilter = null;
+    listFilter = 'all';
+    listSortBy = 'sum';
     viewingListCard = false;
     idx = 0;
+    if (_LIST_STATUSES.has(status)) queueView = 'list';
+    else queueView = 'card';
     if (jobs.length === 0) {
       renderEmpty(status);
-    } else if (_LIST_STATUSES.has(status)) {
+    } else if (queueView === 'list') {
       renderList(jobs);
     } else {
       renderCardWrap();
       renderCard(idx);
     }
+    updateViewToggle();
     updateNav();
   } catch(e) {
     console.error('loadJobs:', e);
@@ -1007,7 +1052,52 @@ function renderCard(i, direction) {
   updateNav();
 }
 
-const _LIST_STATUSES = new Set(['rejected', 'expired', 'archived']);
+function _isEvalList() {
+  return _QUEUE_LIST_STATUSES.has(currentStatus);
+}
+
+const _GATED_SOURCES = new Set([
+  'weworkremotely', 'remotejobsio', 'dailyremote', 'arcdev', 'flexjobs',
+  'ycombinator', 'waas', 'techjobsforgood', 'remotecom', 'remoteco', 'dice',
+]);
+
+function _derivedEval(job) {
+  if (job.eval_code) return {code: job.eval_code, label: job.eval_label || job.eval_code};
+  const source = (job.source || '').toLowerCase();
+  if (_GATED_SOURCES.has(source) || (job.rule_status === 'shortlisted' && job.status === 'review')) {
+    return {code: 'gated', label: 'No direct apply'};
+  }
+  if ((job.remote_eligibility || '').toLowerCase() === 'review') {
+    return {code: 'location', label: 'Location'};
+  }
+  const rec = (job.recommendation || '').toLowerCase();
+  if (rec === 'shortlist' || rec === 'shortlisted') return {code: 'llm_shortlist', label: 'LLM shortlist'};
+  if (rec === 'review') return {code: 'llm_review', label: 'LLM review'};
+  if (rec === 'reject' || rec === 'rejected') return {code: 'llm_reject', label: 'LLM reject'};
+  return {code: 'unanalyzed', label: 'Not analyzed'};
+}
+
+function _jobFilterCode(job) {
+  if (_isEvalList()) return _derivedEval(job).code;
+  return job.reject_code || 'unknown';
+}
+
+function _jobFilterLabel(job) {
+  if (_isEvalList()) return _derivedEval(job).label;
+  return job.reject_label || 'Unknown';
+}
+
+function _evalCountsFromJobs(jobList) {
+  const tallies = new Map();
+  for (const j of jobList) {
+    const code = _jobFilterCode(j);
+    const label = _jobFilterLabel(j);
+    const row = tallies.get(code) || {code, label, count: 0};
+    row.count += 1;
+    tallies.set(code, row);
+  }
+  return [...tallies.values()].sort((a, b) => b.count - a.count || String(a.label).localeCompare(String(b.label)));
+}
 
 function renderEmpty(status) {
   viewingListCard = false;
@@ -1019,6 +1109,7 @@ function renderEmpty(status) {
   document.getElementById('navCounter').textContent = `0 ${status} jobs`;
   const back = document.getElementById('btnBackList');
   if (back) back.style.display = 'none';
+  updateViewToggle();
 }
 
 function renderCardWrap() {
@@ -1040,44 +1131,115 @@ function _rejectCountsFromJobs(jobList) {
   return [...tallies.values()].sort((a, b) => b.count - a.count || String(a.code).localeCompare(String(b.code)));
 }
 
+function _listChipCounts(jobList) {
+  if (_isEvalList()) return _evalCountsFromJobs(jobList);
+  if (currentStatus === 'rejected') return _rejectCountsFromJobs(jobList);
+  return [];
+}
+
+function _visibleListJobs(jobList = jobs) {
+  if (listFilter && listFilter !== 'all') {
+    return jobList.filter(j => _jobFilterCode(j) === listFilter);
+  }
+  return jobList;
+}
+
+function _listScoreValue(j) {
+  if (listSortBy === 'sum') return j.fit_score;
+  const n = (j.score_breakdown || {})[listSortBy];
+  return typeof n === 'number' ? n : 0;
+}
+
+function _sortedListJobs(jobList) {
+  const visible = _visibleListJobs(jobList);
+  if (!_isEvalList()) return visible;
+  return visible.slice().sort((a, b) => {
+    const av = _listScoreValue(a);
+    const bv = _listScoreValue(b);
+    const an = av == null ? Number.NEGATIVE_INFINITY : av;
+    const bn = bv == null ? Number.NEGATIVE_INFINITY : bv;
+    if (bn !== an) return bn - an;
+    return (b.id || 0) - (a.id || 0);
+  });
+}
+
+function _syncListSort() {
+  const wrap = document.getElementById('listSortWrap');
+  const sel = document.getElementById('listSortSelect');
+  const show = _isEvalList();
+  if (wrap) wrap.style.display = show ? 'flex' : 'none';
+  if (sel && sel.value !== listSortBy) sel.value = listSortBy;
+}
+
+function setListSort(key) {
+  listSortBy = key || 'sum';
+  renderList(jobs);
+}
+
 function renderList(jobList) {
   viewingListCard = false;
+  queueView = 'list';
   document.getElementById('triageArea').classList.add('list-mode');
   document.getElementById('emptyState').style.display = 'none';
   document.getElementById('cardWrap').style.display = 'none';
-  const scoreColor = s => s >= 70 ? `background:var(--green-mid);color:var(--green)` :
-                          s >= 50 ? `background:var(--orange-mid);color:var(--orange)` :
-                                    `background:var(--red-mid);color:var(--red)`;
-  if (currentStatus === 'rejected') {
-    rejectCounts = _rejectCountsFromJobs(jobList);
-    if (rejectFilter && !rejectCounts.some(c => c.code === rejectFilter)) rejectFilter = null;
-  }
+  const scoreColor = (s, criterion) => {
+    if (s == null) return 'color:var(--text-muted)';
+    if (criterion) {
+      if (s > 0) return `background:var(--green-mid);color:var(--green)`;
+      if (s < 0) return `background:var(--red-mid);color:var(--red)`;
+      return `background:var(--bg-subtle);color:var(--text-muted)`;
+    }
+    return s >= 70 ? `background:var(--green-mid);color:var(--green)` :
+           s >= 50 ? `background:var(--orange-mid);color:var(--orange)` :
+                     `background:var(--red-mid);color:var(--red)`;
+  };
+  const showChips = currentStatus === 'rejected' || _isEvalList();
+  const counts = showChips ? _listChipCounts(jobList) : [];
+  if (listFilter !== 'all' && !counts.some(c => c.code === listFilter)) listFilter = 'all';
   const countsEl = document.getElementById('rejectCounts');
-  if (currentStatus === 'rejected' && rejectCounts.length) {
+  if (showChips) {
     countsEl.style.display = 'flex';
-    countsEl.innerHTML = rejectCounts.map(c => `
-      <button class="reject-count-chip${rejectFilter === c.code ? ' active' : ''}" onclick="filterRejectedBy('${esc(c.code)}')">
+    countsEl.dataset.tone = currentStatus === 'rejected' ? 'rejected' : currentStatus;
+    const chips = counts.map(c => `
+      <button class="reject-count-chip${listFilter === c.code ? ' active' : ''}" onclick="filterListBy('${esc(c.code)}')">
         ${esc(c.label)} ${c.count}
       </button>`).join('');
+    countsEl.innerHTML = `
+      <button class="reject-count-chip${listFilter === 'all' ? ' active' : ''}" onclick="filterListBy('all')">
+        All ${jobList.length}
+      </button>${chips}`;
   } else {
     countsEl.style.display = 'none';
     countsEl.innerHTML = '';
+    delete countsEl.dataset.tone;
   }
   const header = document.getElementById('listViewHeader');
+  const reasonHead = currentStatus === 'rejected' ? 'Why' : 'Eval';
   if (header) {
-    header.innerHTML = currentStatus === 'rejected'
-      ? `<span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span><span style="width:26px"></span>`
-      : `<span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>`;
+    const scoreHead = `<span>Job</span><span style="width:132px;text-align:center">${reasonHead}</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span>`;
+    if (currentStatus === 'rejected') {
+      header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span><span style="width:26px"></span>`;
+    } else if (currentStatus === 'review') {
+      header.innerHTML = `${scoreHead}<span style="width:148px;text-align:center">Actions</span><span style="width:26px"></span>`;
+    } else {
+      header.innerHTML = `${scoreHead}<span style="width:26px"></span>`;
+    }
   }
-  const visible = (currentStatus === 'rejected' && rejectFilter)
-    ? jobList.filter(j => (j.reject_code || 'unknown') === rejectFilter)
-    : jobList;
+  const visible = _sortedListJobs(jobList);
   document.getElementById('listViewRows').innerHTML = visible.map(j => {
     const original = jobList.indexOf(j);
-    const label = j.reject_label || 'Unknown';
-    const archiveBtn = currentStatus === 'rejected'
+    const label = _jobFilterLabel(j);
+    const tip = j.reject_detail || label;
+    const rowActions = currentStatus === 'rejected'
       ? `<button class="list-archive" type="button" title="Archive" style="width:78px" onclick="archiveJobAt(${original}, event)">Archive</button>`
+      : currentStatus === 'review'
+      ? `<div class="list-actions">
+          <button class="list-archive" type="button" title="Archive" onclick="setJobStatusAt(${original}, 'archived', event)">Archive</button>
+          <button class="list-shortlist" type="button" title="Shortlist" onclick="setJobStatusAt(${original}, 'shortlisted', event)">Shortlist</button>
+        </div>`
       : '';
+    const criterion = _isEvalList() && listSortBy !== 'sum';
+    const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
     return `
     <div class="list-row" onclick="openListJob(${original})">
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
@@ -1085,10 +1247,10 @@ function renderList(jobList) {
         <div class="list-title">${esc(j.title)}</div>
         <div class="list-company">${esc(j.company)}</div>
       </div>
-      <div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(j.reject_detail || label)}">${esc(label)}</div>
-      <div class="list-score" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'color:var(--text-muted)'}">${j.fit_score != null ? j.fit_score : '—'}</div>
+      <div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(tip)}">${esc(label)}</div>
+      <div class="list-score" style="${shownScore != null ? scoreColor(shownScore, criterion) : 'color:var(--text-muted)'}">${shownScore != null ? shownScore : '—'}</div>
       <div class="list-date">${j.created_at ? relativeDate(j.created_at) : '—'}</div>
-      ${archiveBtn}
+      ${rowActions}
       <a class="list-link" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open job posting" onclick="event.stopPropagation()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
       </a>
@@ -1099,17 +1261,50 @@ function renderList(jobList) {
   const archiveAll = document.getElementById('btnArchiveAll');
   if (archiveAll) {
     archiveAll.disabled = visible.length === 0;
-    archiveAll.title = rejectFilter
+    archiveAll.title = listFilter !== 'all'
       ? `Archive ${visible.length} visible job${visible.length === 1 ? '' : 's'} for this Why filter`
       : `Archive all ${visible.length} rejected job${visible.length === 1 ? '' : 's'}`;
   }
   const back = document.getElementById('btnBackList');
   if (back) back.style.display = 'none';
+  _syncListSort();
+  updateViewToggle();
+}
+
+function filterListBy(code) {
+  listFilter = code || 'all';
+  renderList(jobs);
 }
 
 function filterRejectedBy(code) {
-  rejectFilter = rejectFilter === code ? null : code;
-  renderList(jobs);
+  filterListBy(code);
+}
+
+function setQueueView(view) {
+  if (!_QUEUE_LIST_STATUSES.has(currentStatus) || !jobs.length) return;
+  if (view === 'list') {
+    listFilter = listFilter || 'all';
+    renderList(jobs);
+  } else {
+    queueView = 'card';
+    viewingListCard = false;
+    if (idx < 0 || idx >= jobs.length) idx = 0;
+    renderCardWrap();
+    renderCard(idx);
+  }
+  updateViewToggle();
+  updateNav();
+}
+
+function updateViewToggle() {
+  const toggle = document.getElementById('viewToggle');
+  const cardBtn = document.getElementById('viewToggleCard');
+  const listBtn = document.getElementById('viewToggleList');
+  const show = _QUEUE_LIST_STATUSES.has(currentStatus) && jobs.length > 0;
+  if (toggle) toggle.classList.toggle('visible', show);
+  const listActive = queueView === 'list' || (_LIST_STATUSES.has(currentStatus));
+  if (cardBtn) cardBtn.classList.toggle('active', !listActive);
+  if (listBtn) listBtn.classList.toggle('active', listActive);
 }
 
 function openListJob(i) {
@@ -1117,9 +1312,10 @@ function openListJob(i) {
   viewingListCard = true;
   renderCardWrap();
   renderCard(idx);
+  updateViewToggle();
 }
 
-function backToRejectedList() {
+function backToList() {
   viewingListCard = false;
   renderList(jobs);
 }
@@ -1160,9 +1356,7 @@ async function restoreArchivedJob(target) {
 
 function _visibleRejectedJobs() {
   if (currentStatus !== 'rejected') return [];
-  return rejectFilter
-    ? jobs.filter(j => (j.reject_code || 'unknown') === rejectFilter)
-    : jobs;
+  return _visibleListJobs();
 }
 
 function openArchiveAllModal() {
@@ -1171,8 +1365,8 @@ function openArchiveAllModal() {
     showToast('Nothing to archive', '');
     return;
   }
-  const why = rejectFilter
-    ? (visible[0].reject_label || rejectFilter)
+  const why = listFilter !== 'all'
+    ? (visible[0].reject_label || listFilter)
     : null;
   const n = visible.length;
   document.getElementById('archiveAllMsg').textContent = why
@@ -1200,7 +1394,7 @@ async function confirmArchiveVisibleRejected() {
   if (confirmBtn) confirmBtn.disabled = true;
   closeArchiveAllModal();
   try {
-    const payload = rejectFilter ? {reject_codes: [rejectFilter]} : {};
+    const payload = listFilter !== 'all' ? {reject_codes: [listFilter]} : {};
     const res = await api('/api/jobs/bulk-archive', 'POST', payload);
     const n = res.archived ?? visible.length;
     showToast(`Archived ${n} job${n === 1 ? '' : 's'}`, 'success');
@@ -1215,18 +1409,24 @@ async function confirmArchiveVisibleRejected() {
 }
 
 async function archiveJobAt(i, evt) {
+  await setJobStatusAt(i, 'archived', evt);
+}
+
+async function setJobStatusAt(i, status, evt) {
   if (evt) evt.stopPropagation();
   const job = jobs[i];
   if (!job) return;
   try {
-    await api(`/api/jobs/${job.id}/status`, 'POST', {status: 'archived'});
-    showToast('Archived', 'success');
+    await api(`/api/jobs/${job.id}/status`, 'POST', {status});
+    const toasts = {archived: 'Archived', shortlisted: '✓ Shortlisted'};
+    showToast(toasts[status] || status, 'success');
     jobs.splice(i, 1);
+    if (idx >= jobs.length) idx = Math.max(0, jobs.length - 1);
     if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
     renderList(jobs);
     loadStats();
   } catch (e) {
-    showToast('Failed to archive', 'error');
+    showToast(status === 'archived' ? 'Failed to archive' : 'Failed to update', 'error');
   }
 }
 
@@ -1239,8 +1439,8 @@ async function _moveCurrentJob(newStatus, toastMsg) {
     jobs.splice(idx, 1);
     if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
     if (idx >= jobs.length) idx = jobs.length - 1;
-    if (viewingListCard) { renderCardWrap(); renderCard(idx); }
-    else renderList(jobs);
+    if (viewingListCard || queueView === 'list') { renderList(jobs); }
+    else { renderCardWrap(); renderCard(idx); }
     loadStats();
   } catch (e) {
     showToast('Failed to update status', 'error');
@@ -1250,18 +1450,22 @@ async function _moveCurrentJob(newStatus, toastMsg) {
 // ── Navigation ─────────────────────────────────────────────────────────────
 function updateNav() {
   const total = jobs.length;
+  const inList = queueView === 'list' && !viewingListCard;
   const counter = document.getElementById('navCounter');
-  if (counter) counter.innerHTML = `<strong>${total > 0 ? idx + 1 : 0}</strong> / ${total} ${currentStatus} jobs`;
+  if (counter && !inList) {
+    counter.innerHTML = `<strong>${total > 0 ? idx + 1 : 0}</strong> / ${total} ${currentStatus} jobs`;
+  }
   const prev = document.getElementById('btnPrev');
   const next = document.getElementById('btnNext');
   if (prev) prev.disabled = idx <= 0;
   if (next) next.disabled = idx >= total - 1;
   const back = document.getElementById('btnBackList');
-  if (back) back.style.display = (_LIST_STATUSES.has(currentStatus) && viewingListCard) ? '' : 'none';
+  const listBack = (_LIST_STATUSES.has(currentStatus) || _QUEUE_LIST_STATUSES.has(currentStatus)) && viewingListCard;
+  if (back) back.style.display = listBack ? '' : 'none';
 }
 
-function prevJob() { if (idx > 0) { idx--; viewingListCard = _LIST_STATUSES.has(currentStatus); renderCardWrap(); renderCard(idx); } }
-function nextJob() { if (idx < jobs.length - 1) { idx++; viewingListCard = _LIST_STATUSES.has(currentStatus); renderCardWrap(); renderCard(idx); } }
+function prevJob() { if (idx > 0) { idx--; viewingListCard = _LIST_STATUSES.has(currentStatus) || queueView === 'list'; renderCardWrap(); renderCard(idx); } }
+function nextJob() { if (idx < jobs.length - 1) { idx++; viewingListCard = _LIST_STATUSES.has(currentStatus) || queueView === 'list'; renderCardWrap(); renderCard(idx); } }
 
 // ── Triage ─────────────────────────────────────────────────────────────────
 async function triageAction(newStatus) {
@@ -1274,9 +1478,13 @@ async function triageAction(newStatus) {
     showToast(icons[newStatus] || newStatus, newStatus === 'shortlisted' || newStatus === 'applied' ? 'success' : '');
     jobs.splice(idx, 1);
     if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
-    renderCardWrap();
     if (idx >= jobs.length) idx = jobs.length - 1;
-    renderCard(idx);
+    if (viewingListCard || queueView === 'list') {
+      renderList(jobs);
+    } else {
+      renderCardWrap();
+      renderCard(idx);
+    }
     loadStats();
   } catch(e) {
     showToast('Failed to update status', 'error');
