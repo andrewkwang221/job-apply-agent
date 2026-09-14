@@ -699,3 +699,36 @@ class TestWorkableNormalize:
         assert n["url"].startswith("https://jobs.workable.com/view/")
         assert isinstance(n["location"], str)
         assert n["ats_type"] == "workable"
+
+
+# ---------------------------------------------------------------------------
+# remotescout24.com
+# ---------------------------------------------------------------------------
+
+class TestRemoteScout24Normalize:
+    def _raw(self):
+        return {
+            "id": "9454423",
+            "listing_url": (
+                "https://remotescout24.com/en/job/"
+                "9454423-282233e1-9bf0-474a-9664-435ecd034c1c"
+            ),
+            "url": "https://jobs.lever.co/acme/abc",
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Remote, San Francisco, United States",
+            "description": "<p>Backend role building Python APIs.</p>",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remotescout24 import RemoteScout24Connector
+        n = RemoteScout24Connector().normalize(self._raw())
+        _assert_shape(n, "remotescout24")
+
+    def test_title_and_apply_url(self):
+        from connectors.remotescout24 import RemoteScout24Connector
+        n = RemoteScout24Connector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"] == "https://jobs.lever.co/acme/abc"
+        assert isinstance(n["location"], str)
