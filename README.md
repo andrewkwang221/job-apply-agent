@@ -293,7 +293,7 @@ Run `python run_pipeline.py help` for the full reference. Key commands:
 | `shortlist` | List shortlisted jobs |
 | `review` | List review jobs |
 | `rescore` | Re-apply scoring rules to existing review jobs |
-| `rescore --promote` | Also move review jobs with fit_score ≥ 60 to shortlisted |
+| `rescore --promote` | Also move review jobs with fit_score or llm_fit_score ≥ 60 to shortlisted |
 | `dedup` | Drop extra copies of the same job already in SQLite (`--dry-run` to preview) |
 | `setup-credentials` | Store email credentials in Windows Credential Manager |
 

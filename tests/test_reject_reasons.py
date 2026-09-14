@@ -145,9 +145,9 @@ def test_job_to_dict_includes_eval_bucket():
     assert shown["eval_label"] == "LLM shortlist"
 
 
-@patch("ui.app.load_candidate_profile")
-def test_list_review_includes_score_breakdown(mock_profile, memory_client):
-    mock_profile.return_value = PROFILE
+def test_list_review_uses_stored_score_breakdown(memory_client):
+    from utils.scoring import dump_score_breakdown
+
     client, _job_id = memory_client
     session = app_module._Session()
     try:
@@ -159,9 +159,12 @@ def test_list_review_includes_score_breakdown(mock_profile, memory_client):
             location="Remote",
             raw_location_text="Worldwide",
             url="https://example.com/jobs/review-score-1",
-            description_text="Python SQL Docker backend api senior engineer",
             status="review",
             fit_score=50,
+            score_breakdown=dump_score_breakdown({
+                "skills": 16, "keywords": 4, "role": 20, "remote": 20,
+                "seniority": 10, "contract": 0, "junior": 0, "timezone": 0,
+            }),
         ))
         session.commit()
     finally:
@@ -170,9 +173,35 @@ def test_list_review_includes_score_breakdown(mock_profile, memory_client):
     assert data["total"] >= 1
     job = next(j for j in data["jobs"] if j["title"] == "Senior Backend Engineer")
     parts = job["score_breakdown"]
-    assert set(parts) == {"skills", "keywords", "role", "remote", "seniority", "contract", "junior", "timezone"}
-    assert parts["skills"] > 0
+    assert parts["skills"] == 16
     assert parts["remote"] == 20
+
+
+def test_list_review_is_lean_without_rescoring(memory_client):
+    client, _job_id = memory_client
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="review-lean-1",
+            source="test",
+            company="Acme",
+            title="Senior Backend Engineer",
+            location="Remote",
+            url="https://example.com/jobs/review-lean-1",
+            description="A long job description that should not ship in the list payload.",
+            description_text="A long job description that should not ship in the list payload.",
+            status="review",
+            fit_score=50,
+        ))
+        session.commit()
+    finally:
+        session.close()
+    data = client.get("/api/jobs?status=review").json()
+    job = next(j for j in data["jobs"] if j["title"] == "Senior Backend Engineer")
+    assert job["description"] == ""
+    assert job["score_breakdown"]["skills"] == 0
+    detail = client.get(f"/api/jobs/{job['id']}").json()
+    assert "long job description" in detail["description"]
 
 
 @pytest.fixture()
@@ -461,6 +490,10 @@ def test_evaluate_all_jobs_skips_archived():
             "fit_score": 80,
             "recommended_status": "shortlisted",
             "remote_eligibility": "accept",
+            "score_breakdown": {
+                "skills": 12, "keywords": 2, "role": 20, "remote": 20,
+                "seniority": 10, "contract": 0, "junior": 0, "timezone": 0,
+            },
         }
 
     with patch("run_pipeline.SessionLocal", MagicMock(return_value=session)), \
@@ -479,6 +512,7 @@ def test_evaluate_all_jobs_skips_archived():
         assert archived_row.reject_code == "low_score"
         assert review_row.status == "shortlisted"
         assert review_row.fit_score == 80
+        assert '"skills":12' in (review_row.score_breakdown or "")
         assert archived_id not in scored_ids
         assert review_id in scored_ids
     finally:

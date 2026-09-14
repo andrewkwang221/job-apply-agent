@@ -29,14 +29,13 @@ from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import create_engine, func, or_
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import defer, sessionmaker
 
 import config
 from models.database import CompanyProfile, InterviewPrepSheet, Job, ensure_company_profiles, ensure_job_columns
 from utils.compensation import extract_compensation
 from utils.company_research import company_name_key
-from utils.job_inclusion import job_as_dict, load_candidate_profile
-from utils.scoring import REJECT_LABELS, _NO_DIRECT_APPLY_SOURCES, score_components
+from utils.scoring import REJECT_LABELS, _NO_DIRECT_APPLY_SOURCES, parse_score_breakdown
 from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
 # ---------------------------------------------------------------------------
@@ -313,12 +312,23 @@ def _eval_bucket(job: Job) -> tuple[str, str]:
     return "unanalyzed", EVAL_LABELS["unanalyzed"]
 
 
-def _job_to_dict(job: Job, company_website: str = "") -> Dict[str, Any]:
+def _job_to_dict(
+    job: Job,
+    company_website: str = "",
+    *,
+    include_body: bool = True,
+) -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
     reject_code = _plain_str(job.reject_code) or None
-    plain = sanitize_skill_object_dumps(job.description_text or job.description or "")
-    display = sanitize_skill_object_dumps(job.description or job.description_text or "")
-    compensation = extract_compensation(plain)
+    display = ""
+    salary = None
+    equity = None
+    if include_body:
+        plain = sanitize_skill_object_dumps(job.description_text or job.description or "")
+        display = sanitize_skill_object_dumps(job.description or job.description_text or "")
+        compensation = extract_compensation(plain)
+        salary = compensation.salary
+        equity = compensation.equity
     eval_code, eval_label = _eval_bucket(job)
     return {
         "id": job.id,
@@ -332,13 +342,13 @@ def _job_to_dict(job: Job, company_website: str = "") -> Dict[str, Any]:
         "rule_score": job.fit_score,
         "llm_confidence": job.llm_confidence,
         "recommendation": job.recommendation,
-        "strengths": _parse_json_list(job.llm_strengths),
-        "gaps": _parse_json_list(job.skill_gaps),
-        "reasoning": job.fit_explanation or "",
-        "cover_letter": job.cover_letter or "",
+        "strengths": _parse_json_list(job.llm_strengths) if include_body else [],
+        "gaps": _parse_json_list(job.skill_gaps) if include_body else [],
+        "reasoning": (job.fit_explanation or "") if include_body else "",
+        "cover_letter": (job.cover_letter or "") if include_body else "",
         "description": display,
-        "salary": compensation.salary,
-        "equity": compensation.equity,
+        "salary": salary,
+        "equity": equity,
         "url": job.url or "",
         "posted_date": job.posted_date.isoformat() if job.posted_date else None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
@@ -352,6 +362,7 @@ def _job_to_dict(job: Job, company_website: str = "") -> Dict[str, Any]:
         "eval_code": eval_code,
         "eval_label": eval_label,
         "remote_eligibility": _plain_str(job.remote_eligibility) or None,
+        "score_breakdown": parse_score_breakdown(getattr(job, "score_breakdown", None)),
     }
 
 
@@ -403,13 +414,14 @@ async def stats():
 
 
 _LIST_STATUSES = frozenset({"rejected", "expired", "archived"})
-_QUEUE_LIST_STATUSES = frozenset({"review", "shortlisted"})
-
-
-def _attach_score_breakdown(jobs: List[Job], rows: List[Dict[str, Any]]) -> None:
-    profile = load_candidate_profile() or {}
-    for job, row in zip(jobs, rows):
-        row["score_breakdown"] = score_components(job_as_dict(job), profile)
+_LIST_DEFER_COLS = (
+    Job.description,
+    Job.description_text,
+    Job.cover_letter,
+    Job.fit_explanation,
+    Job.llm_strengths,
+    Job.skill_gaps,
+)
 
 
 @app.get("/api/jobs")
@@ -419,6 +431,7 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
         query = (
             session.query(Job)
             .filter(Job.status == status)
+            .options(*(defer(col) for col in _LIST_DEFER_COLS))
             .order_by(Job.fit_score.desc().nullslast(), Job.id.desc())
         )
         cap = limit
@@ -429,11 +442,13 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
         jobs = query.all()
         sites = _company_website_map(session, [j.company or "" for j in jobs])
         rows = [
-            _job_to_dict(j, sites.get(company_name_key(j.company or ""), ""))
+            _job_to_dict(
+                j,
+                sites.get(company_name_key(j.company or ""), ""),
+                include_body=False,
+            )
             for j in jobs
         ]
-        if status in _QUEUE_LIST_STATUSES:
-            _attach_score_breakdown(jobs, rows)
         payload: Dict[str, Any] = {
             "jobs": rows,
             "total": len(jobs),

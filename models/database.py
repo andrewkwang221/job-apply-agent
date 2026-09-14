@@ -26,6 +26,7 @@ class Job(Base):
     fit_score = Column(Integer, nullable=True)
     rule_status = Column(String, nullable=True)
     llm_fit_score = Column(Integer, nullable=True)
+    score_breakdown = Column(Text, nullable=True)
     llm_strengths = Column(Text, nullable=True)
     fit_explanation = Column(Text, nullable=True)
     skill_gaps = Column(Text, nullable=True)
@@ -47,6 +48,7 @@ def ensure_job_columns(engine) -> None:
     statements = {
         "reject_code": "ALTER TABLE jobs ADD COLUMN reject_code VARCHAR",
         "reject_detail": "ALTER TABLE jobs ADD COLUMN reject_detail TEXT",
+        "score_breakdown": "ALTER TABLE jobs ADD COLUMN score_breakdown TEXT",
     }
     with engine.connect() as conn:
         existing = {

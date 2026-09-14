@@ -741,6 +741,7 @@ a.card-company:hover{text-decoration:underline;}
 let jobs = [];
 let idx = 0;
 let currentStatus = 'review';
+let _queueListComplete = false;
 let activeTab = 'overview';
 let pipelinePoller = null;
 let rejectCounts = [];
@@ -799,18 +800,24 @@ async function loadStats() {
 }
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
-async function loadJobs(status) {
+async function loadJobs(status, opts) {
   currentStatus = status;
+  const asList = !!(opts && opts.asList);
+  _queueListComplete = false;
   try {
-    const unlimited = _LIST_STATUSES.has(status) || _QUEUE_LIST_STATUSES.has(status);
-    const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${unlimited ? '&limit=0' : ''}`);
+    const unlimited = _LIST_STATUSES.has(status) || asList;
+    const qs = [];
+    if (unlimited) qs.push('limit=0');
+    const suffix = qs.length ? `&${qs.join('&')}` : '';
+    const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${suffix}`);
     jobs = data.jobs || [];
     rejectCounts = data.reject_counts || [];
     listFilter = 'all';
     listSortBy = 'sum';
     viewingListCard = false;
     idx = 0;
-    if (_LIST_STATUSES.has(status)) queueView = 'list';
+    _queueListComplete = asList;
+    if (_LIST_STATUSES.has(status) || asList) queueView = 'list';
     else queueView = 'card';
     if (jobs.length === 0) {
       renderEmpty(status);
@@ -884,11 +891,11 @@ function renderCard(i, direction) {
   const job = jobs[i];
   if (!job) return;
 
-  if (job.source === 'waas' && !job._waasHydrated && (job.description || '').length < 800) {
-    job._waasHydrated = true;
+  if (!job._bodyHydrated) {
+    job._bodyHydrated = true;
     api(`/api/jobs/${job.id}`).then(full => {
       if (!full || !jobs[i] || jobs[i].id !== full.id) return;
-      jobs[i] = Object.assign(jobs[i], full, {_waasHydrated: true});
+      jobs[i] = Object.assign(jobs[i], full, {_bodyHydrated: true});
       if (idx === i) renderCard(i);
     }).catch(() => {});
   }
@@ -1280,9 +1287,13 @@ function filterRejectedBy(code) {
   filterListBy(code);
 }
 
-function setQueueView(view) {
+async function setQueueView(view) {
   if (!_QUEUE_LIST_STATUSES.has(currentStatus) || !jobs.length) return;
   if (view === 'list') {
+    if (!_queueListComplete) {
+      await loadJobs(currentStatus, {asList: true});
+      return;
+    }
     listFilter = listFilter || 'all';
     renderList(jobs);
   } else {

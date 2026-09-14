@@ -65,21 +65,53 @@ def test_promote_moves_high_score_review_jobs(monkeypatch, tmp_path, sample_prof
             source="remotive",
             status="review",
         )
-        session.add_all([high, gated, low])
+        llm_high = Job(
+            external_id="llm-high-1",
+            url="https://example.com/llm-high",
+            title="Senior Backend Engineer",
+            company="Acme",
+            location="worldwide",
+            raw_location_text="worldwide",
+            description="We are looking for a senior backend engineer.",
+            description_text="We are looking for a senior backend engineer.",
+            source="remotive",
+            status="review",
+            llm_fit_score=85,
+        )
+        session.add_all([high, gated, low, llm_high])
         session.commit()
+
+        assert score_job(
+            {
+                "title": llm_high.title,
+                "company": llm_high.company,
+                "location": llm_high.location,
+                "raw_location_text": llm_high.raw_location_text,
+                "description": llm_high.description,
+                "description_text": llm_high.description_text,
+                "source": llm_high.source,
+            },
+            sample_profile,
+        )["fit_score"] < SHORTLIST_MIN_SCORE
 
         msg = run_pipeline._run_rescore(sample_profile, "review", promote=False)
         session.expire_all()
         assert high.status == "review"
         assert gated.status == "review"
+        assert llm_high.status == "review"
         assert "promoted" not in msg
+        from utils.scoring import parse_score_breakdown
+        parts = parse_score_breakdown(high.score_breakdown)
+        assert parts["skills"] > 0
+        assert parts["remote"] == 20
 
         msg = run_pipeline._run_rescore(sample_profile, "review", promote=True)
         session.expire_all()
         assert high.status == "shortlisted"
         assert gated.status == "shortlisted"
+        assert llm_high.status == "shortlisted"
         assert low.status != "shortlisted"
-        assert "2 promoted to shortlisted" in msg
+        assert "3 promoted to shortlisted" in msg
     finally:
         session.close()
         engine.dispose()
@@ -93,3 +125,4 @@ def test_promote_help_flag():
     assert result.exit_code == 0
     assert "--promote" in result.output
     assert str(SHORTLIST_MIN_SCORE) in result.output
+    assert "llm_fit_score" in result.output

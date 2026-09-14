@@ -242,3 +242,15 @@ class TestScoreComponents:
             PROFILE,
         )
         assert tz["timezone"] == -20
+
+    def test_dump_and_parse_round_trip(self):
+        from utils.scoring import dump_score_breakdown, parse_score_breakdown
+
+        raw = dump_score_breakdown({"skills": 16, "remote": 20, "junior": -30})
+        parsed = parse_score_breakdown(raw)
+        assert parsed["skills"] == 16
+        assert parsed["remote"] == 20
+        assert parsed["junior"] == -30
+        assert parsed["keywords"] == 0
+        assert parse_score_breakdown(None)["skills"] == 0
+        assert parse_score_breakdown("not-json")["role"] == 0

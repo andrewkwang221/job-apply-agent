@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Dict, Any
 from utils.job_inclusion import detected_posting_language, required_languages_in_text
@@ -55,25 +56,50 @@ KEYWORD_ALIASES = {
     "nlp": ["natural language processing"],
 }
 
+def _term_pattern(term: str) -> re.Pattern[str]:
+    escaped = re.escape(str(term).lower())
+    # Escape special chars (like C++) and use non-word boundary matching
+    # to ensure "C" doesn't match "CEO" and "Python" doesn't match "Pythonic"
+    return re.compile(r"(?:\b|\s)" + escaped + r"(?:\b|\s|[.,;!?)])")
+
+
+def _compile_terms(candidates: list) -> list[tuple[Any, re.Pattern[str]]]:
+    compiled: list[tuple[Any, re.Pattern[str]]] = []
+    seen: set[str] = set()
+    for term in candidates or []:
+        raw = str(term).strip()
+        if not raw:
+            continue
+        key = raw.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        compiled.append((term, _term_pattern(raw)))
+    return compiled
+
+
+def _find_compiled(text: str, compiled: list[tuple[Any, re.Pattern[str]]]) -> list:
+    if not text or not compiled:
+        return []
+    return [term for term, pat in compiled if pat.search(text)]
+
+
 def _find_matches(text: str, candidates: list) -> list:
     """Find robust whole-word and symbol matches of terms in text."""
     if not text or not candidates:
         return []
-        
-    text_lower = text.lower()
-    matches = []
-    
-    for term in candidates:
-        term_lower = str(term).lower()
-        # Escape special chars (like C++) and use non-word boundary matching
-        # to ensure "C" doesn't match "CEO" and "Python" doesn't match "Pythonic"
-        escaped = re.escape(term_lower)
-        pattern = r'(?:\b|\s)' + escaped + r'(?:\b|\s|[.,;!?)])'
-        
-        if re.search(pattern, text_lower):
-            matches.append(term)
-            
-    return matches
+    return _find_compiled(text.lower(), _compile_terms(candidates))
+
+
+class ProfileScoreMatchers:
+    """Compiled skill/keyword patterns reused across a list of jobs."""
+
+    def __init__(self, profile: Dict[str, Any] | None):
+        profile = profile or {}
+        self.profile = profile
+        self.skills = _compile_terms(profile.get("skills", []))
+        self.keywords = _compile_terms(_expanded_keywords(profile))
+
 
 def _unique(items: list) -> list:
     seen = set()
@@ -203,13 +229,49 @@ def empty_score_breakdown() -> dict[str, int]:
     return {key: 0 for key in SCORE_COMPONENT_KEYS}
 
 
-def score_components(job: Dict[str, Any], profile: Dict[str, Any]) -> dict[str, int]:
+def dump_score_breakdown(parts: Any) -> str:
+    """Serialize criterion scores for SQLite (JSON object of ints)."""
+    data = empty_score_breakdown()
+    if isinstance(parts, dict):
+        for key in SCORE_COMPONENT_KEYS:
+            try:
+                data[key] = int(parts.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                data[key] = 0
+    return json.dumps(data, separators=(",", ":"))
+
+
+def parse_score_breakdown(raw: Any) -> dict[str, int]:
+    """Read stored criterion scores; unknown/missing keys are 0."""
+    data = empty_score_breakdown()
+    parsed = raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return data
+    if not isinstance(parsed, dict):
+        return data
+    for key in SCORE_COMPONENT_KEYS:
+        try:
+            data[key] = int(parsed.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            data[key] = 0
+    return data
+
+
+def score_components(
+    job: Dict[str, Any],
+    profile: Dict[str, Any],
+    matchers: ProfileScoreMatchers | None = None,
+) -> dict[str, int]:
     """Per-criterion points that sum to the rule fit score (before hard rejects)."""
+    matchers = matchers or ProfileScoreMatchers(profile)
+    profile = matchers.profile
     parts = empty_score_breakdown()
     title = str(job.get("title", "")).lower()
     description = str(job.get("description_text") or job.get("description", "")).lower()
     combined_text = f"{title} {description}"
-    profile = profile or {}
 
     if "junior" in combined_text or "intern" in title:
         parts["junior"] = -30
@@ -226,17 +288,17 @@ def score_components(job: Dict[str, Any], profile: Dict[str, Any]) -> dict[str, 
     elif remote == "review":
         parts["remote"] = 10
 
-    skills = profile.get("skills", [])
-    title_skills = _find_matches(title, skills)
+    title_skills = _find_compiled(title, matchers.skills)
     description_skills = [
-        skill for skill in _find_matches(description, skills) if skill not in title_skills
+        skill for skill in _find_compiled(description, matchers.skills) if skill not in title_skills
     ]
     parts["skills"] = min((len(title_skills) * 12) + (len(description_skills) * 4), 32)
 
-    keywords = _expanded_keywords(profile)
-    title_keywords = _find_matches(title, keywords)
+    title_keywords = _find_compiled(title, matchers.keywords)
     description_keywords = [
-        keyword for keyword in _find_matches(description, keywords) if keyword not in title_keywords
+        keyword
+        for keyword in _find_compiled(description, matchers.keywords)
+        if keyword not in title_keywords
     ]
     parts["keywords"] = min((len(title_keywords) * 6) + (len(description_keywords) * 2), 12)
 
