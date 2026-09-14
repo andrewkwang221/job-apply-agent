@@ -53,6 +53,7 @@ from connectors.wearedevelopers import WeAreDevelopersConnector
 from connectors.anywherepositions import AnywherePositionsConnector
 from connectors.remoterocketship import RemoteRocketshipConnector
 from connectors.dice import DiceConnector
+from connectors.workable import WorkableConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
@@ -104,6 +105,7 @@ CONNECTORS = {
     "anywherepositions": AnywherePositionsConnector,
     "remoterocketship": RemoteRocketshipConnector,
     "dice": DiceConnector,
+    "workable": WorkableConnector,
     # Slowest board — last so a full-run still finishes the others first.
     "wearedevelopers": WeAreDevelopersConnector,
 }
@@ -929,7 +931,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

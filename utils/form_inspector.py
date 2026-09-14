@@ -79,6 +79,7 @@ _LISTING_DOMAINS = [
     "anywherepositions.com",
     "remoterocketship.com",
     "dice.com",
+    "jobs.workable.com",
 ]
 
 

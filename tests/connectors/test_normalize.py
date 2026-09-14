@@ -662,3 +662,40 @@ class TestDiceNormalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"].startswith("https://www.dice.com/job-detail/")
         assert isinstance(n["location"], str)
+
+
+# ---------------------------------------------------------------------------
+# jobs.workable.com
+# ---------------------------------------------------------------------------
+
+class TestWorkableNormalize:
+    def _raw(self):
+        return {
+            "id": "df0f8cc8-7864-4090-9f1a-e3fbec1125ba",
+            "listing_url": (
+                "https://jobs.workable.com/view/df0f8cc8-7864-4090-9f1a-e3fbec1125ba/"
+                "remote-senior-backend-engineer"
+            ),
+            "url": (
+                "https://jobs.workable.com/view/df0f8cc8-7864-4090-9f1a-e3fbec1125ba/"
+                "remote-senior-backend-engineer"
+            ),
+            "title": "Senior Backend Engineer",
+            "company": "Acme",
+            "location": "Remote, San Francisco, California, United States",
+            "description": "Backend role building Python APIs.",
+            "posted_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.workable import WorkableConnector
+        n = WorkableConnector().normalize(self._raw())
+        _assert_shape(n, "workable")
+
+    def test_title_and_listing_url(self):
+        from connectors.workable import WorkableConnector
+        n = WorkableConnector().normalize(self._raw())
+        assert n["title"] == "Senior Backend Engineer"
+        assert n["url"].startswith("https://jobs.workable.com/view/")
+        assert isinstance(n["location"], str)
+        assert n["ats_type"] == "workable"
