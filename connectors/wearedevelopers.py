@@ -7,14 +7,13 @@ markdown feed (``/jobs.md``). HTML "Load more jobs" uses the same newest-first
 cursor on ``/jobs.turbo_stream?country=US&page=``.
 ``q`` stays empty: a non-empty ``q`` switches to mixed-date semantic search.
 
-Walk load-more cursors and stop at the first fully stale page
-(``MAX_JOB_AGE_DAYS``), an empty batch, or a missing next cursor.
-A single failed load-more keeps jobs already collected and retries that
-cursor so later pages are not dropped. Detail-fetch and emit each kept
-page before the next cursor so an abort still stores those jobs.
+Phase 1 walks load-more cursors (no page cap besides a runaway guard) and
+stops at the first fully stale page (``MAX_JOB_AGE_DAYS``), an empty batch,
+or a missing next cursor. On-site cards and apply URLs on boards we already
+crawl are dropped here. A single failed load-more retries that cursor.
 
-Listing cards already include company, location, published date, and apply
-URL. Fetch ``/jobs/{id}.md`` for the description. ``location`` is a string.
+Phase 2 fetches ``/jobs/{id}.md`` descriptions in parallel, then emits so
+the pipeline can persist. ``location`` is a string.
 """
 from __future__ import annotations
 
@@ -22,6 +21,7 @@ import html
 import re
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qs, urljoin, urlparse
@@ -31,7 +31,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -51,6 +51,7 @@ _FETCH_DELAY = 0.4
 # Runaway only; newest-first stale-page stop should fire earlier.
 _MAX_PAGES = 2000
 _MAX_FETCH_FAILURES = 5
+_DETAIL_WORKERS = 8
 
 _NEXT_RE = re.compile(r"\[Next page\]\(([^)]+)\)", re.I)
 _VIEW_RE = re.compile(r"\[View job\]\(([^)]+)\)", re.I)
@@ -61,6 +62,10 @@ _JOB_PATH_RE = re.compile(
     re.I,
 )
 _RELATED_RE = re.compile(r"^## Related\b", re.M | re.I)
+_REMOTE_RE = re.compile(
+    r"\b(remote|hybrid|wfh|work[\s-]?from[\s-]?home|work[\s-]?from[\s-]?anywhere)\b",
+    re.I,
+)
 
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
@@ -73,19 +78,103 @@ _ENGINEERING_KEYWORDS = {
     "llm", "inference", "fde",
 }
 
+# Apply hosts already covered by other connectors — skip at listing time.
+_ALREADY_SOURCED_HOSTS = frozenset({
+    "remotive.com",
+    "remoteok.com",
+    "weworkremotely.com",
+    "arbeitnow.com",
+    "jobicy.com",
+    "jobspresso.co",
+    "dynamitejobs.com",
+    "workingnomads.com",
+    "getonbrd.com",
+    "himalayas.app",
+    "adzuna.com",
+    "realworkfromanywhere.com",
+    "euremotejobs.com",
+    "nodesk.co",
+    "remote100k.com",
+    "wearedistributed.org",
+    "flexa.careers",
+    "remotejobs.io",
+    "remotejobsfinder.co",
+    "dailyremote.com",
+    "arc.dev",
+    "arcdev.app",
+    "flexjobs.com",
+    "ycombinator.com",
+    "workatastartup.com",
+    "techjobsforgood.com",
+    "remote.com",
+    "remote.co",
+    "devremote.io",
+    "anywherepositions.com",
+    "remoterocketship.com",
+    "dice.com",
+})
+
 
 class WeAreDevelopersConnector(BaseConnector):
     def __init__(self):
         self.source_name = "wearedevelopers"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from WeAreDevelopers US list (newest-first load more)…")
+        age_days = max_job_age_days(self.source_name)
         cutoff = job_age_cutoff(self.source_name)
+        logger.info(
+            "wearedevelopers phase 1: listing US newest-first pages "
+            f"(MAX_JOB_AGE_DAYS={age_days}; stop at first stale page; no page cap)"
+        )
+        listed, pages = self._collect_listings(cutoff)
+        unseen_urls = set(
+            unseen_listing_urls(
+                [job["listing_url"] for job in listed], self.source_name
+            )
+        )
+        pending = [job for job in listed if job["listing_url"] in unseen_urls]
+        logger.info(
+            f"wearedevelopers listing fetched {len(listed)} jobs "
+            f"from {pages} pages ({len(pending)} unseen, "
+            f"age window {age_days} days)"
+        )
+
+        kept_jobs: list[dict[str, Any]] = []
+        if pending:
+            logger.info(
+                f"wearedevelopers phase 2: fetching details for {len(pending)} jobs "
+                f"({_DETAIL_WORKERS} workers)"
+            )
+            self._hydrate_details(pending)
+            to_emit = [
+                job for job in pending if not _is_owned_apply_url(job.get("url") or "")
+            ]
+            dropped = len(pending) - len(to_emit)
+            if dropped:
+                logger.info(
+                    f"wearedevelopers phase 2: dropped {dropped} after detail "
+                    "apply URL matched an owned source"
+                )
+            for job in to_emit:
+                self._emit(job, kept_jobs)
+            remember_listing_urls(
+                self.source_name, [job["listing_url"] for job in pending]
+            )
+            logger.info(
+                f"wearedevelopers phase 2 done: {len(kept_jobs)} jobs emitted"
+            )
+        else:
+            logger.info("wearedevelopers phase 2 skipped: no unseen listings")
+
+        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from wearedevelopers")
+        return kept_jobs
+
+    def _collect_listings(self, cutoff: datetime) -> tuple[list[dict[str, Any]], int]:
         seen_ids: set[str] = set()
         cursor: str | None = None
         consecutive_failures = 0
         pages = 0
-        kept_jobs: list[dict[str, Any]] = []
+        listed: list[dict[str, Any]] = []
 
         while pages < _MAX_PAGES:
             try:
@@ -95,7 +184,7 @@ class WeAreDevelopersConnector(BaseConnector):
                     logger.warning(
                         f"wearedevelopers load-more failed "
                         f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
-                        "keeping prior jobs, retrying"
+                        "keeping prior listings, retrying"
                     )
                     if consecutive_failures >= _MAX_FETCH_FAILURES:
                         break
@@ -108,26 +197,34 @@ class WeAreDevelopersConnector(BaseConnector):
                 if not raw_items:
                     break
                 dated: list[datetime] = []
-                page_jobs: list[dict[str, Any]] = []
                 kept = 0
+                skipped_onsite = 0
+                skipped_owned = 0
                 for item in raw_items:
-                    raw = _parse_raw_job(item, cutoff)
                     posted = _parse_dt(item.get("published"))
                     if posted:
                         dated.append(posted)
+                    raw, reason = _parse_raw_job(item, cutoff)
+                    if reason == "on-site":
+                        skipped_onsite += 1
+                        continue
+                    if reason == "owned-source":
+                        skipped_owned += 1
+                        continue
                     if not raw:
                         continue
                     if raw["id"] in seen_ids:
                         continue
                     seen_ids.add(raw["id"])
-                    page_jobs.append(raw)
+                    listed.append(raw)
                     kept += 1
                 pages += 1
                 all_stale = bool(dated) and all(dt < cutoff for dt in dated)
                 logger.info(
-                    f"wearedevelopers page {pages}: {len(raw_items)} listings, {kept} kept"
+                    f"wearedevelopers page {pages}: {len(raw_items)} listings, "
+                    f"{kept} kept, {skipped_onsite} on-site skipped, "
+                    f"{skipped_owned} owned-source skipped"
                 )
-                self._emit_page(page_jobs, kept_jobs)
                 if all_stale:
                     logger.info(f"wearedevelopers page {pages} is fully stale — stopping")
                     break
@@ -141,41 +238,34 @@ class WeAreDevelopersConnector(BaseConnector):
                 logger.warning(
                     f"wearedevelopers load-more error "
                     f"({consecutive_failures}/{_MAX_FETCH_FAILURES}): {e} — "
-                    "keeping prior jobs, continuing"
+                    "keeping prior listings, continuing"
                 )
                 logger.debug(traceback.format_exc())
                 if consecutive_failures >= _MAX_FETCH_FAILURES:
                     break
                 time.sleep(_FETCH_DELAY)
 
-        logger.info(f"Successfully fetched {len(kept_jobs)} jobs from wearedevelopers")
-        return kept_jobs
+        return listed, pages
 
-    def _emit_page(
-        self,
-        page_jobs: list[dict[str, Any]],
-        kept_jobs: list[dict[str, Any]],
-    ) -> None:
-        if not page_jobs:
+    def _hydrate_details(self, pending: list[dict[str, Any]]) -> None:
+        if not pending:
             return
-        unseen = set(
-            unseen_listing_urls(
-                [job["listing_url"] for job in page_jobs], self.source_name
-            )
-        )
-        pending = [job for job in page_jobs if job["listing_url"] in unseen]
-        for i, job in enumerate(pending):
+        workers = max(1, min(_DETAIL_WORKERS, len(pending)))
+
+        def _one(job: dict[str, Any]) -> None:
             try:
                 detail = _fetch_text(_detail_md_url(job["listing_url"]))
                 _merge_detail(job, detail)
             except Exception as e:
-                logger.warning(f"Failed to fetch WeAreDevelopers job {job['listing_url']}: {e}")
+                logger.warning(
+                    f"Failed to fetch WeAreDevelopers job {job['listing_url']}: {e}"
+                )
                 logger.debug(traceback.format_exc())
-            self._emit(job, kept_jobs)
-            if i + 1 < len(pending):
-                time.sleep(_FETCH_DELAY)
-        if pending:
-            remember_listing_urls(self.source_name, [job["listing_url"] for job in pending])
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_one, job) for job in pending]
+            for fut in as_completed(futures):
+                fut.result()
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         location = raw_job.get("location") or "Remote"
@@ -287,6 +377,24 @@ def _is_engineering_title(title: str) -> bool:
     return any(kw in t for kw in _ENGINEERING_KEYWORDS)
 
 
+def _looks_remote(title: str, location: str) -> bool:
+    return bool(_REMOTE_RE.search(f"{title} {location}"))
+
+
+def _apply_host(url: str) -> str:
+    host = urlparse(url or "").netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def _is_owned_apply_url(url: str) -> bool:
+    host = _apply_host(url)
+    if not host:
+        return False
+    return any(host == domain or host.endswith("." + domain) for domain in _ALREADY_SOURCED_HOSTS)
+
+
 def _parse_dt(value: Any) -> datetime | None:
     if value in (None, ""):
         return None
@@ -333,22 +441,27 @@ def _job_location(value: Any) -> str:
     return "Remote"
 
 
-def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> tuple[dict[str, Any] | None, str]:
     title = (item.get("title") or "").strip()
     if not title or not _is_engineering_title(title):
-        return None
+        return None, "non-eng"
     posted_date = _parse_dt(item.get("published"))
     if posted_date and posted_date < cutoff:
-        return None
+        return None, "stale"
     listing_url = (item.get("listing_url") or "").strip()
     if not listing_url:
-        return None
-    job_id = _job_id(listing_url)
+        return None, "no-url"
+    location = _job_location(item.get("location"))
+    if not _looks_remote(title, location):
+        return None, "on-site"
     apply_url = (
         _offsite_apply_url(item.get("apply_url"))
         or _offsite_apply_url(item.get("apply_field"))
         or listing_url
     )
+    if _is_owned_apply_url(apply_url):
+        return None, "owned-source"
+    job_id = _job_id(listing_url)
     return {
         "id": job_id,
         "title": title,
@@ -356,9 +469,9 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | N
         "listing_url": listing_url,
         "url": apply_url,
         "description": "",
-        "location": _job_location(item.get("location")),
+        "location": location,
         "posted_date": posted_date,
-    }
+    }, "kept"
 
 
 def _detail_body(md: str) -> str:

@@ -113,7 +113,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RemoteComConnector` | [Remote](https://remote.com/jobs/all?workplaceLocation=remote&country=anywhere&country=USA) | Guest RSC `jobsData.jobs` list + JobPosting JSON-LD; page 1 mixed, page 2+ newest-first (cap 30); apply account-gated (review cap) |
 | `RemoteCoConnector` | [Remote.co](https://remote.co/remote-jobs/search?remoteoptions=100%25%20Remote%20Work&useclocation=false&anywhereinus=1) | Guest `__NEXT_DATA__` search (exact listing URL; first 10 pages); Chrome-TLS `curl_cffi`; apply/company often empty (review cap) |
 | `DevRemoteConnector` | [DevRemote](https://devremote.io/) | Guest `POST /api/jobs/filter` (`pageSize`/`skip`); newest-first stale-page stop |
-| `WeAreDevelopersConnector` | [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=US) | Guest `/jobs.md` US list (`q` empty); newest-first stale-page stop |
+| `WeAreDevelopersConnector` | [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=US) | Guest `/jobs.md` US list; newest-first stale-page stop; listing then parallel details |
 | `AnywherePositionsConnector` | [Anywhere Positions](https://www.anywherepositions.com/) | Guest `api-jobs` `search`+`regions` (Anywhere and US); merge profile queries |
 | `RemoteRocketshipConnector` | [Remote Rocketship](https://www.remoterocketship.com/remote-jobs/?page=1&sort=DateAdded) | Guest `POST /api/fetch_job_openings/`; page 1 / 40 items; 64 title×location×seniority combos |
 | `DiceConnector` | [Dice](https://www.dice.com/jobs?filters.workplaceTypes=Remote%7CHybrid) | Guest MCP `search_jobs`; profile roles+keywords; newest-first stale-page stop; apply review-capped |

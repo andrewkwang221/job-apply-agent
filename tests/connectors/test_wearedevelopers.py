@@ -16,8 +16,10 @@ from connectors.wearedevelopers import (
     _detail_body,
     _extract_listing_page,
     _is_engineering_title,
+    _is_owned_apply_url,
     _job_id,
     _listing_url,
+    _looks_remote,
     _merge_detail,
     _next_cursor,
     _offsite_apply_url,
@@ -87,17 +89,34 @@ def test_engineering_title_filter():
 
 def test_parse_skips_non_engineering_and_stale():
     jobs, _ = _extract_listing_page(_listing_md(_job_md()))
-    kept = _parse_raw_job(jobs[0], _CUTOFF)
+    kept, reason = _parse_raw_job(jobs[0], _CUTOFF)
+    assert reason == "kept"
     assert kept is not None
     assert kept["id"] == "48497"
     assert kept["url"].startswith("https://jobs.lever.co/")
     assert kept["listing_url"].startswith("https://www.wearedevelopers.com/jobs/")
 
     jobs, _ = _extract_listing_page(_listing_md(_job_md(title="Account Executive")))
-    assert _parse_raw_job(jobs[0], _CUTOFF) is None
+    assert _parse_raw_job(jobs[0], _CUTOFF)[0] is None
 
     jobs, _ = _extract_listing_page(_listing_md(_job_md(published="1 August 2026")))
-    assert _parse_raw_job(jobs[0], _CUTOFF) is None
+    assert _parse_raw_job(jobs[0], _CUTOFF) == (None, "stale")
+
+
+def test_parse_skips_onsite_and_owned_source():
+    jobs, _ = _extract_listing_page(
+        _listing_md(_job_md(location="Los Angeles, CA, United States"))
+    )
+    assert _parse_raw_job(jobs[0], _CUTOFF) == (None, "on-site")
+    assert not _looks_remote("Software Engineer", "Los Angeles, CA, United States")
+    assert _looks_remote("Backend Engineer", "United States (Remote available)")
+
+    jobs, _ = _extract_listing_page(
+        _listing_md(_job_md(apply_url="https://www.dice.com/job-detail/abc"))
+    )
+    assert _parse_raw_job(jobs[0], _CUTOFF) == (None, "owned-source")
+    assert _is_owned_apply_url("https://www.dice.com/job-detail/abc")
+    assert not _is_owned_apply_url("https://jobs.lever.co/acme/abc")
 
 
 def test_job_id_and_offsite_apply():
@@ -139,7 +158,7 @@ Industry 4.0 platform.
 @patch("connectors.wearedevelopers.unseen_listing_urls")
 @patch("connectors.wearedevelopers.time.sleep")
 @patch("connectors.wearedevelopers._fetch_text")
-def test_fetch_stops_on_stale_page(mock_fetch, _sleep, mock_unseen, mock_remember):
+def test_fetch_stops_on_stale_page(mock_fetch, _sleep, mock_unseen, mock_remember, caplog):
     recent_date = (datetime.now(tz=timezone.utc) - timedelta(days=2)).strftime("%B %d, %Y")
     stale_date = (datetime.now(tz=timezone.utc) - timedelta(days=40)).strftime("%B %d, %Y")
     listing = "https://www.wearedevelopers.com/jobs/48497-senior-backend-engineer"
@@ -152,11 +171,11 @@ def test_fetch_stops_on_stale_page(mock_fetch, _sleep, mock_unseen, mock_remembe
         ),
         cursor="CUR3",
     )
-    extra = _listing_md(_job_md(job_url="https://www.wearedevelopers.com/jobs/3-extra"), cursor="CUR4")
-    mock_fetch.side_effect = [recent, "# unused detail", stale, extra]
+    mock_fetch.side_effect = [recent, stale, "# detail"]
     mock_unseen.return_value = [listing]
 
-    jobs = WeAreDevelopersConnector().fetch_jobs()
+    with caplog.at_level("INFO"):
+        jobs = WeAreDevelopersConnector().fetch_jobs()
     assert len(jobs) == 1
     assert jobs[0]["id"] == "48497"
     fetch_urls = [c.args[0] for c in mock_fetch.call_args_list]
@@ -164,10 +183,13 @@ def test_fetch_stops_on_stale_page(mock_fetch, _sleep, mock_unseen, mock_remembe
     assert listing_calls[0] == LISTING_URL
     assert listing_calls[1].endswith("&page=CUR2")
     assert not any("CUR3" in u for u in listing_calls)
-    detail_idx = next(i for i, u in enumerate(fetch_urls) if u.rstrip("/").endswith(".md") and "jobs.md" not in u)
-    assert detail_idx == 1
-    assert listing_calls[1] == fetch_urls[2]
+    detail_urls = [u for u in fetch_urls if u.rstrip("/").endswith(".md") and "jobs.md" not in u]
+    assert detail_urls
+    assert fetch_urls.index(detail_urls[0]) > fetch_urls.index(listing_calls[-1])
     mock_remember.assert_called_once()
+    assert any("listing fetched 1 jobs" in r.message for r in caplog.records)
+    assert any("age window" in r.message for r in caplog.records)
+    assert any("phase 2: fetching details for 1 jobs" in r.message for r in caplog.records)
 
 
 @patch("connectors.wearedevelopers.remember_listing_urls")
@@ -189,7 +211,7 @@ def test_failed_load_more_retries_and_keeps_prior_jobs(
         ),
         cursor=None,
     )
-    mock_fetch.side_effect = [page1, "# detail", None, page2, "# detail"]
+    mock_fetch.side_effect = [page1, None, page2, "# detail", "# detail"]
     mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
 
     jobs = WeAreDevelopersConnector().fetch_jobs()
