@@ -6,14 +6,16 @@ from utils.dedup import is_duplicate, generate_job_hash
 
 
 def _add_job(db_session, url="https://example.com/1", company="Acme",
-             title="Engineer", location="Remote"):
+             title="Engineer", location="Remote", description=""):
     job = Job(
-        external_id=f"dedup-{url[-3:]}",
+        external_id=f"dedup-{url[-8:]}-{title[:8]}",
         source="test",
         company=company,
         title=title,
         location=location,
         raw_location_text=location,
+        description=description,
+        description_text=description,
         url=url,
         status="new",
     )
@@ -116,6 +118,76 @@ class TestIsDuplicateByHash:
         assert not is_duplicate({"url": "https://x.com/1", "company": "X", "title": "Y", "location": "Z"}, db_session)
 
 
+_LONG_DESC = (
+    "We are hiring a senior backend engineer to build Python APIs, "
+    "operate Kubernetes, and own Postgres data services for our platform. "
+    "You will work with AWS, Docker, and distributed systems daily."
+)
+
+
+class TestDeepDuplicateAcrossUrls:
+    def test_company_suffix_and_remote_wording(self, db_session):
+        _add_job(db_session, url="https://board-a.com/1", company="Acme Inc", title="Senior Backend Engineer", location="Remote")
+        assert is_duplicate(
+            {
+                "url": "https://board-b.com/2",
+                "company": "Acme",
+                "title": "Sr Backend Engineer",
+                "location": "Remote (US)",
+            },
+            db_session,
+        )
+
+    def test_same_description_different_location_strings(self, db_session):
+        _add_job(
+            db_session,
+            url="https://board-a.com/1",
+            company="HashCo",
+            title="Staff Platform Engineer",
+            location="Remote",
+            description=_LONG_DESC,
+        )
+        assert is_duplicate(
+            {
+                "url": "https://jobs.lever.co/hashco/abc",
+                "company": "HashCo",
+                "title": "Staff Platform Engineer",
+                "location": "San Francisco, CA",
+                "description": _LONG_DESC,
+                "description_text": _LONG_DESC,
+            },
+            db_session,
+        )
+
+    def test_remote_india_not_same_as_remote_us(self, db_session):
+        _add_job(db_session, url="https://a.com/1", company="Acme", title="Engineer", location="Remote - India")
+        assert not is_duplicate(
+            {"url": "https://b.com/2", "company": "Acme", "title": "Engineer", "location": "Remote (US)"},
+            db_session,
+        )
+
+    def test_different_role_same_company_not_duplicate(self, db_session):
+        _add_job(
+            db_session,
+            url="https://a.com/1",
+            company="Acme",
+            title="Engineer",
+            location="Remote",
+            description=_LONG_DESC,
+        )
+        assert not is_duplicate(
+            {
+                "url": "https://b.com/2",
+                "company": "Acme",
+                "title": "Product Designer",
+                "location": "Remote",
+                "description": _LONG_DESC,
+                "description_text": _LONG_DESC,
+            },
+            db_session,
+        )
+
+
 # ---------------------------------------------------------------------------
 # is_duplicate — pending (uncommitted) session objects
 # ---------------------------------------------------------------------------
@@ -160,3 +232,59 @@ class TestIsDuplicatePending:
             },
             db_session,
         )
+
+
+class TestCollapseDuplicateJobs:
+    def test_drops_extra_review_keeps_shortlisted(self, db_session):
+        from utils.dedup import collapse_duplicate_jobs
+
+        keep = _add_job(
+            db_session,
+            url="https://a.com/1",
+            company="Acme Inc",
+            title="Senior Backend Engineer",
+            location="Remote",
+        )
+        keep.status = "shortlisted"
+        keep.fit_score = 80
+        drop = _add_job(
+            db_session,
+            url="https://b.com/2",
+            company="Acme",
+            title="Sr Backend Engineer",
+            location="Remote (US)",
+        )
+        drop.status = "review"
+        drop.fit_score = 40
+        db_session.commit()
+
+        groups, dropped = collapse_duplicate_jobs(db_session, dry_run=False)
+        assert groups == 1
+        assert dropped == 1
+        remaining = db_session.query(Job).all()
+        assert len(remaining) == 1
+        assert remaining[0].url == "https://a.com/1"
+
+    def test_dry_run_does_not_delete(self, db_session):
+        from utils.dedup import collapse_duplicate_jobs
+
+        _add_job(db_session, url="https://a.com/1", company="Acme", title="Engineer", location="Remote")
+        _add_job(db_session, url="https://b.com/2", company="Acme", title="Engineer", location="Remote")
+        groups, dropped = collapse_duplicate_jobs(db_session, dry_run=True)
+        assert groups == 1
+        assert dropped == 1
+        assert db_session.query(Job).count() == 2
+
+    def test_keeps_applied_duplicate(self, db_session):
+        from utils.dedup import collapse_duplicate_jobs
+
+        applied = _add_job(db_session, url="https://a.com/1", company="Acme", title="Engineer", location="Remote")
+        applied.status = "applied"
+        extra = _add_job(db_session, url="https://b.com/2", company="Acme", title="Engineer", location="Remote")
+        extra.status = "review"
+        db_session.commit()
+
+        _, dropped = collapse_duplicate_jobs(db_session, dry_run=False)
+        assert dropped == 1
+        left = db_session.query(Job).one()
+        assert left.status == "applied"
