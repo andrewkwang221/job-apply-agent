@@ -4,7 +4,7 @@ Tests for utils/scoring.py — score_job()
 Covers: hard rejects, score thresholds, skill/keyword matching,
 seniority alignment, and recommended_status assignment.
 """
-from utils.scoring import score_job
+from utils.scoring import SCORE_COMPONENT_KEYS, score_components, score_job
 
 
 def _job(title="Senior Backend Engineer", company="Acme", location="Remote",
@@ -201,3 +201,44 @@ class TestThresholds:
         )
         assert result["recommended_status"] == "rejected"
         assert result["reject_code"] in ("remote", "title_mismatch", "low_score")
+
+
+class TestScoreComponents:
+    def test_keys_and_sum_match_fit_score(self):
+        result = score_job(
+            _job(
+                title="Senior Backend Engineer",
+                description="Python SQL Docker backend api senior engineer",
+                remote_eligibility="accept",
+            ),
+            PROFILE,
+        )
+        parts = result["score_breakdown"]
+        assert tuple(parts) == SCORE_COMPONENT_KEYS
+        assert all(isinstance(parts[k], int) for k in SCORE_COMPONENT_KEYS)
+        if result["reject_code"] is None:
+            assert result["fit_score"] == sum(parts.values())
+
+    def test_skills_keywords_remote_and_penalties(self):
+        skilled = score_components(
+            _job(title="Senior Backend Engineer", description="Python SQL Docker",
+                 location="Worldwide"),
+            PROFILE,
+        )
+        plain = score_components(
+            _job(title="Senior Backend Engineer", description="generic role",
+                 location="Worldwide"),
+            PROFILE,
+        )
+        assert skilled["skills"] > plain["skills"]
+        assert skilled["remote"] == 20
+        junior = score_components(
+            _job(title="Senior Backend Engineer", description="not a junior wait junior"),
+            PROFILE,
+        )
+        assert junior["junior"] == -30
+        tz = score_components(
+            _job(title="Senior Backend Engineer", description="Must work PST hours"),
+            PROFILE,
+        )
+        assert tz["timezone"] == -20
