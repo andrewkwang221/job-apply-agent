@@ -11,7 +11,8 @@ Strategy
    TLS to this host stalls on this machine). Missing credentials → skip.
 2. Search engineering keywords with ``sort=date``. Official UI sort-by-date
    is treated as newest-first: stop when every dated job on a page is older
-   than ``MAX_JOB_AGE_DAYS``. Mixed dates on a page do not stop the pager.
+   than the source age window (30 days on first ingest, then 3). Mixed dates
+   on a page do not stop the pager.
 3. Parse ``props.pageProps.jobsData.jobs.results``. Keep engineering titles;
    skip expired and stale postings. Skip already-seen listing URLs.
 4. Store the FlexJobs job URL. Scoring caps this source at review.
@@ -24,16 +25,16 @@ import re
 import time
 import traceback
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import urlencode, urljoin
 
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.job_store import known_job_urls, remember_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -88,7 +89,7 @@ class FlexJobsConnector(BaseConnector):
             return []
 
         logger.info("Fetching jobs from flexjobs.com search…")
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
         known = known_job_urls(self.source_name)
         all_jobs: list[dict[str, Any]] = []
         seen_ids: set[str] = set()

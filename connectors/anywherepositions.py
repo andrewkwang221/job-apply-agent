@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 import traceback
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
 
@@ -27,9 +27,9 @@ import requests
 import yaml
 from dateutil import parser as dateutil_parser
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -84,7 +84,7 @@ class AnywherePositionsConnector(BaseConnector):
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info("Fetching jobs from Anywhere Positions (Anywhere + US searches)…")
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
         queries = _search_queries()
         parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()

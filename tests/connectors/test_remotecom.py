@@ -11,6 +11,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import config
 from connectors.remotecom import (
     LISTING_URL,
     RemoteComConnector,
@@ -224,7 +225,7 @@ def test_merge_detail_keeps_listing_location_when_jsonld_job_location_null():
 
 def test_stale_stop_uses_all_jobs_not_just_engineering():
     now = datetime.now(tz=timezone.utc)
-    stale = now - timedelta(days=20)
+    stale = now - timedelta(days=config.MAX_JOB_AGE_DAYS_INITIAL + 10)
     html = _listing_html(
         [
             _rsc_job(
@@ -258,7 +259,7 @@ def test_fetch_page1_mixed_then_stops_on_first_stale_newest_page(
     mock_fetch, _sleep, mock_unseen, mock_remember
 ):
     now = datetime.now(tz=timezone.utc)
-    stale = now - timedelta(days=20)
+    stale = now - timedelta(days=config.MAX_JOB_AGE_DAYS_INITIAL + 10)
     page1 = _listing_html(
         [
             _rsc_job(

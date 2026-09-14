@@ -4,7 +4,7 @@ Send one listing URL at a time. Produce a **board-specific plan**, wait for conf
 
 ## Pagination rule (do not break)
 
-A count/page/prefix cap is **only** valid when the list is proven **newest-first** (API `sort=DATE_DESC`, sitemap `lastmod` sort, or a live “latest” pager). Then it is safe to stop at a batch cap or the first stale page (`MAX_JOB_AGE_DAYS` in `config.py`).
+A count/page/prefix cap is **only** valid when the list is proven **newest-first** (API `sort=DATE_DESC`, sitemap `lastmod` sort, or a live “latest” pager). Then it is safe to stop at a batch cap or the first stale page (`max_job_age_days(source)`: 30 days until that source has a completed fetch with jobs, then `MAX_JOB_AGE_DAYS`).
 
 If dates are mixed, alphabetical, or unknown:
 

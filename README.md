@@ -216,14 +216,14 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=all) | Markdown jobs feed | Guest worldwide list (`country=all`). Load-more cursor is newest-first; stop at first stale page. Engineering title filter. Offsite apply URL when present. |
 | [Anywhere Positions](https://www.anywherepositions.com/) | JSON jobs API | Guest salary-transparent remote list. Separate `regions=Anywhere` and `regions=US` searches; `search` once per profile tag/role/keyword/skill; merge by id. Newest-first page walk; keep jobs if a later page 403s. |
 | [Remote Rocketship](https://www.remoterocketship.com/remote-jobs/?page=1&sort=DateAdded) | JSON jobs API | Guest `POST /api/fetch_job_openings/` (no login). Page 1 / 40 items max. 16 titles × Worldwide/US × mid/senior (64 combos), merge by id. Newest-first `DateAdded`. Offsite apply URL when present. |
-| [Dice](https://www.dice.com/jobs?filters.workplaceTypes=Remote%7CHybrid) | Dice MCP | Guest `search_jobs` (no login). Profile `target_roles` + `keywords`, Remote+Hybrid, `sort=datePosted`. Newest-first; stop at first stale page (`MAX_JOB_AGE_DAYS`). Full description from job-detail HTML. Apply is on Dice (capped at review). |
+| [Dice](https://www.dice.com/jobs?filters.workplaceTypes=Remote%7CHybrid) | Dice MCP | Guest `search_jobs` (no login). Profile `target_roles` + `keywords`, Remote+Hybrid, `sort=datePosted`. Newest-first; stop at first stale page. Full description from job-detail HTML. Apply is on Dice (capped at review). |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
 | Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
 | Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |
 | Lever | JSON API | DB-discovered Lever boards not already in Direct ATS |
 | [Working Nomads](https://www.workingnomads.com) | JSON API | Remote jobs from the public exposed_jobs API |
 
-Jobs older than 10 days are filtered out at fetch time, except the Y Combinator public guest list (already truncated).
+Jobs older than 3 days are skipped on sources that already completed a fetch. A newly added source uses a 30-day first-ingest window (`MAX_JOB_AGE_DAYS_INITIAL`) until that source has stored jobs. Override with `fetch --initial` or `fetch --age-days N`. The Y Combinator public guest list does not age-filter (already truncated).
 
 Adding a board: see [docs/CONNECTOR_PLAYBOOK.md](docs/CONNECTOR_PLAYBOOK.md). Pagination caps apply only when the list is newest-first.
 

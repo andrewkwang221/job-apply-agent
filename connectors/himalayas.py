@@ -1,12 +1,12 @@
 import traceback
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 import requests
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -17,7 +17,6 @@ BASE_URL = "https://himalayas.app/jobs/api/search"
 # Runaway only — ~20 jobs/page, ~2000 total worldwide listings.
 MAX_PAGES = 150
 PAGE_SIZE = 20
-MAX_AGE_DAYS = config.MAX_JOB_AGE_DAYS
 
 
 class HimalayasConnector(BaseConnector):
@@ -28,7 +27,7 @@ class HimalayasConnector(BaseConnector):
         logger.info(f"Fetching jobs from {self.source_name} API...")
         all_jobs: List[Dict[str, Any]] = []
         seen_guids: set = set()
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=MAX_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
         page = 1
 
         try:

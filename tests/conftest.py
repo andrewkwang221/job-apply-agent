@@ -19,6 +19,17 @@ def db_session():
     Base.metadata.drop_all(engine)
 
 
+@pytest.fixture(autouse=True)
+def _isolated_job_age_db(tmp_path, monkeypatch):
+    """Do not read the operator's job_apply_agent.db when resolving age windows."""
+    db = tmp_path / "job_age_isol.db"
+    url = f"sqlite:///{db.resolve().as_posix()}"
+    monkeypatch.setattr("config.DATABASE_URL", url)
+    engine = create_engine(url)
+    Base.metadata.create_all(engine)
+    engine.dispose()
+
+
 @pytest.fixture
 def sample_profile():
     """Minimal candidate profile matching profile.yaml schema."""

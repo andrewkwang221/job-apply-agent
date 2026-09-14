@@ -196,7 +196,7 @@ def test_fetch_stops_on_stale_page_and_skips_known(
 ):
     recent = _listing_html(_card_html(posted="2 hours ago"))
     stale = _listing_html(
-        _card_html(job_id="2", title="Senior Backend Engineer", posted="3 weeks ago")
+        _card_html(job_id="2", title="Senior Backend Engineer", posted="8 weeks ago")
     )
     mock_fetch.side_effect = [
         recent,

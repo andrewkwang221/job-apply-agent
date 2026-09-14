@@ -27,9 +27,9 @@ from urllib.parse import urljoin
 
 import requests
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.job_store import known_job_urls, remember_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -89,7 +89,7 @@ class DailyRemoteConnector(BaseConnector):
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info("Fetching jobs from dailyremote.com software board…")
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
         known = known_job_urls(self.source_name)
         all_jobs: list[dict[str, Any]] = []
         seen_ids: set[str] = set()

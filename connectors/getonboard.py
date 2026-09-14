@@ -1,5 +1,5 @@
 import traceback
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import List, Dict, Any
 
 import requests
@@ -7,6 +7,7 @@ import yaml
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -47,7 +48,6 @@ CATEGORIES = [
 
 BASE_URL = "https://www.getonbrd.com/api/v0"
 MAX_PAGES = 50  # runaway only; live category pages mix dates (checked 2026-09-10)
-MAX_AGE_DAYS = 10  # Drop jobs older than this; do not stop the pager on the first old job
 
 
 class GetOnBoardConnector(BaseConnector):
@@ -79,7 +79,7 @@ class GetOnBoardConnector(BaseConnector):
     ) -> List[Dict[str, Any]]:
         jobs: List[Dict[str, Any]] = []
         page = 1
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=MAX_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
 
         while page <= MAX_PAGES:
             response = requests.get(

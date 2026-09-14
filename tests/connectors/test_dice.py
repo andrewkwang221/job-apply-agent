@@ -38,13 +38,17 @@ def _item(
     guid="c1f084d0-90b3-486b-8323-f4a5e586f3ab",
     job_id="abc123",
     company="Acme",
-    posted="2026-09-10T12:00:00Z",
+    posted=None,
     location=None,
     summary="Backend role building APIs.",
     salary="USD 150,000.00 - 180,000.00 per year",
     details_url=None,
     is_remote=True,
 ):
+    if posted is None:
+        posted = (datetime.now(tz=timezone.utc) - timedelta(hours=12)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
     loc = location if location is not None else {
         "city": "Austin",
         "state": "Texas",

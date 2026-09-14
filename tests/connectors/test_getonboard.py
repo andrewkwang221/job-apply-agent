@@ -8,6 +8,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 import yaml
 
+import config
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -161,7 +163,12 @@ class TestFetchCategory:
 
     def test_filters_old_jobs_and_stops_early(self):
         connector = self._connector()
-        old_ts = int((datetime.now(tz=timezone.utc) - timedelta(days=20)).timestamp())
+        old_ts = int(
+            (
+                datetime.now(tz=timezone.utc)
+                - timedelta(days=config.MAX_JOB_AGE_DAYS_INITIAL + 10)
+            ).timestamp()
+        )
         data = _page([_job(published_at=old_ts)])
         with patch(self._T, return_value=_mock_resp(data)):
             jobs = connector._fetch_category("programming", set(), {"en"})
@@ -183,7 +190,12 @@ class TestFetchCategory:
 
     def test_continues_when_page_has_old_and_new_jobs(self):
         connector = self._connector()
-        old_ts = int((datetime.now(tz=timezone.utc) - timedelta(days=20)).timestamp())
+        old_ts = int(
+            (
+                datetime.now(tz=timezone.utc)
+                - timedelta(days=config.MAX_JOB_AGE_DAYS_INITIAL + 10)
+            ).timestamp()
+        )
         new_ts = int(datetime.now(tz=timezone.utc).timestamp())
 
         def side_effect(*args, **kwargs):

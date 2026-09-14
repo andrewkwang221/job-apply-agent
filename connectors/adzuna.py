@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import max_job_age_days
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -16,7 +17,6 @@ load_dotenv()
 logger = setup_logger("adzuna_connector")
 
 BASE_URL = "https://api.adzuna.com/v1/api/jobs"
-MAX_AGE_DAYS = 10
 RESULTS_PER_PAGE = 50
 MAX_PAGES = 5
 
@@ -63,11 +63,12 @@ class AdzunaConnector(BaseConnector):
         logger.info(f"Fetching jobs from {self.source_name} API...")
         all_jobs: List[Dict[str, Any]] = []
         seen_ids: set = set()
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=MAX_AGE_DAYS)
+        age_days = max_job_age_days(self.source_name)
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=age_days)
 
         for country in COUNTRIES:
             try:
-                country_jobs = self._fetch_country(country, seen_ids, cutoff)
+                country_jobs = self._fetch_country(country, seen_ids, cutoff, age_days)
                 self._emit_many(country_jobs, all_jobs)
             except Exception as e:
                 logger.error(f"Error fetching country '{country}': {e}")
@@ -77,9 +78,11 @@ class AdzunaConnector(BaseConnector):
         return all_jobs
 
     def _fetch_country(
-        self, country: str, seen_ids: set, cutoff: datetime
+        self, country: str, seen_ids: set, cutoff: datetime, age_days: int | None = None
     ) -> List[Dict[str, Any]]:
         jobs: List[Dict[str, Any]] = []
+        if age_days is None:
+            age_days = max_job_age_days(self.source_name)
 
         for page in range(1, MAX_PAGES + 1):
             response = requests.get(
@@ -90,7 +93,7 @@ class AdzunaConnector(BaseConnector):
                     "results_per_page": RESULTS_PER_PAGE,
                     "what_or": WHAT_OR,
                     "sort_by": "date",
-                    "max_days_old": MAX_AGE_DAYS,
+                    "max_days_old": age_days,
                     "content-type": "application/json",
                 },
                 timeout=20,

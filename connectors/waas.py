@@ -36,9 +36,9 @@ import requests
 from dateutil import parser as dateutil_parser
 from dotenv import load_dotenv
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description, sanitize_skill_object_dumps
@@ -125,7 +125,7 @@ class WaasConnector(BaseConnector):
             return []
 
         logger.info("Fetching jobs from Work at a Startup (newest jobs)…")
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
         all_jobs: list[dict[str, Any]] = []
         remembered: list[str] = []
 

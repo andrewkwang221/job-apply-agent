@@ -61,6 +61,7 @@ from utils.scoring import score_job
 from utils.resume_selector import select_resume
 from utils.logger import setup_logger
 from utils.email_report import send_report
+from utils.job_age import age_days_override, max_job_age_days, resolve_job_age_days
 import config
 
 logger = setup_logger("run_pipeline")
@@ -169,7 +170,7 @@ def _persist_raw_job(connector, raw_job, session, run, dry_run: bool) -> None:
         posted_date = normalized.get("posted_date")
         if posted_date:
             cutoff = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
-                days=config.MAX_JOB_AGE_DAYS
+                days=max_job_age_days(connector.get_source_name())
             )
             if posted_date.tzinfo is None:
                 posted_date = posted_date.replace(tzinfo=datetime.timezone.utc)
@@ -199,21 +200,34 @@ def _persist_raw_job(connector, raw_job, session, run, dry_run: bool) -> None:
         logger.error(f"Error processing job: {e}")
 
 
-def _run_fetch(source: str, dry_run: bool):
+def _run_fetch(
+    source: str,
+    dry_run: bool,
+    *,
+    initial: bool = False,
+    age_days: int | None = None,
+):
     if source == "all":
         for s in CONNECTORS:
             if s in DISABLED_SOURCES:
                 logger.info(f"Skipping '{s}' (disabled — use --source {s} to include).")
                 continue
-            _run_fetch(s, dry_run)
+            _run_fetch(s, dry_run, initial=initial, age_days=age_days)
         return
 
     if source not in CONNECTORS:
         logger.warning(f"Unknown source '{source}'. Available: {', '.join(CONNECTORS)}.")
         return
 
-    logger.info(f"Starting fetch for source '{source}' (dry_run={dry_run})")
+    days = resolve_job_age_days(source, initial=initial, age_days=age_days)
+    logger.info(
+        f"Starting fetch for source '{source}' (dry_run={dry_run}, age_days={days})"
+    )
+    with age_days_override(days):
+        _run_fetch_source(source, dry_run)
 
+
+def _run_fetch_source(source: str, dry_run: bool):
     session = SessionLocal()
     
     # Create PipelineRun record (only save if not dry-run)
@@ -601,9 +615,11 @@ def triage():
 @cli.command()
 @click.option('--source', required=True, type=click.Choice(_SOURCE_CHOICES), help='Job source to fetch from')
 @click.option('--dry-run', is_flag=True, help='Run pipeline without inserting jobs into database')
-def fetch(source: str, dry_run: bool):
+@click.option('--initial', is_flag=True, help='Use the 30-day first-ingest window even if this source was fetched before')
+@click.option('--age-days', type=int, default=None, help='Override job age window in days')
+def fetch(source: str, dry_run: bool, initial: bool, age_days: int | None):
     """Fetch remote jobs from the specified source."""
-    _run_fetch(source, dry_run)
+    _run_fetch(source, dry_run, initial=initial, age_days=age_days)
 
 @cli.command()
 @click.option('--profile', default='profile.yaml', help='Path to candidate profile YAML')
@@ -641,7 +657,9 @@ def analyze(profile: str, model: str, target_status: str, limit: int, dry_run: b
 @click.option('--analyze-limit', default=config.LLM_MAX_JOBS_PER_RUN, type=int, show_default=True, help='Maximum number of jobs to analyze')
 @click.option('--dry-run', is_flag=True, help='Run the full pipeline without saving DB changes')
 @click.option('--email', is_flag=True, help='Send email report if new shortlisted or review jobs were found')
-def full_run(source: str, profile: str, model: str, analyze_status: str, analyze_limit: int, dry_run: bool, email: bool):
+@click.option('--initial', is_flag=True, help='Use the 30-day first-ingest window even if this source was fetched before')
+@click.option('--age-days', type=int, default=None, help='Override job age window in days')
+def full_run(source: str, profile: str, model: str, analyze_status: str, analyze_limit: int, dry_run: bool, email: bool, initial: bool, age_days: int | None):
     """Run fetch, evaluate, and analyze in one command."""
     from dotenv import load_dotenv
     load_dotenv()
@@ -666,7 +684,7 @@ def full_run(source: str, profile: str, model: str, analyze_status: str, analyze
     finally:
         session.close()
 
-    _run_fetch(source, dry_run)
+    _run_fetch(source, dry_run, initial=initial, age_days=age_days)
     _run_evaluate(profile, dry_run, all_jobs=False)
     # Always analyze both buckets so no shortlisted/review job is left without
     # LLM metrics regardless of which bucket new jobs land in.
@@ -805,7 +823,7 @@ def help_command():
         ("open-job", "Open a job in browser and apply", "--status shortlisted|review  --job-id N"),
         ("", "", ""),
         ("", "PIPELINE TOOLS", ""),
-        ("fetch", "Fetch only (no scoring/LLM). Use --source all for all sources", "--source <src>  --dry-run"),
+        ("fetch", "Fetch only (no scoring/LLM). Use --source all for all sources", "--source <src>  --dry-run  --initial"),
         ("evaluate", "Score new jobs against your profile", "--profile  --dry-run"),
         ("analyze", "Run LLM analysis on review jobs", "--limit N  --model <model>  --dry-run"),
         ("rescore", "Re-apply scoring rules to existing review jobs", "--status review|new"),
@@ -1228,7 +1246,7 @@ Job Apply Agent fetches remote job listings from multiple sources (Remotive, Rem
 
 == PIPELINE COMMANDS ==
 python run_pipeline.py full-run [--email] [--source all]   # Full fetch + score + LLM in one shot
-python run_pipeline.py fetch --source all                  # Fetch only
+python run_pipeline.py fetch --source all [--initial] [--age-days N]  # Fetch only
 python run_pipeline.py evaluate                            # Score fetched jobs
 python run_pipeline.py analyze                             # LLM pass on review jobs
 python run_pipeline.py triage                              # Work through review queue

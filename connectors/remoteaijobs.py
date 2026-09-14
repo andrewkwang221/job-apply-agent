@@ -4,7 +4,7 @@ category feed. This is a narrower, higher-signal feed than the main RWFA feed,
 targeting ML, LLM, AI engineering, and data science roles specifically.
 """
 import traceback
-from datetime import datetime, timezone, timedelta
+from datetime import timezone
 from typing import List, Dict, Any
 
 import requests
@@ -13,13 +13,13 @@ from dateutil import parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
 logger = setup_logger("remoteaijobs_connector")
 
 _FEED_URL = "https://www.realworkfromanywhere.com/remote-ai-jobs/rss.xml"
-MAX_AGE_DAYS = 10
 
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
@@ -30,7 +30,7 @@ class RemoteAIJobsConnector(BaseConnector):
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         logger.info(f"Fetching jobs from {self.source_name} RSS feed...")
-        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=MAX_AGE_DAYS)
+        cutoff = job_age_cutoff(self.source_name)
         try:
             response = requests.get(_FEED_URL, headers=_HEADERS, timeout=15)
             response.raise_for_status()
