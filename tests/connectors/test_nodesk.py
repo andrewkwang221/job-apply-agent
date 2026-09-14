@@ -1,8 +1,8 @@
 """
 Mocked tests for NodeskConnector.
 
-Covers: sitemap parsing, engineering URL filter, JSON-LD extraction,
-expired-job skipping, HTTP error handling, and normalize() shape.
+Covers: Algolia listing, engineering URL filter, JSON-LD extraction,
+expired/stale skipping, HTTP error handling, and normalize() shape.
 """
 from __future__ import annotations
 
@@ -12,12 +12,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import config
 from connectors.nodesk import (
     NodeskConnector,
-    _MAX_NEW,
     _extract_jsonld,
+    _hit_listing_url,
+    _hit_posted_date,
     _is_engineering_url,
-    _parse_sitemap,
 )
 
 
@@ -26,34 +27,9 @@ def _passthrough_unseen(urls, source, max_new=None):
     return urls[:max_new] if max_new is not None else urls
 
 
-def _sitemap_urls(xml: bytes) -> list[str]:
-    urls, _ = _parse_sitemap(xml)
-    return urls
-
-# ---------------------------------------------------------------------------
-# Fixtures / helpers
-# ---------------------------------------------------------------------------
-
 _FUTURE = (datetime.now(tz=timezone.utc) + timedelta(days=30)).strftime("%Y-%m-%d")
-_PAST   = (datetime.now(tz=timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
-_TODAY  = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
-
-
-def _sitemap_xml(*slugs: str) -> bytes:
-    items = "\n".join(
-        f"""  <url>
-    <loc>https://nodesk.co/remote-jobs/{slug}/</loc>
-    <lastmod>2026-04-01</lastmod>
-  </url>"""
-        for slug in slugs
-    )
-    return f"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-{items}
-  <url>
-    <loc>https://nodesk.co/remote-companies/acme/</loc>
-  </url>
-</urlset>""".encode()
+_PAST = (datetime.now(tz=timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%d")
+_TODAY = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
 
 
 def _job_html(
@@ -86,81 +62,66 @@ def _job_html(
 def _mock_response(content, status=200):
     m = MagicMock()
     m.status_code = status
-    if isinstance(content, bytes):
+    m.raise_for_status = MagicMock()
+    if isinstance(content, dict):
+        m.json = MagicMock(return_value=content)
+        m.content = b""
+        m.text = ""
+    elif isinstance(content, bytes):
         m.content = content
         m.text = content.decode()
+        m.json = MagicMock(return_value={})
     else:
         m.content = content.encode()
         m.text = content
-    m.raise_for_status = MagicMock()
+        m.json = MagicMock(return_value={})
     return m
 
 
-# ---------------------------------------------------------------------------
-# _parse_sitemap
-# ---------------------------------------------------------------------------
-
-class TestParseSitemap:
-    def test_returns_job_urls_only(self):
-        xml = _sitemap_xml("acme-senior-engineer", "kodify-fullstack-developer")
-        urls = _sitemap_urls(xml)
-        assert all("nodesk.co/remote-jobs/" in u for u in urls)
-        assert not any("remote-companies" in u for u in urls)
-
-    def test_sorted_newest_first(self):
-        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://nodesk.co/remote-jobs/old-job/</loc><lastmod>2026-01-01</lastmod></url>
-  <url><loc>https://nodesk.co/remote-jobs/new-job/</loc><lastmod>2026-04-01</lastmod></url>
-</urlset>"""
-        urls, newest_first = _parse_sitemap(xml)
-        assert newest_first is True
-        assert urls[0].endswith("new-job/")
-        assert urls[1].endswith("old-job/")
-
-    def test_without_lastmod_is_not_newest_first(self):
-        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://nodesk.co/remote-jobs/acme-engineer/</loc></url>
-  <url><loc>https://nodesk.co/remote-jobs/zzz-developer/</loc></url>
-</urlset>"""
-        urls, newest_first = _parse_sitemap(xml)
-        assert newest_first is False
-        assert urls[0].endswith("acme-engineer/")
-        assert urls[1].endswith("zzz-developer/")
-
-    def test_malformed_xml_returns_empty(self):
-        assert _parse_sitemap(b"not xml at all") == ([], False)
-
-    def test_excludes_company_and_article_urls(self):
-        xml = b"""<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://nodesk.co/remote-companies/acme/</loc></url>
-  <url><loc>https://nodesk.co/articles/remote-work-tips/</loc></url>
-  <url><loc>https://nodesk.co/remote-jobs/acme-senior-engineer/</loc></url>
-</urlset>"""
-        urls = _sitemap_urls(xml)
-        assert not any("remote-companies" in u for u in urls)
-        assert not any("articles" in u for u in urls)
-        assert any("acme-senior-engineer" in u for u in urls)
-
-    @patch("connectors.nodesk.time.sleep")
-    @patch("connectors.nodesk.requests.get")
-    def test_follows_sitemap_index(self, mock_get, mock_sleep):
-        child = _sitemap_xml("acme-senior-engineer")
-        mock_get.return_value = _mock_response(child)
-        index = b"""<?xml version="1.0" encoding="UTF-8"?>
-<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap><loc>https://nodesk.co/job-sitemap.xml</loc></sitemap>
-</sitemapindex>"""
-        urls, _newest = _parse_sitemap(index)
-        assert any("acme-senior-engineer" in u for u in urls)
-        mock_get.assert_called()
+def _algolia_hit(slug: str, date_published=None) -> dict:
+    hit = {
+        "title": slug.replace("-", " "),
+        "permalink": f"/remote-jobs/{slug}/",
+        "objectID": slug,
+        "company": {"name": "Acme"},
+    }
+    if date_published is not None:
+        hit["datePublished"] = date_published
+    return hit
 
 
-# ---------------------------------------------------------------------------
-# _is_engineering_url
-# ---------------------------------------------------------------------------
+def _algolia_payload(hits: list[dict], page: int = 0, nb_pages: int = 1) -> dict:
+    return {
+        "hits": hits,
+        "nbHits": len(hits),
+        "page": page,
+        "nbPages": nb_pages,
+        "hitsPerPage": 100,
+    }
+
+
+class TestHitHelpers:
+    def test_permalink_becomes_listing_url(self):
+        url = _hit_listing_url(_algolia_hit("acme-senior-engineer"))
+        assert url == "https://nodesk.co/remote-jobs/acme-senior-engineer/"
+
+    def test_ignores_non_job_permalink(self):
+        assert _hit_listing_url({"permalink": "/remote-companies/acme/"}) == ""
+
+    def test_parses_iso_date_published(self):
+        posted = _hit_posted_date({"datePublished": "2026-09-14T00:00:00+00:00"})
+        assert posted is not None
+        assert posted.day == 14
+
+    def test_parses_unix_date_published(self):
+        posted = _hit_posted_date({"datePublished": 1757808000})
+        assert posted is not None
+        assert posted.tzinfo is not None
+
+    def test_featured_date_is_missing(self):
+        assert _hit_posted_date({"datePublished": "Featured"}) is None
+        assert _hit_posted_date({"date": "Featured"}) is None
+
 
 class TestIsEngineeringUrl:
     @pytest.mark.parametrize("slug", [
@@ -183,10 +144,6 @@ class TestIsEngineeringUrl:
     def test_non_engineering_urls_rejected(self, slug):
         assert not _is_engineering_url(f"https://nodesk.co/remote-jobs/{slug}/")
 
-
-# ---------------------------------------------------------------------------
-# _extract_jsonld
-# ---------------------------------------------------------------------------
 
 class TestExtractJsonld:
     def test_extracts_title_and_company(self):
@@ -233,10 +190,6 @@ class TestExtractJsonld:
         assert raw["title"] == "Staff Engineer"
 
 
-# ---------------------------------------------------------------------------
-# NodeskConnector.fetch_jobs (mocked HTTP)
-# ---------------------------------------------------------------------------
-
 class TestNodeskFetch:
     @pytest.fixture(autouse=True)
     def _no_db(self):
@@ -244,62 +197,81 @@ class TestNodeskFetch:
              patch("connectors.nodesk.remember_listing_urls"):
             yield
 
-    def _make_responses(self, slugs, job_html_map=None):
-        """Return a side_effect list: first call is sitemap, rest are job pages."""
-        xml = _sitemap_xml(*slugs)
-        responses = [_mock_response(xml)]
-        for slug in slugs:
-            html = (job_html_map or {}).get(slug, _job_html(f"Job at {slug}", "Acme"))
-            responses.append(_mock_response(html))
-        return responses
-
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
-    def test_returns_jobs(self, mock_get, mock_sleep):
-        slugs = ["acme-senior-engineer", "stripe-backend-developer"]
-        mock_get.side_effect = self._make_responses(slugs)
+    @patch("connectors.nodesk.requests.post")
+    def test_returns_jobs(self, mock_post, mock_get, _sleep):
+        mock_post.return_value = _mock_response(_algolia_payload([
+            _algolia_hit("acme-senior-engineer", _TODAY),
+            _algolia_hit("stripe-backend-developer", _TODAY),
+        ]))
+        mock_get.side_effect = [
+            _mock_response(_job_html("Senior Engineer", "Acme")),
+            _mock_response(_job_html("Backend Developer", "Stripe")),
+        ]
         jobs = NodeskConnector().fetch_jobs()
         assert len(jobs) == 2
+        assert mock_get.call_count == 2
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
-    def test_filters_non_engineering(self, mock_get, mock_sleep):
-        slugs = ["acme-senior-engineer", "stripe-content-writer"]
-        xml = _sitemap_xml(*slugs)
-        mock_get.side_effect = [
-            _mock_response(xml),
-            _mock_response(_job_html("Senior Engineer", "Acme")),
-            # content-writer should never be fetched
-        ]
+    @patch("connectors.nodesk.requests.post")
+    def test_filters_non_engineering(self, mock_post, mock_get, _sleep):
+        mock_post.return_value = _mock_response(_algolia_payload([
+            _algolia_hit("acme-senior-engineer", _TODAY),
+            _algolia_hit("stripe-content-writer", _TODAY),
+        ]))
+        mock_get.return_value = _mock_response(_job_html("Senior Engineer", "Acme"))
         jobs = NodeskConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["title"] == "Senior Engineer"
+        assert mock_get.call_count == 1
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
-    def test_skips_expired_jobs(self, mock_get, mock_sleep):
-        slugs = ["acme-senior-engineer"]
-        xml = _sitemap_xml(*slugs)
-        mock_get.side_effect = [
-            _mock_response(xml),
-            _mock_response(_job_html(valid_through=_PAST)),
-        ]
+    @patch("connectors.nodesk.requests.post")
+    def test_skips_stale_algolia_hits_without_detail_fetch(self, mock_post, mock_get, _sleep):
+        stale = (datetime.now(tz=timezone.utc) - timedelta(
+            days=config.MAX_JOB_AGE_DAYS_INITIAL + 10
+        )).strftime("%Y-%m-%d")
+        mock_post.return_value = _mock_response(_algolia_payload([
+            _algolia_hit("old-backend-engineer", stale),
+            _algolia_hit("acme-senior-engineer", _TODAY),
+        ]))
+        mock_get.return_value = _mock_response(_job_html("Senior Engineer", "Acme"))
+        jobs = NodeskConnector().fetch_jobs()
+        assert [j["title"] for j in jobs] == ["Senior Engineer"]
+        assert mock_get.call_count == 1
+
+    @patch("connectors.nodesk.time.sleep")
+    @patch("connectors.nodesk.requests.get")
+    @patch("connectors.nodesk.requests.post")
+    def test_skips_expired_jobs(self, mock_post, mock_get, _sleep):
+        mock_post.return_value = _mock_response(_algolia_payload([
+            _algolia_hit("acme-senior-engineer", _TODAY),
+        ]))
+        mock_get.return_value = _mock_response(_job_html(valid_through=_PAST))
         jobs = NodeskConnector().fetch_jobs()
         assert jobs == []
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
-    def test_sitemap_fetch_error_returns_empty(self, mock_get, mock_sleep):
-        mock_get.side_effect = Exception("network error")
+    @patch("connectors.nodesk.requests.post")
+    def test_algolia_error_returns_empty(self, mock_post, mock_get, _sleep):
+        mock_post.side_effect = Exception("network error")
         jobs = NodeskConnector().fetch_jobs()
         assert jobs == []
+        mock_get.assert_not_called()
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
-    def test_page_fetch_error_skips_job(self, mock_get, mock_sleep):
-        xml = _sitemap_xml("acme-senior-engineer", "stripe-backend-developer")
+    @patch("connectors.nodesk.requests.post")
+    def test_page_fetch_error_skips_job(self, mock_post, mock_get, _sleep):
+        mock_post.return_value = _mock_response(_algolia_payload([
+            _algolia_hit("acme-senior-engineer", _TODAY),
+            _algolia_hit("stripe-backend-developer", _TODAY),
+        ]))
         mock_get.side_effect = [
-            _mock_response(xml),
             Exception("timeout"),
             _mock_response(_job_html("Backend Developer", "Stripe")),
         ]
@@ -309,26 +281,24 @@ class TestNodeskFetch:
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
-    def test_no_lastmod_does_not_slice_to_max_new(self, mock_get, mock_sleep):
-        slugs = [f"acme-engineer-{i}" for i in range(_MAX_NEW + 10)]
-        items = "\n".join(
-            f"  <url><loc>https://nodesk.co/remote-jobs/{s}/</loc></url>" for s in slugs
-        )
-        xml = (
-            '<?xml version="1.0"?>\n'
-            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
-            f"{items}\n</urlset>"
-        ).encode()
-        mock_get.side_effect = [_mock_response(xml)] + [
-            _mock_response(_job_html()) for _ in slugs
+    @patch("connectors.nodesk.requests.post")
+    def test_pages_algolia_until_nb_pages(self, mock_post, mock_get, _sleep):
+        mock_post.side_effect = [
+            _mock_response(_algolia_payload(
+                [_algolia_hit("acme-senior-engineer", _TODAY)], page=0, nb_pages=2
+            )),
+            _mock_response(_algolia_payload(
+                [_algolia_hit("stripe-backend-developer", _TODAY)], page=1, nb_pages=2
+            )),
         ]
-        NodeskConnector().fetch_jobs()
-        assert mock_get.call_count == 1 + _MAX_NEW + 10
+        mock_get.side_effect = [
+            _mock_response(_job_html("Senior Engineer", "Acme")),
+            _mock_response(_job_html("Backend Developer", "Stripe")),
+        ]
+        jobs = NodeskConnector().fetch_jobs()
+        assert len(jobs) == 2
+        assert mock_post.call_count == 2
 
-
-# ---------------------------------------------------------------------------
-# NodeskConnector.normalize
-# ---------------------------------------------------------------------------
 
 class TestNodeskNormalize:
     REQUIRED = {

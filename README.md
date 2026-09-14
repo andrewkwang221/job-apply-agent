@@ -198,7 +198,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [Real Work From Anywhere](https://www.realworkfromanywhere.com) | RSS | Worldwide-only curated remote jobs |
 | [EU Remote Jobs](https://euremotejobs.com) | RSS | European timezone remote jobs |
 | Remote AI Jobs | RSS | AI/ML-specific category feed (via Real Work From Anywhere) |
-| [Nodesk](https://nodesk.co) | Sitemap + JSON-LD | Curated remote jobs; engineering keyword filter; expired postings skipped |
+| [Nodesk](https://nodesk.co) | Algolia + JSON-LD | Guest `jobPosts` search (live board, not the historical sitemap); engineering slug filter; expired/stale postings skipped |
 | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD | $100K+ remote jobs; ATS apply URL extracted directly from page HTML |
 | [We Are Distributed](https://wearedistributed.org/jobs) | Sitemap + JSON-LD | Distributed-work focused jobs; engineering keyword filter; expired postings skipped |
 | [Flexa Careers](https://flexa.careers/jobs) | GraphQL API + JSON-LD | Flexible-work focused jobs; newest-first via `sort: DATE_DESC`; engineering title filter; description from per-page JSON-LD |

@@ -100,7 +100,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RealWorkFromAnywhereConnector` | [Real Work From Anywhere](https://www.realworkfromanywhere.com) | Worldwide-only curated remote jobs (RSS) |
 | `EURemoteJobsConnector` | [EU Remote Jobs](https://euremotejobs.com) | European timezone remote jobs (RSS, `/job-listings/feed/`) |
 | `RemoteAIJobsConnector` | Real Work From Anywhere — AI category | AI/ML-specific remote jobs (RSS) |
-| `NodeskConnector` | [Nodesk](https://nodesk.co) | Sitemap + JSON-LD; engineering keyword filter on URL slug; skips expired postings |
+| `NodeskConnector` | [Nodesk](https://nodesk.co) | Guest Algolia `jobPosts` + JobPosting JSON-LD; engineering slug filter; skips expired/stale postings |
 | `Remote100kConnector` | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD; ATS apply URL extracted from page HTML; `?ref=` tracking params stripped |
 | `RemoteJobsIoConnector` | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js `__NEXT_DATA__` listing scrape; engineering title filter; apply paywalled |
 | `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Active-listings sitemap + JobPosting JSON-LD; `/en/remote-jobs/` only; engineering slug filter |

@@ -1,22 +1,19 @@
 """
 NoDesk remote jobs connector.
 
-Fetches job listings from https://nodesk.co/ via their sitemap.xml and
-JSON-LD structured data embedded on each individual job page.
+Uses the guest Algolia ``jobPosts`` index that powers
+https://nodesk.co/remote-jobs/ (search-only key is in ``/js/search.min.js``).
+That index is the live board (~100–150 hits), not the 15k-URL historical
+sitemap. RSS and listing HTML use Hugo publish dates, not ``datePosted``.
 
 Strategy
 --------
-1. Parse sitemap.xml to collect all ``/remote-jobs/<slug>/`` URLs.
-2. Filter to engineering-relevant slugs (keyword substring match).
-3. For each new URL (pipeline dedup skips already-seen ones) fetch the
-   page and extract the ``JobPosting`` JSON-LD block (quoted or unquoted
-   ``type=application/ld+json``).
-4. Skip postings whose ``validThrough`` date has already passed, or whose
-   ``datePosted`` is older than ``job_age_cutoff``. The sitemap has no
-   ``lastmod`` and is not newest-first, so do not prefix-slice.
-5. Return the nodesk.co page URL as the job URL — the prefill system
-   will open it, find the employer apply link via ``extract_apply_url``,
-   and navigate to the real ATS.
+1. Page Algolia ``searchFilter:remote-jobs`` (Referer required).
+2. Keep engineering slugs; drop hits whose ``datePublished`` is older than
+   ``job_age_cutoff`` so stale jobs never need a detail GET.
+3. Fetch remaining listing pages for JobPosting JSON-LD (quoted or unquoted
+   ``type=application/ld+json``). Skip expired ``validThrough``.
+4. Store the nodesk.co page URL — prefill finds the employer apply link.
 """
 from __future__ import annotations
 
@@ -24,7 +21,6 @@ import json
 import re
 import time
 import traceback
-import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List
 
@@ -40,14 +36,19 @@ from utils.logger import setup_logger
 
 logger = setup_logger("nodesk_connector")
 
-_SITEMAP_URL = "https://nodesk.co/sitemap.xml"
+_SITE = "https://nodesk.co"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
-# Prefix cap is valid only when sitemap lastmod is present (newest-first).
-_MAX_NEW = 150
-# Mixed lastmod-less sitemap (~15k locs, ~4k engineering). Walk unseen
-# engineering URLs in one run; this is a runaway guard, not a newest prefix.
-_MAX_UNSEEN_FETCHES = 20000
+# Search-only key shipped in https://nodesk.co/js/search.min.js
+_ALGOLIA_APP = "0586L1SOK8"
+_ALGOLIA_KEY = "8dacb58c6f375cba28e19ecf1f03e9e1"
+_ALGOLIA_INDEX = "jobPosts"
+_ALGOLIA_FILTER = "searchFilter:remote-jobs"
+_ALGOLIA_HITS_PER_PAGE = 100
+_ALGOLIA_MAX_PAGES = 5
+
+_FETCH_DELAY = 0.4
+_PROGRESS_EVERY = 25
 
 _LD_SCRIPT_RE = re.compile(
     r"<script([^>]*)>(.*?)</script>",
@@ -57,10 +58,7 @@ _LD_TYPE_RE = re.compile(
     r"""type\s*=\s*['"]?application/ld\+json['"]?""",
     re.IGNORECASE,
 )
-# Politeness delay between page fetches (seconds).
-_FETCH_DELAY = 0.4
 
-# Engineering-relevant keywords matched as substrings of the URL slug.
 _ENGINEERING_KEYWORDS = {
     "developer", "engineer", "engineering", "software", "backend", "frontend",
     "fullstack", "full-stack", "devops", "sre", "platform", "infrastructure",
@@ -70,47 +68,83 @@ _ENGINEERING_KEYWORDS = {
     "firmware", "embedded", "systems", "security", "blockchain", "web3",
 }
 
-# Sitemap XML namespace.
-_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-
 
 class NodeskConnector(BaseConnector):
     def __init__(self):
         self.source_name = "nodesk"
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
-        logger.info("Fetching jobs from nodesk.co sitemap…")
+        logger.info("Fetching jobs from nodesk.co Algolia index…")
+        cutoff = job_age_cutoff(self.source_name)
         try:
-            resp = requests.get(_SITEMAP_URL, headers=_HEADERS, timeout=15)
-            resp.raise_for_status()
-            urls, newest_first = _parse_sitemap(resp.content)
+            hits = _algolia_hits()
         except Exception as e:
-            logger.error(f"Failed to fetch nodesk sitemap: {e}")
+            logger.error(f"Failed to query nodesk Algolia index: {e}")
             logger.debug(traceback.format_exc())
             return []
 
-        eng_urls = [u for u in urls if _is_engineering_url(u)]
-        cap = _MAX_NEW if newest_first else _MAX_UNSEEN_FETCHES
-        to_fetch = unseen_listing_urls(eng_urls, self.source_name, max_new=cap)
+        candidates: list[str] = []
+        skipped_stale = 0
+        for hit in hits:
+            url = _hit_listing_url(hit)
+            if not url or not _is_engineering_url(url):
+                continue
+            posted = _hit_posted_date(hit)
+            if posted and posted < cutoff:
+                skipped_stale += 1
+                continue
+            candidates.append(url)
+
+        # Preserve first-seen order; Algolia ranking is featured-mixed.
+        seen: set[str] = set()
+        unique: list[str] = []
+        for url in candidates:
+            if url in seen:
+                continue
+            seen.add(url)
+            unique.append(url)
+
+        to_fetch = unseen_listing_urls(unique, self.source_name)
+        total = len(to_fetch)
         logger.info(
-            f"Sitemap: {len(urls)} job URLs total, "
-            f"{len(eng_urls)} match engineering keywords, "
-            f"newest_first={newest_first}, fetching {len(to_fetch)}"
+            f"Algolia: {len(hits)} live hits, {len(unique)} engineering in-window, "
+            f"{skipped_stale} stale, fetching {total} detail pages"
         )
 
         jobs: List[Dict[str, Any]] = []
-        crawled: List[str] = []
-        for url in to_fetch:
+        pending_seen: List[str] = []
+        skipped = 0
+        failed = 0
+        started = time.monotonic()
+
+        def _flush_seen() -> None:
+            if pending_seen:
+                remember_listing_urls(self.source_name, pending_seen)
+                pending_seen.clear()
+
+        for i, url in enumerate(to_fetch, 1):
             try:
                 raw = _fetch_job_page(url)
-                crawled.append(url)
+                pending_seen.append(url)
                 if raw:
                     self._emit(raw, jobs)
+                else:
+                    skipped += 1
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
+                failed += 1
                 logger.warning(f"Failed to fetch {url}: {e}")
                 logger.debug(traceback.format_exc())
-        remember_listing_urls(self.source_name, crawled)
+            if total and (i % _PROGRESS_EVERY == 0 or i == total):
+                _flush_seen()
+                elapsed = time.monotonic() - started
+                remain = (elapsed / i) * (total - i) if i else 0
+                eta = f", ~{remain / 60:.0f} min left" if i < total else ""
+                logger.info(
+                    f"nodesk {i}/{total} crawled, {len(jobs)} kept, "
+                    f"{skipped} skipped, {failed} failed{eta}"
+                )
+        _flush_seen()
 
         logger.info(f"Successfully fetched {len(jobs)} jobs from nodesk.co")
         return jobs
@@ -140,71 +174,63 @@ class NodeskConnector(BaseConnector):
         return self.source_name
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-def _parse_sitemap(content: bytes) -> tuple[list[str], bool]:
-    """Return (/remote-jobs/ URLs, newest_first) from a urlset or sitemap index."""
-    try:
-        root = ET.fromstring(content)
-    except ET.ParseError:
-        return [], False
-
-    tag = root.tag.lower()
-    if "sitemapindex" in tag:
-        entries: list[tuple[str, str]] = []
-        has_lastmod = False
-        for sm_el in root.findall("sm:sitemap", _NS) or root.findall("sitemap"):
-            child_loc = (
-                sm_el.findtext("sm:loc", namespaces=_NS)
-                or sm_el.findtext("loc")
-                or ""
-            ).strip()
-            if not child_loc:
-                continue
-            try:
-                r = requests.get(child_loc, headers=_HEADERS, timeout=15)
-                r.raise_for_status()
-                child_entries, child_lastmod = _urlset_entries(ET.fromstring(r.content))
-                entries.extend(child_entries)
-                has_lastmod = has_lastmod or child_lastmod
-                time.sleep(0.2)
-            except Exception:
-                continue
-        return _finalize_sitemap_entries(entries, has_lastmod)
-
-    entries, has_lastmod = _urlset_entries(root)
-    return _finalize_sitemap_entries(entries, has_lastmod)
-
-
-def _urlset_entries(root: ET.Element) -> tuple[list[tuple[str, str]], bool]:
-    entries: list[tuple[str, str]] = []
-    has_lastmod = False
-    for url_el in root.findall("sm:url", _NS) or root.findall("url"):
-        loc = (
-            (url_el.findtext("sm:loc", namespaces=_NS) or url_el.findtext("loc") or "")
-            .strip()
+def _algolia_hits() -> list[dict[str, Any]]:
+    """Return all live ``jobPosts`` hits for the remote-jobs filter."""
+    hits: list[dict[str, Any]] = []
+    url = f"https://{_ALGOLIA_APP}-dsn.algolia.net/1/indexes/{_ALGOLIA_INDEX}/query"
+    headers = {
+        **_HEADERS,
+        "X-Algolia-API-Key": _ALGOLIA_KEY,
+        "X-Algolia-Application-Id": _ALGOLIA_APP,
+        "Content-Type": "application/json",
+        "Referer": f"{_SITE}/remote-jobs/",
+        "Origin": _SITE,
+    }
+    for page in range(_ALGOLIA_MAX_PAGES):
+        resp = requests.post(
+            url,
+            headers=headers,
+            json={
+                "query": "",
+                "hitsPerPage": _ALGOLIA_HITS_PER_PAGE,
+                "page": page,
+                "filters": _ALGOLIA_FILTER,
+            },
+            timeout=15,
         )
-        if not re.match(r"https://nodesk\.co/remote-jobs/[^/]+/?$", loc):
-            continue
-        lastmod = (
-            url_el.findtext("sm:lastmod", namespaces=_NS)
-            or url_el.findtext("lastmod")
-            or ""
-        ).strip()
-        if lastmod:
-            has_lastmod = True
-        entries.append((lastmod, loc))
-    return entries, has_lastmod
+        resp.raise_for_status()
+        data = resp.json()
+        batch = data.get("hits") or []
+        hits.extend(batch)
+        nb_pages = int(data.get("nbPages") or 0)
+        if not batch or page + 1 >= nb_pages:
+            break
+    return hits
 
 
-def _finalize_sitemap_entries(
-    entries: list[tuple[str, str]], has_lastmod: bool
-) -> tuple[list[str], bool]:
-    if has_lastmod:
-        entries = sorted(entries, key=lambda x: x[0], reverse=True)
-    return [loc for _, loc in entries], has_lastmod
+def _hit_listing_url(hit: dict[str, Any]) -> str:
+    permalink = (hit.get("permalink") or "").strip()
+    if not permalink.startswith("/remote-jobs/"):
+        return ""
+    return _SITE + permalink
+
+
+def _hit_posted_date(hit: dict[str, Any]) -> datetime | None:
+    raw = hit.get("datePublished")
+    if raw in (None, "", "Featured"):
+        return None
+    if isinstance(raw, (int, float)) and not isinstance(raw, bool):
+        ts = float(raw)
+        if ts > 10_000_000_000:
+            ts /= 1000
+        return datetime.fromtimestamp(ts, tz=timezone.utc)
+    try:
+        posted = dateutil_parser.parse(str(raw))
+        if posted.tzinfo is None:
+            posted = posted.replace(tzinfo=timezone.utc)
+        return posted
+    except Exception:
+        return None
 
 
 def _is_engineering_url(url: str) -> bool:
@@ -235,7 +261,6 @@ def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
         if data.get("@type") != "JobPosting":
             continue
 
-        # Skip expired postings.
         valid_through = data.get("validThrough")
         if valid_through:
             try:
@@ -251,7 +276,6 @@ def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
         company = ((data.get("hiringOrganization") or {}).get("name") or "Unknown").strip()
         description = (data.get("description") or "").strip()
 
-        # Location: prefer applicantLocationRequirements list.
         location = "Worldwide"
         loc_reqs = data.get("applicantLocationRequirements")
         if isinstance(loc_reqs, list):
