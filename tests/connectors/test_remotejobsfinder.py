@@ -332,3 +332,45 @@ def test_fetch_keeps_metadata_when_detail_fails(
     assert len(jobs) == 1
     assert "Hourly" in jobs[0]["description"]
     assert "Level:" in jobs[0]["description"]
+
+
+def test_needs_detail_description():
+    from connectors.remotejobsfinder import needs_detail_description
+
+    stub = "Hourly: 80–120 USD\nLevel: Senior (5+ years)\nWorkplace: Remote"
+    assert needs_detail_description(stub) is True
+    assert needs_detail_description("") is True
+    html = stub + "\n\n<p>Build APIs in Python.</p>"
+    assert needs_detail_description(html) is False
+
+
+@patch("connectors.remotejobsfinder.requests.get")
+def test_hydrate_job_descriptions_fills_html(mock_get):
+    from connectors.remotejobsfinder import hydrate_job_descriptions
+
+    mock_get.return_value = _detail_resp("<p>Full role text.</p>")
+    jobs = [{"id": _UUID, "description": "Hourly: 80–120 USD\nLevel: Senior (5+ years)"}]
+    hydrate_job_descriptions(jobs)
+    assert "Full role text" in jobs[0]["description"]
+    assert "Hourly" in jobs[0]["description"]
+    assert mock_get.call_args.args[0].endswith(_UUID)
+
+
+@patch("connectors.remotejobsfinder.time.sleep")
+@patch("connectors.remotejobsfinder.requests.get")
+def test_hydrate_retries_rate_limit(mock_get, _sleep):
+    from connectors.remotejobsfinder import hydrate_job_descriptions
+
+    calls = {"n": 0}
+
+    def _side_effect(*_args, **_kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _Resp({"error": "slow"}, status=429)
+        return _detail_resp("<p>After retry.</p>")
+
+    mock_get.side_effect = _side_effect
+    jobs = [{"id": _UUID, "description": "Hourly: 30"}]
+    hydrate_job_descriptions(jobs)
+    assert "After retry" in jobs[0]["description"]
+    assert calls["n"] == 2

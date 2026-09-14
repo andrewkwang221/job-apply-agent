@@ -916,6 +916,7 @@ def help_command():
         ("evaluate", "Score new jobs against your profile", "--profile  --dry-run"),
         ("analyze", "Run LLM analysis on review jobs", "--limit N  --model <model>  --dry-run"),
         ("rescore", "Re-apply scoring rules; optionally promote high scores", "--status review --promote"),
+        ("refill-descriptions", "Hydrate stub RemoteJobsFinder descriptions from the detail API", "--dry-run"),
         ("", "", ""),
         ("", "PERFORMANCE", ""),
         ("perf", "Plot prefill timing trend from recorded runs", "--job Coinbase  --last 5"),
@@ -1026,6 +1027,68 @@ def prune(days: int, dry_run: bool):
         raise
     finally:
         session.close()
+
+
+@cli.command(name="refill-descriptions")
+@click.option(
+    "--source",
+    default="remotejobsfinder",
+    type=click.Choice(["remotejobsfinder"]),
+    show_default=True,
+    help="Board whose stub descriptions should be hydrated",
+)
+@click.option("--dry-run", is_flag=True, help="Count stubs without writing")
+def refill_descriptions(source: str, dry_run: bool):
+    """Fetch missing job-detail HTML for stored RemoteJobsFinder rows."""
+    from connectors.remotejobsfinder import (
+        hydrate_job_descriptions,
+        needs_detail_description,
+    )
+    from utils.text_cleaning import clean_description
+
+    session = SessionLocal()
+    try:
+        jobs = session.query(Job).filter(Job.source == source).all()
+        stubs = [
+            job
+            for job in jobs
+            if needs_detail_description(job.description or "")
+            and job.external_id
+            and not str(job.external_id).startswith("http")
+        ]
+        click.echo(
+            f"{'[DRY RUN] ' if dry_run else ''}"
+            f"{len(stubs)} of {len(jobs)} {source} jobs need a detail description."
+        )
+        if not stubs or dry_run:
+            return
+        payloads = [
+            {"id": job.external_id, "description": job.description or ""}
+            for job in stubs
+        ]
+        hydrate_job_descriptions(payloads)
+        updated = 0
+        failed = 0
+        now = datetime.datetime.now(datetime.timezone.utc)
+        by_id = {job.external_id: job for job in stubs}
+        for payload in payloads:
+            job = by_id.get(payload["id"])
+            text = payload.get("description") or ""
+            if job is None or needs_detail_description(text):
+                failed += 1
+                continue
+            job.description = text
+            job.description_text = clean_description(text)
+            job.updated_at = now
+            updated += 1
+        session.commit()
+        click.echo(f"Updated {updated} descriptions; {failed} still missing detail.")
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
 
 @cli.command()
 @click.option('--limit', default=20, type=int, show_default=True, help='Maximum number of shortlisted jobs to display')

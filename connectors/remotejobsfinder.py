@@ -57,6 +57,7 @@ _FETCH_DELAY = 0.4
 _MAX_PAGES = 40
 _MAX_FETCH_FAILURES = 5
 _DETAIL_WORKERS = 8
+_STUB_DESC_MAX_CHARS = 800
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -316,6 +317,14 @@ def _merge_description(meta: str, html: str) -> str:
     return html or meta
 
 
+def needs_detail_description(text: str) -> bool:
+    """True when the stored text is list metadata (no HTML job body)."""
+    raw = (text or "").strip()
+    if "<" in raw and ">" in raw:
+        return False
+    return len(raw) < _STUB_DESC_MAX_CHARS
+
+
 def _hydrate_details(pending: list[dict[str, Any]]) -> None:
     if not pending:
         return
@@ -338,19 +347,32 @@ def _hydrate_details(pending: list[dict[str, Any]]) -> None:
             fut.result()
 
 
+def hydrate_job_descriptions(jobs: list[dict[str, Any]]) -> None:
+    """Fill ``description`` from GET /public/jobs/{uuid} for each job dict."""
+    _hydrate_details(jobs)
+
+
 def _fetch_page(
     params: list[tuple[str, str]],
     url: str | None = None,
 ) -> dict[str, Any] | None:
-    try:
-        resp = requests.get(
-            url or API_URL,
-            headers=_HEADERS,
-            params=params or None,
-            timeout=30,
-        )
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"remotejobsfinder GET failed ({type(e).__name__})")
+    resp = None
+    for attempt in range(4):
+        try:
+            resp = requests.get(
+                url or API_URL,
+                headers=_HEADERS,
+                params=params or None,
+                timeout=30,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(f"remotejobsfinder GET failed ({type(e).__name__})")
+            return None
+        if resp.status_code != 429 or attempt == 3:
+            break
+        logger.info(f"remotejobsfinder GET HTTP 429 — retry {attempt + 1}/3")
+        time.sleep(1.5 * (attempt + 1))
+    if resp is None:
         return None
     if resp.status_code >= 400:
         logger.info(f"remotejobsfinder GET HTTP {resp.status_code}")
