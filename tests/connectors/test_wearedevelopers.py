@@ -51,7 +51,7 @@ def _listing_md(*jobs: str, cursor: str | None = "WyIyMDI2LTA5LTEwIiwyODM2MzIwXQ
     next_line = ""
     if cursor:
         next_line = (
-            f"[Next page](https://www.wearedevelopers.com/jobs?country=all&amp;page={cursor})"
+            f"[Next page](https://www.wearedevelopers.com/jobs?country=US&amp;page={cursor})"
         )
     return (
         "# Developer Jobs\n\n642469 jobs found\n"
@@ -63,7 +63,7 @@ def _listing_md(*jobs: str, cursor: str | None = "WyIyMDI2LTA5LTEwIiwyODM2MzIwXQ
 
 
 def test_listing_url_keeps_user_query():
-    assert LISTING_URL == "https://www.wearedevelopers.com/jobs.md?q=&country=all"
+    assert LISTING_URL == "https://www.wearedevelopers.com/jobs.md?q=&country=US"
     assert _listing_url(None) == LISTING_URL
     assert _listing_url("ABC") == LISTING_URL + "&page=ABC"
 

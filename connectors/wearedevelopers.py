@@ -1,10 +1,11 @@
 """
 WeAreDevelopers jobs connector.
 
-Fetches the guest worldwide list at
-https://www.wearedevelopers.com/jobs?q=&country=all via the documented
+Fetches the guest United States list at
+https://www.wearedevelopers.com/jobs?q=&country=US via the documented
 markdown feed (``/jobs.md``). HTML "Load more jobs" uses the same newest-first
-cursor on ``/jobs.turbo_stream?country=all&page=``.
+cursor on ``/jobs.turbo_stream?country=US&page=``.
+``q`` stays empty: a non-empty ``q`` switches to mixed-date semantic search.
 
 Walk load-more cursors and stop at the first fully stale page
 (``MAX_JOB_AGE_DAYS``), an empty batch, or a missing next cursor.
@@ -38,7 +39,7 @@ from utils.text_cleaning import clean_description
 logger = setup_logger("wearedevelopers_connector")
 
 BASE_URL = "https://www.wearedevelopers.com"
-LISTING_URL = f"{BASE_URL}/jobs.md?q=&country=all"
+LISTING_URL = f"{BASE_URL}/jobs.md?q=&country=US"
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -78,7 +79,7 @@ class WeAreDevelopersConnector(BaseConnector):
         self.source_name = "wearedevelopers"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from WeAreDevelopers (newest-first load more)…")
+        logger.info("Fetching jobs from WeAreDevelopers US list (newest-first load more)…")
         cutoff = job_age_cutoff(self.source_name)
         seen_ids: set[str] = set()
         cursor: str | None = None
