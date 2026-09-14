@@ -56,7 +56,7 @@ from connectors.dice import DiceConnector
 from connectors.workable import WorkableConnector
 from connectors.remotescout24 import RemoteScout24Connector
 from utils.form_prefill import _TimingCollector
-from utils.dedup import is_duplicate
+from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
 from utils.llm_analysis import analyze_job_with_ollama
 from utils.scoring import SHORTLIST_MIN_SCORE, _NO_DIRECT_APPLY_SOURCES, score_job
@@ -920,6 +920,7 @@ def help_command():
         ("analyze", "Run LLM analysis on review jobs", "--limit N  --model <model>  --dry-run"),
         ("rescore", "Re-apply scoring rules; optionally promote high scores", "--status review --promote"),
         ("refill-descriptions", "Hydrate stub RemoteJobsFinder descriptions from the detail API", "--dry-run"),
+        ("dedup", "Drop extra copies of the same job already in SQLite", "--dry-run"),
         ("", "", ""),
         ("", "PERFORMANCE", ""),
         ("perf", "Plot prefill timing trend from recorded runs", "--job Coinbase  --last 5"),
@@ -1086,6 +1087,28 @@ def refill_descriptions(source: str, dry_run: bool):
             updated += 1
         session.commit()
         click.echo(f"Updated {updated} descriptions; {failed} still missing detail.")
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+@cli.command()
+@click.option('--dry-run', is_flag=True, help='Show how many extras would be dropped without deleting')
+def dedup(dry_run: bool):
+    """Drop extra SQLite rows for the same posting on different URLs."""
+    session = SessionLocal()
+    try:
+        groups, dropped = collapse_duplicate_jobs(session, dry_run=dry_run)
+        prefix = "[DRY RUN] " if dry_run else ""
+        if not dropped:
+            click.echo(f"{prefix}No cross-URL duplicates found.")
+            return
+        click.echo(
+            f"{prefix}Found {groups} duplicate groups; "
+            f"{'would drop' if dry_run else 'dropped'} {dropped} extra jobs."
+        )
     except Exception:
         session.rollback()
         raise

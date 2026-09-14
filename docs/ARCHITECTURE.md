@@ -28,7 +28,7 @@ python run_pipeline.py full-run
 [FETCH]
   -> pull jobs from all enabled sources
   -> normalize to unified schema
-  -> deduplicate (URL + company+title+location hash)
+  -> deduplicate (URL, external_id, company+title+canonical location, description fingerprint)
   -> insert new jobs into SQLite
 
         |
@@ -165,7 +165,7 @@ Key rejection patterns (in order):
 - normalizing via `connector.normalize(raw_job)`
 - skipping jobs that fail `utils/job_inclusion.py` (fully remote vs place-tied hybrid/remote vs office-required; profile seniority; posting language; accepted regions)
 - deleting already-stored jobs that fail the same rules (except applied/deferred/archived/expired)
-- deduplication via `utils/dedup.py` (URL + content hash)
+- deduplication via `utils/dedup.py` (URL, external_id, normalized company+title+location, long-description fingerprint across URLs)
 - upsert into `jobs` table
 
 ### Database Layer
