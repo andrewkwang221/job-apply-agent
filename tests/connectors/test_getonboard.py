@@ -125,12 +125,19 @@ class TestFetchCategory:
             jobs = connector._fetch_category("programming", set(), {"en"})
         assert len(jobs) == 1
 
-    def test_skips_non_remote_modality(self):
+    def test_skips_onsite_modality(self):
+        connector = self._connector()
+        data = _page([_job(modality="no_remote")])
+        with patch(self._T, return_value=_mock_resp(data)):
+            jobs = connector._fetch_category("programming", set(), {"en"})
+        assert jobs == []
+
+    def test_keeps_hybrid(self):
         connector = self._connector()
         data = _page([_job(modality="hybrid")])
         with patch(self._T, return_value=_mock_resp(data)):
             jobs = connector._fetch_category("programming", set(), {"en"})
-        assert jobs == []
+        assert len(jobs) == 1
 
     def test_skips_disallowed_language(self):
         connector = self._connector()

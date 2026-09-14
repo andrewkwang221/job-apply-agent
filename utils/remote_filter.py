@@ -121,6 +121,211 @@ def _profile_accepts_us(accepted_regions: Iterable[str]) -> bool:
     return any(region in _US_ACCEPT_ALIASES for region in accepted_regions)
 
 
+# Abbrev → full name. Used to detect a named US state in a listing location.
+US_STATES: dict[str, str] = {
+    "al": "alabama", "ak": "alaska", "az": "arizona", "ar": "arkansas",
+    "ca": "california", "co": "colorado", "ct": "connecticut", "de": "delaware",
+    "dc": "district of columbia", "fl": "florida", "ga": "georgia", "hi": "hawaii",
+    "id": "idaho", "il": "illinois", "in": "indiana", "ia": "iowa",
+    "ks": "kansas", "ky": "kentucky", "la": "louisiana", "me": "maine",
+    "md": "maryland", "ma": "massachusetts", "mi": "michigan", "mn": "minnesota",
+    "ms": "mississippi", "mo": "missouri", "mt": "montana", "ne": "nebraska",
+    "nv": "nevada", "nh": "new hampshire", "nj": "new jersey", "nm": "new mexico",
+    "ny": "new york", "nc": "north carolina", "nd": "north dakota", "oh": "ohio",
+    "ok": "oklahoma", "or": "oregon", "pa": "pennsylvania", "ri": "rhode island",
+    "sc": "south carolina", "sd": "south dakota", "tn": "tennessee", "tx": "texas",
+    "ut": "utah", "vt": "vermont", "va": "virginia", "wa": "washington",
+    "wv": "west virginia", "wi": "wisconsin", "wy": "wyoming",
+}
+US_STATE_NAMES: dict[str, str] = {name: abbr for abbr, name in US_STATES.items()}
+US_STATE_NAMES["washington dc"] = "dc"
+US_STATE_NAMES["washington, dc"] = "dc"
+
+_CITY_ALIASES: dict[str, tuple[str, ...]] = {
+    "san francisco": ("sf", "bay area", "sf bay area", "san francisco bay area", "sfo"),
+    "new york": ("nyc", "new york city", "manhattan"),
+    "los angeles": ("l.a.",),
+    "washington": ("washington dc", "washington, dc", "d.c."),
+}
+
+_ABBREV_ALT = "|".join(sorted(US_STATES, key=len, reverse=True))
+# ", MA" / "(CA)" / "Remote - TX" — not bare "in"/"or" in prose.
+_STATE_ABBREV_RE = re.compile(
+    r"(?:,|/|\(|\[|\-–)\s*(" + _ABBREV_ALT + r")\b",
+    re.I,
+)
+_CITY_STATE_RE = re.compile(
+    r"[a-z][a-z.'\s-]+,\s*(" + _ABBREV_ALT + r")\b",
+    re.I,
+)
+_FOREIGN_PLACE_RE = re.compile(
+    r"\b(?:germany|berlin|france|paris|united kingdom|\buk\b|london|"
+    r"india|bangalore|bengaluru|brazil|canada|toronto|mexico|"
+    r"australia|sydney|netherlands|amsterdam|ireland|dublin|"
+    r"spain|portugal|italy|sweden|poland|singapore|japan|"
+    r"korea|israel|uae|dubai|switzerland|zurich)\b",
+    re.I,
+)
+_UNRESTRICTED_REMOTE_RE = re.compile(
+    r"\b(?:worldwide|global|anywhere|work[\s-]?from[\s-]?anywhere|"
+    r"fully[\s-]?remote|remote[\s-]?first|remote[\s-]?only)\b",
+    re.I,
+)
+
+
+def profile_home_location(profile: Dict[str, Any] | None) -> dict[str, Any] | None:
+    """Parse personal.location (e.g. 'San Francisco, CA') into cities/states/country."""
+    if not profile:
+        return None
+    personal = profile.get("personal") or {}
+    raw = str(personal.get("location") or "").strip()
+    if not raw:
+        return None
+    loc = raw.lower()
+    cities: set[str] = set()
+    states: set[str] = set()
+    country: str | None = None
+    parts = [p.strip().lower().rstrip(".") for p in loc.split(",") if p.strip()]
+    for part in parts:
+        if part in US_STATES:
+            states.add(part)
+        elif part in US_STATE_NAMES:
+            states.add(US_STATE_NAMES[part])
+        elif part in _US_ACCEPT_ALIASES:
+            country = "us"
+        elif part in {"canada", "uk", "united kingdom", "germany"}:
+            country = part
+    if parts:
+        city = parts[0]
+        if city not in US_STATES and city not in US_STATE_NAMES and city not in _US_ACCEPT_ALIASES:
+            cities.add(city)
+            for canonical, aliases in _CITY_ALIASES.items():
+                if city == canonical or city in aliases:
+                    cities.add(canonical)
+                    cities.update(aliases)
+                    break
+            else:
+                cities.update(_CITY_ALIASES.get(city, ()))
+    work_auth = profile.get("work_authorization") or {}
+    phone_country = str(personal.get("phone_country") or "").strip().lower()
+    if not country:
+        if any(work_auth.get(k) for k in ("usa", "us", "united states")) or phone_country in _US_ACCEPT_ALIASES:
+            country = "us"
+        elif states:
+            country = "us"
+    if not cities and not states:
+        return None
+    return {"cities": cities, "states": states, "country": country, "raw": loc}
+
+
+def named_us_states(text: str) -> set[str]:
+    """US states mentioned via comma/paren abbrev or full name."""
+    if not text:
+        return set()
+    found = {m.group(1).lower() for m in _STATE_ABBREV_RE.finditer(text)}
+    lowered = text.lower()
+    for name, abbr in US_STATE_NAMES.items():
+        if name == "washington" and (
+            "dc" in found or "district of columbia" in lowered or "washington dc" in lowered
+        ):
+            continue
+        if _token_in_text(name, text):
+            found.add(abbr)
+    found.discard("us")
+    return found
+
+
+def _is_place_tied(location: str) -> bool:
+    """True when the listing names an office city/state, not just 'remote' / 'worldwide'."""
+    if not location:
+        return False
+    if named_us_states(location) or _CITY_STATE_RE.search(location):
+        return True
+    if _FOREIGN_PLACE_RE.search(location):
+        return True
+    return False
+
+
+def _has_us_country(location: str) -> bool:
+    return any(
+        _token_in_text(alias, location)
+        for alias in ("united states", "usa", "u.s.a", "u.s.", "us")
+    ) or "us-remote" in location or location.startswith("us-")
+
+
+def place_matches_home(location: str, home: dict[str, Any]) -> bool:
+    """Whether a place-tied hybrid/partial-remote listing matches the profile home."""
+    loc = (location or "").strip().lower()
+    home_states = set(home.get("states") or [])
+    home_cities = set(home.get("cities") or [])
+    home_country = home.get("country")
+    states = named_us_states(loc)
+
+    if any(city and city in loc for city in home_cities):
+        return not (states - home_states)
+
+    if states:
+        return bool(states <= home_states)
+
+    if _FOREIGN_PLACE_RE.search(loc) and not _has_us_country(loc):
+        return False
+
+    if _has_us_country(loc):
+        return home_country == "us"
+
+    return True
+
+
+def _is_unrestricted_remote(location: str) -> bool:
+    loc = (location or "").strip().lower()
+    if not loc or _is_place_tied(loc):
+        return False
+    if _UNRESTRICTED_REMOTE_RE.search(loc):
+        return True
+    if loc in {"remote", "fully remote", "remote-first"}:
+        return True
+    return False
+
+
+_STRICT_OFFICE_RE = re.compile(
+    r"(?:"
+    r"\b(?:return[\s-]?to[\s-]?office|\brto\b)\b"
+    r"|"
+    r"\b\d+\s*(?:[-–/]\s*\d+\s*)?(?:days?|d)\s*"
+    r"(?:a\s+week|per\s+week|/\s*week|weekly)?\s*"
+    r"(?:in\s+(?:the\s+)?(?:office|hq)|on[\s-]?site|in[\s-]?office|at\s+(?:the\s+)?office)"
+    r"|"
+    r"\b(?:in[\s-]?office|on[\s-]?site|at\s+(?:the\s+)?office)\s+"
+    r"\d+\s*(?:[-–/]\s*\d+\s*)?(?:days?|d)"
+    r"|"
+    r"\bhybrid\s*(?:[:\-–]\s*)?(?:\d+\s*/\s*\d+|\d+\s*days?)"
+    r"|"
+    r"\b(?:must|required\s+to|expect(?:ed)?\s+to)\s+"
+    r"(?:be\s+)?(?:in|come\s+to|attend|work\s+from|work\s+in|report\s+to)\s+"
+    r"(?:the\s+)?(?:office|hq|headquarters)\s+"
+    r"(?:regularly|(?:every|each)\s+week|\d+)"
+    r"|"
+    r"\b(?:on[\s-]?site|in[\s-]?office)\s+(?:required|mandatory|presence|expectation)"
+    r"|"
+    r"\boffice\s+(?:presence\s+)?(?:required|mandatory)"
+    r"|"
+    r"\b(?:minimum|at\s+least)\s+\d+\s+days?\s+(?:per\s+week\s+)?"
+    r"(?:in\s+(?:the\s+)?office|on[\s-]?site|in[\s-]?office)"
+    r")",
+    re.I,
+)
+
+_HOME_OFFICE_RE = re.compile(r"\bhome\s+office\b", re.I)
+
+
+def strict_office_required(text: str) -> bool:
+    """True when the posting mandates regular in-office attendance."""
+    if not text:
+        return False
+    scrubbed = _HOME_OFFICE_RE.sub(" ", text)
+    return bool(_STRICT_OFFICE_RE.search(scrubbed))
+
+
 def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | None = None) -> str:
     """Classify a job listing as accept, review, or reject for remote eligibility."""
     raw_location = str(job.get("raw_location_text")
@@ -179,8 +384,23 @@ def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | N
                 return "reject"
 
     remote_only = (profile or {}).get("preferences", {}).get("remote_only", False)
-    if remote_only and "hybrid" in raw_location:
+    title = str(job.get("title") or "").strip().lower()
+    office_text = f"{title} {raw_location} {cleaned_desc}".strip()
+    if remote_only and strict_office_required(office_text):
         return "reject"
+
+    # Hybrid / city + "remote available": keep only when the named place matches
+    # personal.location (same city/state, or US-wide with no other state).
+    # Fully remote / worldwide is not place-tied and is unchanged.
+    if remote_only:
+        home = profile_home_location(profile)
+        if (
+            home
+            and not _is_unrestricted_remote(raw_location)
+            and _is_place_tied(raw_location)
+            and not place_matches_home(raw_location, home)
+        ):
+            return "reject"
 
     reject_keywords = list(DEFAULT_REJECT_KEYWORDS)
     if not accepts_us:
@@ -214,7 +434,10 @@ def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | N
     # If the raw location is purely specific geographic places (no remote/worldwide
     # hint) and none match accepted regions, this is an office/region-restricted job.
     # e.g. "South Africa; India", "São Paulo", "Seoul"
-    _BROAD_LOCATION_TERMS = {"remote", "worldwide", "global", "anywhere"}
+    _BROAD_LOCATION_TERMS = {
+        "remote", "worldwide", "global", "anywhere", "hybrid",
+        "wfh", "work from home", "work-from-home",
+    }
     if raw_location and not any(term in raw_location for term in _BROAD_LOCATION_TERMS):
         return "reject"
 

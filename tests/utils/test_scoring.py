@@ -115,6 +115,22 @@ class TestHardRejects:
         assert result["recommended_status"] == "rejected"
         assert result["reject_code"] in ("title_mismatch", "low_score")
 
+    def test_hybrid_without_office_mandate_is_not_remote_reject(self):
+        result = score_job(_job(location="Hybrid", raw_location_text="Hybrid"), PROFILE)
+        assert result["reject_code"] != "remote"
+
+    def test_hybrid_office_days_rejected(self):
+        result = score_job(
+            _job(
+                location="Hybrid",
+                raw_location_text="Hybrid",
+                description="3 days a week in the office. Python SQL Docker backend api.",
+            ),
+            PROFILE,
+        )
+        assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] == "remote"
+
     def test_junior_title_penalty_may_reject(self):
         # Junior titles incur a heavy penalty — likely rejected unless other signals strong
         result = score_job(_job(title="Junior Python Developer", description="Python SQL"), PROFILE)

@@ -9,8 +9,10 @@ cursor on ``/jobs.turbo_stream?country=US&page=``.
 
 Phase 1 walks load-more cursors (no page cap besides a runaway guard) and
 stops at the first fully stale page (``MAX_JOB_AGE_DAYS``), an empty batch,
-or a missing next cursor. On-site cards and apply URLs on boards we already
-crawl are dropped here. A single failed load-more retries that cursor.
+or a missing next cursor. On-site-only cards (no remote/hybrid/WFH signal)
+and apply URLs on boards we already crawl are dropped here. Hybrid is kept
+unless the card states a regular office requirement. A single failed
+load-more retries that cursor.
 
 Phase 2 fetches ``/jobs/{id}.md`` descriptions in parallel, then emits so
 the pipeline can persist. ``location`` is a string.
@@ -32,6 +34,7 @@ from dateutil import parser as dateutil_parser
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.job_age import job_age_cutoff, max_job_age_days
+from utils.job_inclusion import exclusion_reason, load_candidate_profile
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -126,7 +129,8 @@ class WeAreDevelopersConnector(BaseConnector):
             "wearedevelopers phase 1: listing US newest-first pages "
             f"(MAX_JOB_AGE_DAYS={age_days}; stop at first stale page; no page cap)"
         )
-        listed, pages = self._collect_listings(cutoff)
+        profile = load_candidate_profile()
+        listed, pages = self._collect_listings(cutoff, profile)
         unseen_urls = set(
             unseen_listing_urls(
                 [job["listing_url"] for job in listed], self.source_name
@@ -156,6 +160,8 @@ class WeAreDevelopersConnector(BaseConnector):
                     "apply URL matched an owned source"
                 )
             for job in to_emit:
+                if profile and exclusion_reason(_inclusion_fields(job), profile):
+                    continue
                 self._emit(job, kept_jobs)
             remember_listing_urls(
                 self.source_name, [job["listing_url"] for job in pending]
@@ -169,7 +175,9 @@ class WeAreDevelopersConnector(BaseConnector):
         logger.info(f"Successfully fetched {len(kept_jobs)} jobs from wearedevelopers")
         return kept_jobs
 
-    def _collect_listings(self, cutoff: datetime) -> tuple[list[dict[str, Any]], int]:
+    def _collect_listings(
+        self, cutoff: datetime, profile: dict[str, Any] | None = None
+    ) -> tuple[list[dict[str, Any]], int]:
         seen_ids: set[str] = set()
         cursor: str | None = None
         consecutive_failures = 0
@@ -200,16 +208,20 @@ class WeAreDevelopersConnector(BaseConnector):
                 kept = 0
                 skipped_onsite = 0
                 skipped_owned = 0
+                skipped_profile = 0
                 for item in raw_items:
                     posted = _parse_dt(item.get("published"))
                     if posted:
                         dated.append(posted)
-                    raw, reason = _parse_raw_job(item, cutoff)
+                    raw, reason = _parse_raw_job(item, cutoff, profile)
                     if reason == "on-site":
                         skipped_onsite += 1
                         continue
                     if reason == "owned-source":
                         skipped_owned += 1
+                        continue
+                    if reason in {"remote", "language", "job_language"}:
+                        skipped_profile += 1
                         continue
                     if not raw:
                         continue
@@ -224,6 +236,11 @@ class WeAreDevelopersConnector(BaseConnector):
                     f"wearedevelopers page {pages}: {len(raw_items)} listings, "
                     f"{kept} kept, {skipped_onsite} on-site skipped, "
                     f"{skipped_owned} owned-source skipped"
+                    + (
+                        f", {skipped_profile} profile skipped"
+                        if skipped_profile
+                        else ""
+                    )
                 )
                 if all_stale:
                     logger.info(f"wearedevelopers page {pages} is fully stale — stopping")
@@ -377,6 +394,18 @@ def _is_engineering_title(title: str) -> bool:
     return any(kw in t for kw in _ENGINEERING_KEYWORDS)
 
 
+def _inclusion_fields(job: dict[str, Any]) -> dict[str, str]:
+    loc = str(job.get("location") or "")
+    desc = str(job.get("description") or "")
+    return {
+        "title": str(job.get("title") or ""),
+        "location": loc,
+        "raw_location_text": loc,
+        "description": desc,
+        "description_text": desc,
+    }
+
+
 def _looks_remote(title: str, location: str) -> bool:
     return bool(_REMOTE_RE.search(f"{title} {location}"))
 
@@ -441,7 +470,11 @@ def _job_location(value: Any) -> str:
     return "Remote"
 
 
-def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> tuple[dict[str, Any] | None, str]:
+def _parse_raw_job(
+    item: dict[str, Any],
+    cutoff: datetime,
+    profile: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, str]:
     title = (item.get("title") or "").strip()
     if not title or not _is_engineering_title(title):
         return None, "non-eng"
@@ -454,6 +487,9 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> tuple[dict[str, An
     location = _job_location(item.get("location"))
     if not _looks_remote(title, location):
         return None, "on-site"
+    skip = exclusion_reason(_inclusion_fields({"title": title, "location": location}), profile)
+    if skip:
+        return None, skip[0]
     apply_url = (
         _offsite_apply_url(item.get("apply_url"))
         or _offsite_apply_url(item.get("apply_field"))

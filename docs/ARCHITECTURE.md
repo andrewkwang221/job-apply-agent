@@ -94,7 +94,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `JobicyConnector` | [Jobicy](https://jobicy.com) | Remote tech jobs |
 | `JobspressoConnector` | [Jobspresso](https://jobspresso.co) | Curated remote jobs |
 | `DynamiteJobsConnector` | [Dynamite Jobs](https://dynamitejobs.com) | Remote-first jobs |
-| `GetOnBoardConnector` | [GetOnBoard](https://www.getonbrd.com) | LatAm-focused, fully remote only |
+| `GetOnBoardConnector` | [GetOnBoard](https://www.getonbrd.com) | LatAm-focused; fully remote and hybrid (office-required hybrid dropped at persist) |
 | `HimalayasConnector` | [Himalayas](https://himalayas.app) | Worldwide-only remote jobs |
 | `AdzunaConnector` | [Adzuna](https://www.adzuna.com) | 8 countries (gb/de/fr/nl/at/be/au/ca), remote-filtered |
 | `RealWorkFromAnywhereConnector` | [Real Work From Anywhere](https://www.realworkfromanywhere.com) | Worldwide-only curated remote jobs (RSS) |
@@ -103,7 +103,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `NodeskConnector` | [Nodesk](https://nodesk.co) | Guest Algolia `jobPosts` + JobPosting JSON-LD; engineering slug filter; skips expired/stale postings |
 | `Remote100kConnector` | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD; ATS apply URL extracted from page HTML; `?ref=` tracking params stripped |
 | `RemoteJobsIoConnector` | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js `__NEXT_DATA__` listing scrape; engineering title filter; apply paywalled |
-| `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Active-listings sitemap + JobPosting JSON-LD; `/en/remote-jobs/` only; engineering slug filter |
+| `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Active-listings sitemap + JobPosting JSON-LD; `/en/remote-jobs/` and `/en/hybrid-jobs/`; engineering slug filter |
 | `DailyRemoteConnector` | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Software-board HTML cards; relative dates; company/apply Premium-gated (review cap) |
 | `ArcDevConnector` | [Arc.dev](https://arc.dev/remote-jobs) | Public `__NEXT_DATA__` board + engineering categories; Fast apply gated (review cap) |
 | `FlexJobsConnector` | [FlexJobs](https://www.flexjobs.com) | Playwright login + homepage `/search` `__NEXT_DATA__`; opt-in `--source flexjobs`; apply paywalled (review cap) |
@@ -147,8 +147,9 @@ Key rejection patterns (in order):
 2. Greenhouse-style prefixes: `us-remote`, `us-east`, `us-west`, etc. (same US-acceptance gate)
 3. US substrings in location (`united states`, ` usa`, `(u.s.)`, `(us)`, etc.) unless a broad-region override (`worldwide`, `emea`, etc.) is also present, or the profile accepts US
 4. `Remote - [Country]` pattern where the country is not in the user's `accepted_regions`
-5. Description contains hard-reject keywords (`security clearance required`, plus `us only` / `must reside in the us` when the profile does not accept US)
-6. Geographic-only locations with no `remote`/`worldwide`/`global` hint and no accepted-region match
+5. `remote_only`: drop hybrid when the posting requires regular office attendance (`3 days in office`, `hybrid 3/2`, `on-site required`, RTO), regardless of city. Place-tied hybrid / “Remote available” is kept only when it matches `personal.location` (same US state/city, or Remote(US)/Remote(CA) with no other state). Fully remote and worldwide are not place-tied.
+6. Description contains hard-reject keywords (`security clearance required`, plus `us only` / `must reside in the us` when the profile does not accept US)
+7. Geographic-only locations with no `remote`/`hybrid`/`worldwide`/`global` hint and no accepted-region match
 
 ### Ingestion Pipeline
 
@@ -156,6 +157,8 @@ Key rejection patterns (in order):
 
 - fetching from each connector
 - normalizing via `connector.normalize(raw_job)`
+- skipping jobs that fail `utils/job_inclusion.py` (fully remote vs place-tied hybrid/remote vs office-required; posting language; accepted regions)
+- deleting already-stored jobs that fail the same rules (except applied/deferred/archived/expired)
 - deduplication via `utils/dedup.py` (URL + content hash)
 - upsert into `jobs` table
 

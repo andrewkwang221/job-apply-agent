@@ -128,7 +128,7 @@ def test_persist_respects_override_window(tmp_path, monkeypatch):
         def fetch_jobs(self):
             return []
 
-    posted = datetime.now(tz=timezone.utc) - timedelta(days=20)
+    posted = datetime.now(tz=timezone.utc) - timedelta(days=config.MAX_JOB_AGE_DAYS + 1)
     raw = {
         "id": "old-1",
         "title": "Backend Engineer",

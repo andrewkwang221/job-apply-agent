@@ -1,6 +1,10 @@
 import re
 from typing import Dict, Any
+from utils.job_inclusion import detected_posting_language, required_languages_in_text
 from utils.remote_filter import classify_remote_eligibility
+
+REVIEW_MIN_SCORE = 28
+SHORTLIST_MIN_SCORE = 65
 
 # Sources that require a paid subscription or don't have a direct apply URL.
 # Jobs from these sources are capped at 'review' so they never reach shortlisted.
@@ -181,57 +185,6 @@ def _has_title_relevance(title: str, title_skill_matches: list, title_keyword_ma
     role_tokens = ["engineer", "developer", "architect", "specialist", "lead"]
     return any(token in title_lower for token in domain_tokens) and any(token in title_lower for token in role_tokens)
 
-# Languages that may be explicitly required by employers.
-# English is intentionally omitted — it's ubiquitous and nearly always implied.
-# Canonical key must match what the user puts in profile.languages.
-_KNOWN_LANG_NAMES: dict[str, list[str]] = {
-    "mandarin": ["mandarin"],
-    "chinese":  ["chinese", "cantonese"],
-    "japanese": ["japanese"],
-    "korean":   ["korean"],
-    "french":   ["french"],
-    "german":   ["german", "deutsch"],
-    "dutch":    ["dutch"],
-    "spanish":  ["spanish"],
-    "portuguese": ["portuguese"],
-    "italian":  ["italian"],
-    "russian":  ["russian"],
-    "arabic":   ["arabic"],
-    "hindi":    ["hindi"],
-    "hebrew":   ["hebrew"],
-    "turkish":  ["turkish"],
-    "polish":   ["polish"],
-    "swedish":  ["swedish"],
-    "danish":   ["danish"],
-    "norwegian": ["norwegian"],
-    "finnish":  ["finnish"],
-    "thai":     ["thai"],
-    "ukrainian": ["ukrainian"],
-}
-
-# Words that introduce a language requirement; we look for language names
-# within a ±70-character window around each match.
-_LANG_INDICATOR_RE = re.compile(
-    r"\b(?:fluent|native|bilingual|mother.?tongue|proficient|proficiency|"
-    r"language skills?|language requirements?|business.?level|conversational)\b",
-    re.IGNORECASE,
-)
-
-
-def _required_languages_in_text(text: str) -> set[str]:
-    """Return canonical language names that appear in a language-requirement context."""
-    text_lower = text.lower()
-    found: set[str] = set()
-    for m in _LANG_INDICATOR_RE.finditer(text_lower):
-        start = max(0, m.start() - 70)
-        end = min(len(text_lower), m.end() + 70)
-        window = text_lower[start:end]
-        for lang, aliases in _KNOWN_LANG_NAMES.items():
-            if any(re.search(r"\b" + alias + r"\b", window) for alias in aliases):
-                found.add(lang)
-    return found
-
-
 REJECT_LABELS: dict[str, str] = {
     "remote": "Location",
     "blacklist": "Blacklist",
@@ -257,7 +210,7 @@ def _set_reject(result: Dict[str, Any], code: str, detail: str, score: int | Non
 
 
 def _overlap_detail(score: int, matched_skills: list, matched_keywords: list) -> str:
-    parts = [f"Score {score} (need 28+ for review)"]
+    parts = [f"Score {score} (need {REVIEW_MIN_SCORE}+ for review)"]
     if matched_skills:
         parts.append("skills: " + ", ".join(str(s) for s in matched_skills[:6]))
     else:
@@ -310,7 +263,7 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     # Detect patterns like "fluent mandarin", "japanese speaker", "bilingual chinese".
     profile_langs = {str(lang).strip().lower() for lang in (profile or {}).get("languages", [])}
     _scan_text = title + " " + description[:2_000]
-    _required_langs = _required_languages_in_text(_scan_text)
+    _required_langs = required_languages_in_text(_scan_text)
     missing_langs = _required_langs - profile_langs
     if missing_langs:
         return _set_reject(
@@ -320,20 +273,11 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
         )
 
     # Reject jobs written in a language the candidate doesn't speak.
-    # Markers per language that rarely appear in English/French/Arabic text.
-    _LANG_MARKERS = {
-        "spanish": ["experiencia", "conocimiento", "ingenier", "buscamos", "dise\u00f1",
-                    "construir", "colaborar", "licenciatura", "responsabilidades", "requisitos"],
-        "portuguese": ["experi\u00eancia", "conhecimento", "engenharia", "desenvolvedor",
-                       "habilidades", "requisitos", "respons\u00e1vel", "constru\u00e7\u00e3o"],
-        "german": ["kenntnisse", "erfahrung", "anforderungen", "berufserfahrung",
-                   "kenntnisse", "wir suchen", "stellenbeschreibung", "aufgaben"],
-    }
     profile_langs = {str(lang).lower() for lang in (profile or {}).get("languages", ["english"])}
-    desc_lower = str(job.get("description_text") or job.get("description") or "").lower()
-    for lang, markers in _LANG_MARKERS.items():
-        if lang not in profile_langs and sum(1 for m in markers if m in desc_lower) >= 3:
-            return _set_reject(result, "job_language", f"Posting appears to be in {lang}")
+    desc_lower = str(job.get("description_text") or job.get("description") or "")
+    posting_lang = detected_posting_language(desc_lower, profile_langs)
+    if posting_lang:
+        return _set_reject(result, "job_language", f"Posting appears to be in {posting_lang}")
 
     if "junior" in combined_text or "intern" in title:
         score -= 30
@@ -413,9 +357,9 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
 
     # Final thresholding
     result["fit_score"] = score
-    if score >= 65:
+    if score >= SHORTLIST_MIN_SCORE:
         result["recommended_status"] = "shortlisted"
-    elif score >= 28:
+    elif score >= REVIEW_MIN_SCORE:
         result["recommended_status"] = "review"
     else:
         return _set_reject(result, "low_score", _overlap_detail(score, matched_skills, matched_keywords), score=score)

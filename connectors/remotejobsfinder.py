@@ -6,8 +6,10 @@ active-listings sitemap and JobPosting JSON-LD on each job page.
 
 Strategy
 --------
-1. Stream ``sitemap_listings_active.xml`` and keep ``/en/remote-jobs/`` URLs
-   whose slug matches an engineering keyword (skip hybrid/onsite hubs).
+1. Stream ``sitemap_listings_active.xml`` and keep ``/en/remote-jobs/`` and
+   ``/en/hybrid-jobs/`` URLs whose slug matches an engineering keyword
+   (skip onsite hubs). Hybrid is kept unless persist-time rules find a
+   regular office requirement.
 2. Fetch each job page and parse the ``JobPosting`` JSON-LD block.
 3. Skip expired (``validThrough``) and stale (``datePosted``) postings.
 4. Store the RemoteJobsFinder job URL; prefill can extract an employer apply
@@ -45,7 +47,7 @@ _MAX_UNSEEN_FETCHES = 300
 _FETCH_DELAY = 0.4
 
 _REMOTE_JOB_RE = re.compile(
-    r"^https://remotejobsfinder\.co/en/remote-jobs/[^/]+/"
+    r"^https://remotejobsfinder\.co/en/(?:remote-jobs|hybrid-jobs)/[^/]+/"
     r"[^/]+_[0-9a-fA-F-]{36}/?$"
 )
 _JSONLD_RE = re.compile(

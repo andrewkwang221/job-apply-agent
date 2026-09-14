@@ -57,11 +57,12 @@ from utils.form_prefill import _TimingCollector
 from utils.dedup import is_duplicate
 from utils.application_filter import has_already_applied
 from utils.llm_analysis import analyze_job_with_ollama
-from utils.scoring import score_job
+from utils.scoring import SHORTLIST_MIN_SCORE, _NO_DIRECT_APPLY_SOURCES, score_job
 from utils.resume_selector import select_resume
 from utils.logger import setup_logger
 from utils.email_report import send_report
 from utils.job_age import age_days_override, max_job_age_days, resolve_job_age_days
+from utils.job_inclusion import drop_ineligible_jobs, exclusion_reason, load_candidate_profile
 import config
 
 logger = setup_logger("run_pipeline")
@@ -159,7 +160,9 @@ def _apply_reject_reason(job: Job, scoring_result: dict, preserve_final_status: 
     job.reject_code = None
     job.reject_detail = None
 
-def _persist_raw_job(connector, raw_job, session, run, dry_run: bool) -> None:
+def _persist_raw_job(
+    connector, raw_job, session, run, dry_run: bool, profile=None
+) -> None:
     """Normalize one grabbed job and commit it immediately."""
     normalized = None
     try:
@@ -183,6 +186,14 @@ def _persist_raw_job(connector, raw_job, session, run, dry_run: bool) -> None:
             run.jobs_duplicates += 1
             return
 
+        skip = exclusion_reason(normalized, profile)
+        if skip:
+            logger.debug(
+                f"Skipped ingest ({skip[0]}): '{normalized.get('title')}' — {skip[1]}"
+            )
+            run.jobs_duplicates += 1
+            return
+
         job_record = Job(**normalized)
         if not dry_run:
             session.add(job_record)
@@ -201,19 +212,43 @@ def _persist_raw_job(connector, raw_job, session, run, dry_run: bool) -> None:
         logger.error(f"Error processing job: {e}")
 
 
+def _drop_stored_ineligible(profile, dry_run: bool) -> None:
+    if not profile:
+        return
+    session = SessionLocal()
+    try:
+        dropped = drop_ineligible_jobs(session, profile, dry_run=dry_run)
+        if dropped:
+            action = "Would drop" if dry_run else "Dropped"
+            logger.info(
+                f"{action} {dropped} stored jobs that fail remote/language/region rules"
+            )
+    except Exception as e:
+        session.rollback()
+        logger.warning(f"Failed to drop ineligible stored jobs: {e}")
+    finally:
+        session.close()
+
+
 def _run_fetch(
     source: str,
     dry_run: bool,
     *,
     initial: bool = False,
     age_days: int | None = None,
+    _skip_cleanup: bool = False,
 ):
+    profile = load_candidate_profile()
+    if not _skip_cleanup:
+        _drop_stored_ineligible(profile, dry_run)
     if source == "all":
         for s in CONNECTORS:
             if s in DISABLED_SOURCES:
                 logger.info(f"Skipping '{s}' (disabled — use --source {s} to include).")
                 continue
-            _run_fetch(s, dry_run, initial=initial, age_days=age_days)
+            _run_fetch(
+                s, dry_run, initial=initial, age_days=age_days, _skip_cleanup=True
+            )
         return
 
     if source not in CONNECTORS:
@@ -225,10 +260,10 @@ def _run_fetch(
         f"Starting fetch for source '{source}' (dry_run={dry_run}, age_days={days})"
     )
     with age_days_override(days):
-        _run_fetch_source(source, dry_run)
+        _run_fetch_source(source, dry_run, profile)
 
 
-def _run_fetch_source(source: str, dry_run: bool):
+def _run_fetch_source(source: str, dry_run: bool, profile=None):
     session = SessionLocal()
     
     # Create PipelineRun record (only save if not dry-run)
@@ -256,7 +291,7 @@ def _run_fetch_source(source: str, dry_run: bool):
                 return
             seen_raw_ids.add(raw_id)
             run.jobs_fetched += 1
-            _persist_raw_job(connector, raw_job, session, run, dry_run)
+            _persist_raw_job(connector, raw_job, session, run, dry_run, profile)
 
         connector._on_raw_job = persist
         raw_jobs = connector.fetch_jobs()
@@ -293,6 +328,12 @@ def _run_evaluate(profile: str, dry_run: bool, all_jobs: bool):
     session = SessionLocal()
     
     try:
+        dropped = drop_ineligible_jobs(session, candidate_profile, dry_run=dry_run)
+        if dropped:
+            action = "Would drop" if dry_run else "Dropped"
+            logger.info(
+                f"{action} {dropped} stored jobs that fail remote/language/region rules"
+            )
         query = session.query(Job)
         if all_jobs:
             jobs_to_evaluate = query.filter(
@@ -734,26 +775,29 @@ def full_run(source: str, profile: str, model: str, analyze_status: str, analyze
         finally:
             session.close()
 
-@cli.command()
-@click.option('--profile', default='profile.yaml', show_default=True, help='Path to candidate profile YAML')
-@click.option('--status', default='review', type=click.Choice(['review', 'new', 'shortlisted', 'rejected']), show_default=True, help='Job status bucket to rescore')
-def rescore(profile: str, status: str):
-    """Re-run rule-based scoring on existing jobs and reject those that no longer qualify."""
-    candidate_profile = _load_profile(profile)
+def _run_rescore(candidate_profile, status: str, promote: bool = False) -> str:
+    """Re-score jobs in ``status``. Optionally promote high-scoring review/new rows."""
     session = SessionLocal()
     try:
-        from utils.scoring import _NO_DIRECT_APPLY_SOURCES
+        dropped = drop_ineligible_jobs(session, candidate_profile, dry_run=False)
+        if dropped:
+            logger.info(
+                f"Dropped {dropped} stored jobs that fail remote/language/region rules"
+            )
         jobs = session.query(Job).filter(Job.status == status).all()
         rejected = 0
         downgraded = 0
         restored = 0
+        promoted = 0
         for job in jobs:
             job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
             result = score_job(job_dict, candidate_profile)
             new_status = result["recommended_status"]
+            score = result.get("fit_score") or 0
             if new_status == "rejected":
                 job.status = "rejected"
-                job.fit_score = result["fit_score"]
+                job.fit_score = score
+                job.rule_status = "rejected"
                 job.reject_code = result.get("reject_code")
                 job.reject_detail = result.get("reject_detail")
                 if status != "rejected":
@@ -764,7 +808,7 @@ def rescore(profile: str, status: str):
             ):
                 job.status = new_status
                 job.rule_status = new_status
-                job.fit_score = result["fit_score"]
+                job.fit_score = score
                 job.reject_code = None
                 job.reject_detail = None
                 restored += 1
@@ -776,19 +820,45 @@ def rescore(profile: str, status: str):
                 # Downgrade shortlisted → review only for sources that have no direct apply path.
                 # Score regressions alone are not enough — LLM/manual promotions are preserved.
                 job.status = "review"
-                job.fit_score = result["fit_score"]
+                job.fit_score = score
                 downgraded += 1
+            elif (
+                promote
+                and status in ("review", "new")
+                and score >= SHORTLIST_MIN_SCORE
+            ):
+                job.status = "shortlisted"
+                job.rule_status = "shortlisted"
+                job.fit_score = score
+                job.reject_code = None
+                job.reject_detail = None
+                promoted += 1
+            else:
+                job.fit_score = score
+                job.rule_status = new_status
         session.commit()
-        kept = len(jobs) - rejected - downgraded - restored
+        kept = len(jobs) - rejected - downgraded - restored - promoted
         msg = f"Rescored {len(jobs)} '{status}' jobs: {rejected} rejected"
+        if promoted:
+            msg += f", {promoted} promoted to shortlisted"
         if downgraded:
             msg += f", {downgraded} downgraded to review"
         if restored:
             msg += f", {restored} restored from location reject"
         msg += f", {kept} kept."
-        click.echo(msg)
+        return msg
     finally:
         session.close()
+
+
+@cli.command()
+@click.option('--profile', default='profile.yaml', show_default=True, help='Path to candidate profile YAML')
+@click.option('--status', default='review', type=click.Choice(['review', 'new', 'shortlisted', 'rejected']), show_default=True, help='Job status bucket to rescore')
+@click.option('--promote', is_flag=True, help=f'Move review/new jobs with fit_score >= {SHORTLIST_MIN_SCORE} to shortlisted')
+def rescore(profile: str, status: str, promote: bool):
+    """Re-run rule-based scoring on existing jobs and reject those that no longer qualify."""
+    candidate_profile = _load_profile(profile)
+    click.echo(_run_rescore(candidate_profile, status, promote=promote))
 
 @cli.command(name='send-test-email')
 def send_test_email():
@@ -843,7 +913,7 @@ def help_command():
         ("fetch", "Fetch only (no scoring/LLM). Use --source all for all sources", "--source <src>  --dry-run  --initial"),
         ("evaluate", "Score new jobs against your profile", "--profile  --dry-run"),
         ("analyze", "Run LLM analysis on review jobs", "--limit N  --model <model>  --dry-run"),
-        ("rescore", "Re-apply scoring rules to existing review jobs", "--status review|new|rejected"),
+        ("rescore", "Re-apply scoring rules; optionally promote high scores", "--status review --promote"),
         ("", "", ""),
         ("", "PERFORMANCE", ""),
         ("perf", "Plot prefill timing trend from recorded runs", "--job Coinbase  --last 5"),
@@ -1266,6 +1336,7 @@ python run_pipeline.py full-run [--email] [--source all]   # Full fetch + score 
 python run_pipeline.py fetch --source all [--initial] [--age-days N]  # Fetch only
 python run_pipeline.py evaluate                            # Score fetched jobs
 python run_pipeline.py analyze                             # LLM pass on review jobs
+python run_pipeline.py rescore [--promote]                 # Re-score review jobs; --promote shortlists 65+
 python run_pipeline.py triage                              # Work through review queue
 python run_pipeline.py open-job                            # Open & prefill application form
 python run_pipeline.py stats                               # Job counts by status

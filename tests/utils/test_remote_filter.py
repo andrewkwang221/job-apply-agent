@@ -4,7 +4,7 @@ Tests for utils/remote_filter.py — classify_remote_eligibility()
 This is the highest-risk logic layer: wrong rejections lose real jobs,
 wrong accepts waste LLM quota on ineligible jobs.
 """
-from utils.remote_filter import classify_remote_eligibility
+from utils.remote_filter import classify_remote_eligibility, strict_office_required
 
 
 def _job(location="", description=""):
@@ -16,8 +16,8 @@ def _job(location="", description=""):
     }
 
 
-def _profile(accepted=None, rejected=None, remote_only=True, work_auth=None):
-    return {
+def _profile(accepted=None, rejected=None, remote_only=True, work_auth=None, location=None):
+    data = {
         "preferences": {
             "remote_only": remote_only,
             "accepted_regions": accepted or ["worldwide", "global", "emea", "europe", "canada"],
@@ -25,6 +25,9 @@ def _profile(accepted=None, rejected=None, remote_only=True, work_auth=None):
         },
         "work_authorization": work_auth or {"canada": True},
     }
+    if location:
+        data["personal"] = {"location": location}
+    return data
 
 
 PROFILE = _profile()
@@ -75,8 +78,99 @@ class TestUSOnlyRejects:
         profile = _profile(rejected=["latam only"])
         assert classify_remote_eligibility(_job("remote", "latam only"), profile) == "reject"
 
-    def test_hybrid_with_remote_only_profile(self):
-        assert classify_remote_eligibility(_job("hybrid"), PROFILE) == "reject"
+    def test_hybrid_without_office_mandate_is_not_rejected(self):
+        assert classify_remote_eligibility(_job("hybrid"), PROFILE) == "review"
+
+
+# ---------------------------------------------------------------------------
+# Hybrid / office attendance
+# ---------------------------------------------------------------------------
+
+class TestHybridOffice:
+    def test_numbered_office_days_rejected_when_remote_only(self):
+        assert classify_remote_eligibility(
+            _job("hybrid", "3 days a week in the office"), PROFILE
+        ) == "reject"
+
+    def test_hybrid_ratio_rejected(self):
+        assert classify_remote_eligibility(
+            _job("Hybrid", "This is a hybrid 3/2 role"), PROFILE
+        ) == "reject"
+
+    def test_onsite_required_rejected(self):
+        assert classify_remote_eligibility(
+            _job("hybrid - boston", "on-site required"), PROFILE
+        ) == "reject"
+
+    def test_optional_office_kept(self):
+        assert classify_remote_eligibility(
+            _job("hybrid", "office optional; come in when you like"), PROFILE
+        ) != "reject"
+
+    def test_other_state_remote_available_rejected_when_home_is_ca(self):
+        profile = _profile(
+            accepted=["worldwide", "global", "united states", "us", "usa"],
+            rejected=[],
+            work_auth={"usa": True},
+            location="San Francisco, CA",
+        )
+        assert classify_remote_eligibility(
+            _job("Boston, MA, United States (Remote available)"), profile
+        ) == "reject"
+        assert classify_remote_eligibility(
+            _job("Hybrid - Seattle, WA"), profile
+        ) == "reject"
+        assert classify_remote_eligibility(
+            _job("New York, NY (Remote available)"), profile
+        ) == "reject"
+
+    def test_ca_or_us_partial_remote_kept_for_sf_home(self):
+        profile = _profile(
+            accepted=["worldwide", "global", "united states", "us", "usa"],
+            rejected=[],
+            work_auth={"usa": True},
+            location="San Francisco, CA",
+        )
+        assert classify_remote_eligibility(
+            _job("San Francisco, CA (Remote available)"), profile
+        ) != "reject"
+        assert classify_remote_eligibility(
+            _job("Los Angeles, CA, United States (Hybrid)"), profile
+        ) != "reject"
+        assert classify_remote_eligibility(_job("Remote (CA)"), profile) != "reject"
+        assert classify_remote_eligibility(_job("Remote (US)"), profile) != "reject"
+        assert classify_remote_eligibility(
+            _job("United States (Remote available)"), profile
+        ) != "reject"
+
+    def test_fully_remote_and_worldwide_kept_for_sf_home(self):
+        profile = _profile(
+            accepted=["worldwide", "global", "united states", "us", "usa"],
+            rejected=[],
+            work_auth={"usa": True},
+            location="San Francisco, CA",
+        )
+        assert classify_remote_eligibility(_job("Remote"), profile) != "reject"
+        assert classify_remote_eligibility(_job("worldwide"), profile) == "accept"
+        assert classify_remote_eligibility(_job("fully remote"), profile) != "reject"
+
+    def test_office_mandate_rejected_even_in_home_city(self):
+        profile = _profile(
+            accepted=["worldwide", "united states", "us", "usa"],
+            rejected=[],
+            work_auth={"usa": True},
+            location="San Francisco, CA",
+        )
+        assert classify_remote_eligibility(
+            _job("Hybrid - San Francisco, CA", "3 days a week in the office"),
+            profile,
+        ) == "reject"
+
+    def test_home_office_stipend_is_not_strict(self):
+        assert not strict_office_required("home office stipend of $500")
+
+    def test_three_days_in_office_is_strict(self):
+        assert strict_office_required("You will work 3 days in the office")
 
 
 # ---------------------------------------------------------------------------

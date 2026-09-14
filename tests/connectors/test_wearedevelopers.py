@@ -33,7 +33,7 @@ _CUTOFF = datetime(2026, 9, 11, 12, 0, tzinfo=timezone.utc) - timedelta(days=10)
 def _job_md(
     title="Senior Backend Engineer",
     company="Acme",
-    location="Berlin, Germany (Remote available)",
+    location="United States (Remote available)",
     published="September 10, 2026",
     job_url="https://www.wearedevelopers.com/jobs/48497-senior-backend-engineer",
     apply_url="https://jobs.lever.co/acme/abc",
@@ -76,7 +76,7 @@ def test_extract_listing_and_next_cursor():
     assert len(jobs) == 2
     assert jobs[0]["title"] == "Senior Backend Engineer"
     assert jobs[0]["company"] == "Acme"
-    assert jobs[0]["location"] == "Berlin, Germany (Remote available)"
+    assert jobs[0]["location"] == "United States (Remote available)"
     assert isinstance(jobs[0]["location"], str)
     assert cursor == "WyIyMDI2LTA5LTEwIiwyODM2MzIwXQ"
     assert _next_cursor(md) == cursor
@@ -110,6 +110,7 @@ def test_parse_skips_onsite_and_owned_source():
     assert _parse_raw_job(jobs[0], _CUTOFF) == (None, "on-site")
     assert not _looks_remote("Software Engineer", "Los Angeles, CA, United States")
     assert _looks_remote("Backend Engineer", "United States (Remote available)")
+    assert _looks_remote("Backend Engineer", "Hybrid - Boston, MA")
 
     jobs, _ = _extract_listing_page(
         _listing_md(_job_md(apply_url="https://www.dice.com/job-detail/abc"))
@@ -117,6 +118,33 @@ def test_parse_skips_onsite_and_owned_source():
     assert _parse_raw_job(jobs[0], _CUTOFF) == (None, "owned-source")
     assert _is_owned_apply_url("https://www.dice.com/job-detail/abc")
     assert not _is_owned_apply_url("https://jobs.lever.co/acme/abc")
+
+
+def test_parse_skips_strict_office_when_profile_says_remote_only():
+    profile = {
+        "languages": ["english"],
+        "personal": {"location": "San Francisco, CA"},
+        "preferences": {
+            "remote_only": True,
+            "accepted_regions": ["worldwide", "united states", "us", "usa"],
+            "reject_regions": [],
+        },
+        "work_authorization": {"usa": True},
+    }
+    jobs, _ = _extract_listing_page(
+        _listing_md(_job_md(location="Hybrid — 3 days in office"))
+    )
+    assert _parse_raw_job(jobs[0], _CUTOFF, profile)[1] == "remote"
+    jobs, _ = _extract_listing_page(
+        _listing_md(_job_md(location="Hybrid - Boston, MA, United States"))
+    )
+    assert _parse_raw_job(jobs[0], _CUTOFF, profile)[1] == "remote"
+    jobs, _ = _extract_listing_page(
+        _listing_md(_job_md(location="Hybrid - San Francisco, CA"))
+    )
+    kept, reason = _parse_raw_job(jobs[0], _CUTOFF, profile)
+    assert reason == "kept"
+    assert kept is not None
 
 
 def test_job_id_and_offsite_apply():

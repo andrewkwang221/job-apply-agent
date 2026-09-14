@@ -203,7 +203,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [We Are Distributed](https://wearedistributed.org/jobs) | Sitemap + JSON-LD | Distributed-work focused jobs; engineering keyword filter; expired postings skipped |
 | [Flexa Careers](https://flexa.careers/jobs) | GraphQL API + JSON-LD | Flexible-work focused jobs; newest-first via `sort: DATE_DESC`; engineering title filter; description from per-page JSON-LD |
 | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js listing HTML | Developer category listings from `__NEXT_DATA__`; engineering title filter; apply is subscription-gated (capped at review) |
-| [RemoteJobsFinder](https://remotejobsfinder.co/en) | Sitemap + JSON-LD | English remote listings from `sitemap_listings_active.xml`; engineering slug filter; JobPosting JSON-LD for company/dates |
+| [RemoteJobsFinder](https://remotejobsfinder.co/en) | Sitemap + JSON-LD | English remote and hybrid listings from `sitemap_listings_active.xml`; engineering slug filter; JobPosting JSON-LD for company/dates |
 | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated (capped at review) |
 | [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated (capped at review) |
 | [FlexJobs](https://www.flexjobs.com) | Next.js search HTML | Opt-in (`--source flexjobs`, not in `all`). Playwright login via `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD`; homepage search sorted by date; apply is subscription-gated (capped at review) |
@@ -213,7 +213,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [Remote](https://remote.com/jobs/all?workplaceLocation=remote&country=anywhere&country=USA) | Next.js RSC listing + JSON-LD | Guest remote/US-anywhere list. Page 1 is mixed; page 2+ is newest-first (cap 30). Engineering title filter. Quick apply is account-gated (capped at review) |
 | [Remote.co](https://remote.co/remote-jobs/search?remoteoptions=100%25%20Remote%20Work&categories=47&categories=111&categories=51&categories=45&categories=48&categories=22&categories=44&categories=46&categories=94&categories=36&categories=100&categories=50&useclocation=false&anywhereinus=1) | Next.js search HTML | Guest 100%-remote / US-anywhere category search (exact listing URL; first 10 pages). Chrome-TLS fetch (`curl_cffi`) so Akamai does not block Python. Engineering title filter. Guest apply/company often empty (capped at review) |
 | [DevRemote](https://devremote.io/) | JSON filter API | Guest recent list via `POST /api/jobs/filter` (`pageSize` + `skip`). Newest-first; stop at first stale page. Engineering title filter. Offsite apply URL when present. |
-| [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=US) | Markdown jobs feed | Guest US list (`country=US`, empty `q`). Newest-first; stop at first stale page (`MAX_JOB_AGE_DAYS`). Listing phase then parallel details. Skip on-site cards and apply URLs on boards we already crawl. |
+| [WeAreDevelopers](https://www.wearedevelopers.com/jobs?q=&country=US) | Markdown jobs feed | Guest US list (`country=US`, empty `q`). Newest-first; stop at first stale page (`MAX_JOB_AGE_DAYS`). Listing phase then parallel details. Skip on-site-only cards and apply URLs on boards we already crawl. Hybrid kept unless the card requires regular office days. |
 | [Anywhere Positions](https://www.anywherepositions.com/) | JSON jobs API | Guest salary-transparent remote list. Separate `regions=Anywhere` and `regions=US` searches; `search` once per profile tag/role/keyword/skill; merge by id. Newest-first page walk; keep jobs if a later page 403s. |
 | [Remote Rocketship](https://www.remoterocketship.com/remote-jobs/?page=1&sort=DateAdded) | JSON jobs API | Guest `POST /api/fetch_job_openings/` (no login). Page 1 / 40 items max. 16 titles × Worldwide/US × mid/senior (64 combos), merge by id. Newest-first `DateAdded`. Offsite apply URL when present. |
 | [Dice](https://www.dice.com/jobs?filters.workplaceTypes=Remote%7CHybrid) | Dice MCP | Guest `search_jobs` (no login). Profile `target_roles` + `keywords`, Remote+Hybrid, `sort=datePosted`. Newest-first; stop at first stale page. Full description from job-detail HTML. Apply is on Dice (capped at review). |
@@ -224,6 +224,8 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [Working Nomads](https://www.workingnomads.com) | JSON API | Remote jobs from the public exposed_jobs API |
 
 Jobs older than 3 days are skipped on sources that already completed a fetch. A newly added source uses a 30-day first-ingest window (`MAX_JOB_AGE_DAYS_INITIAL`) until that source has stored jobs. Override with `fetch --initial` or `fetch --age-days N`. The Y Combinator public guest list does not age-filter (already truncated).
+
+Every connector also skips (does not persist) jobs that fail `profile.yaml` filters: `remote_only` on-site roles, postings not written in `languages`, and locations outside `accepted_regions`. Fully remote and worldwide are kept. Hybrid / “Remote available” is kept only when it matches `personal.location` (for a San Francisco home: Remote(CA), Remote(US), or a CA city — not other states). Hybrid with a regular office requirement is always dropped. Fetch and evaluate delete matching rows already in SQLite (applied / deferred / archived / expired are kept).
 
 Adding a board: see [docs/CONNECTOR_PLAYBOOK.md](docs/CONNECTOR_PLAYBOOK.md). Pagination caps apply only when the list is newest-first.
 
@@ -284,6 +286,7 @@ Run `python run_pipeline.py help` for the full reference. Key commands:
 | `shortlist` | List shortlisted jobs |
 | `review` | List review jobs |
 | `rescore` | Re-apply scoring rules to existing review jobs |
+| `rescore --promote` | Also move review jobs with fit_score ≥ 65 to shortlisted |
 | `setup-credentials` | Store email credentials in Windows Credential Manager |
 
 ---

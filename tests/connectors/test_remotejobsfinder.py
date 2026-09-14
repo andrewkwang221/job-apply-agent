@@ -25,20 +25,17 @@ _RECENT = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
 _OLD = (datetime.now(tz=timezone.utc) - timedelta(days=40)).strftime("%Y-%m-%d")
 
 
-def _job_url(slug: str) -> str:
-    return f"https://remotejobsfinder.co/en/remote-jobs/usa/{slug}_{_UUID}"
+def _job_url(slug: str, hub: str = "remote-jobs") -> str:
+    return f"https://remotejobsfinder.co/en/{hub}/usa/{slug}_{_UUID}"
 
 
-def _sitemap_xml(*slugs: str) -> bytes:
+def _sitemap_xml(*slugs: str, extra_locs: list[str] | None = None) -> bytes:
     items = "\n".join(f"  <url><loc>{_job_url(slug)}</loc></url>" for slug in slugs)
-    hybrid = (
-        "https://remotejobsfinder.co/en/hybrid-jobs/usa/"
-        f"office-engineer_{_UUID}"
-    )
+    extra = "\n".join(f"  <url><loc>{loc}</loc></url>" for loc in (extra_locs or []))
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 {items}
-  <url><loc>{hybrid}</loc></url>
+{extra}
 </urlset>""".encode()
 
 
@@ -93,9 +90,15 @@ class TestParseSitemap:
         urls = _parse_sitemap(xml)
         assert urls == [_job_url("acme-senior-engineer")]
 
-    def test_skips_hybrid_even_if_engineer(self):
-        xml = _sitemap_xml()
-        assert _parse_sitemap(xml) == []
+    def test_keeps_hybrid_engineer_skips_onsite(self):
+        xml = _sitemap_xml(
+            extra_locs=[
+                _job_url("office-engineer", "hybrid-jobs"),
+                _job_url("office-engineer", "onsite-jobs"),
+            ]
+        )
+        urls = _parse_sitemap(xml)
+        assert urls == [_job_url("office-engineer", "hybrid-jobs")]
 
     def test_collects_later_alphabet_urls_past_old_prefix_cap(self):
         slugs = [f"acme-engineer-{i:03d}" for i in range(200)] + ["zzz-senior-engineer"]
@@ -108,8 +111,12 @@ class TestEngineeringUrl:
     def test_remote_engineer(self):
         assert _is_engineering_remote_url(_job_url("ai-engineer-remote-usa"))
 
-    def test_rejects_hybrid(self):
-        url = f"https://remotejobsfinder.co/en/hybrid-jobs/usa/software-engineer_{_UUID}"
+    def test_keeps_hybrid_engineer(self):
+        url = _job_url("software-engineer", "hybrid-jobs")
+        assert _is_engineering_remote_url(url)
+
+    def test_rejects_onsite_hub(self):
+        url = _job_url("software-engineer", "onsite-jobs")
         assert not _is_engineering_remote_url(url)
 
 

@@ -70,7 +70,7 @@ class GetOnBoardConnector(BaseConnector):
                 logger.debug(traceback.format_exc())
 
         logger.info(
-            f"Successfully fetched {len(all_jobs)} remote jobs from {self.source_name}"
+            f"Successfully fetched {len(all_jobs)} remote/hybrid jobs from {self.source_name}"
         )
         return all_jobs
 
@@ -109,7 +109,9 @@ class GetOnBoardConnector(BaseConnector):
                         pass
                 attrs = job.get("attributes", {})
                 remote_modality = attrs.get("remote_modality", "")
-                if remote_modality != "fully_remote":
+                if remote_modality and remote_modality not in {
+                    "fully_remote", "hybrid", "remote",
+                }:
                     continue
                 lang = attrs.get("lang", "")
                 if lang and lang != "lang_not_specified" and lang not in allowed_langs:

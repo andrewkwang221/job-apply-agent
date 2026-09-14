@@ -14,6 +14,22 @@ If dates are mixed, alphabetical, or unknown:
 
 Canonical pattern: `connectors/remote100k.py` (`cap = _MAX_NEW if newest_first else _MAX_UNSEEN_FETCHES`). New connectors follow this. Do not copy DailyRemote’s mixed-list `_MAX_PAGES = 40` stop.
 
+## Job inclusion (all connectors)
+
+Do **not** reimplement this per board. Persist already applies `utils/job_inclusion.py` (`classify_remote_eligibility` + language). Skip detail HTTP only when listing `location` is enough. Set `location` / `raw_location_text` as strings so the shared filter can run.
+
+When `preferences.remote_only` is true (`personal.location` e.g. `San Francisco, CA`):
+
+| Kind | Include? |
+|---|---|
+| Fully remote / worldwide (`Remote`, `worldwide`, `fully remote`, no office city) | Yes |
+| Remote with a place (`Remote (US)`, `Remote (CA)`, `United States (Remote available)`) | Yes if US-wide or same state/city as `personal.location`. **No** other states (e.g. Boston MA + “Remote available”) |
+| Hybrid with a place, **no** regular office days | Same as remote-with-place: home city/state or CA/US-wide only |
+| Hybrid / remote with **regular office** (`3 days in office`, `hybrid 3/2`, on-site required, RTO) | **Never** — ignore location |
+| On-site city/office, no remote/hybrid signal | No |
+
+Plain `Hybrid` with no city/state stays (unknown place). On-site SF is still dropped (`remote_only`). Also skip postings not in `languages` and `Remote - [Country]` outside `accepted_regions`.
+
 ## Per-board workflow
 
 1. **Inspect live** (no login unless later approved): RSS/Atom, JSON/GraphQL, sitemap + `lastmod`, listing HTML / `__NEXT_DATA__`. Prefer structured feeds over scrape. `requests` first; Playwright only if the listing is an empty JS shell (EURemoteJobs / Arc).

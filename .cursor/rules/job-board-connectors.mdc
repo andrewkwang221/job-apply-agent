@@ -32,3 +32,12 @@ New `connectors/*.py` + `CONNECTORS` register is not architecture.
 ## Normalize
 
 `location` and `raw_location_text` must be strings, never JSON-LD dicts. Paywalled apply → `_NO_DIRECT_APPLY_SOURCES`. Aggregator host → `form_inspector._LISTING_DOMAINS`.
+
+## Job inclusion
+
+Do not fork remote/hybrid rules in a new connector. Persist uses `utils/job_inclusion.py`. Listing-time skip is OK when location is already known.
+
+- **Fully remote / worldwide** — include
+- **Remote or hybrid with a place, no regular office** — include only if it matches `personal.location` (same city/state, or Remote(US)/Remote(CA) with no other state)
+- **Regular office required** (`3 days in office`, `hybrid 3/2`, RTO, on-site required) — drop, ignore location
+- **On-site only** — drop when `remote_only`
