@@ -229,6 +229,19 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .btn-secondary:disabled{opacity:.5;cursor:default;}
 .btn-secondary svg{width:13px;height:13px;}
 .description-text{font-size:13.5px;color:var(--text-secondary);line-height:1.75;max-height:260px;overflow-y:auto;padding-right:8px;}
+.description-text p{margin:0 0 .7em;}
+.description-text p:last-child{margin-bottom:0;}
+.description-text h1,.description-text h2,.description-text h3,.description-text h4{margin:.9em 0 .4em;font-size:14px;font-weight:700;color:var(--text-primary);line-height:1.4;}
+.description-text h1{font-size:16px;}
+.description-text ul,.description-text ol{margin:.35em 0 .8em;padding-left:1.25em;}
+.description-text li{margin:.15em 0;}
+.description-text a{color:var(--accent);}
+.description-text strong{color:var(--text-primary);font-weight:650;}
+.description-text code{font-family:'SF Mono','Fira Mono',monospace;font-size:12px;background:var(--bg-subtle);padding:1px 5px;border-radius:4px;}
+.description-text pre{background:var(--bg-subtle);padding:10px 12px;border-radius:8px;overflow-x:auto;margin:.5em 0 .8em;}
+.description-text pre code{padding:0;background:none;}
+.description-text hr{border:none;border-top:1px solid var(--border);margin:.9em 0;}
+.description-text blockquote{margin:.5em 0;padding-left:12px;border-left:3px solid var(--border);color:var(--text-muted);}
 .description-text::-webkit-scrollbar{width:3px;}
 .description-text::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px;}
 .action-bar{display:flex;align-items:center;gap:10px;padding:18px 28px;border-top:1px solid var(--border-subtle);background:var(--bg-card);}
@@ -962,9 +975,9 @@ function renderCard(i, direction) {
   btnGen.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> ${job.cover_letter ? 'Regenerate' : 'Generate'}`;
   btnGen.disabled = false;
 
-  // Description
+  // Description: HTML stays HTML, Markdown stays Markdown
   document.getElementById('descriptionContent').innerHTML = job.description
-    ? job.description.replace(/\n/g, '<br>')
+    ? renderDescription(job.description)
     : '<span style="color:var(--text-muted)">No description available.</span>';
 
   // Action bar: show/hide triage for read-only statuses
@@ -1851,6 +1864,112 @@ async function api(url, method='GET', body=null) {
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function looksLikeHtml(s) {
+  return /<\/?[a-zA-Z][a-zA-Z0-9]*(\s[^>]*)?>/.test(s || '');
+}
+
+function sanitizeHtml(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  doc.querySelectorAll('script,style,noscript,iframe,object,embed').forEach(el => el.remove());
+  doc.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value || '';
+      if (name.startsWith('on') || ((name === 'href' || name === 'src') && /^\s*javascript:/i.test(value))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return doc.body.innerHTML;
+}
+
+function renderDescription(src) {
+  return looksLikeHtml(src) ? sanitizeHtml(src) : renderMarkdown(src);
+}
+
+function inlineMarkdown(s) {
+  s = esc(s);
+  s = s.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  return s;
+}
+
+function renderMarkdown(src) {
+  const lines = String(src || '').replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) { i++; continue; }
+    const heading = line.match(/^(#{1,6}) (.+)$/);
+    if (heading) {
+      const n = heading[1].length;
+      out.push(`<h${n}>${inlineMarkdown(heading[2])}</h${n}>`);
+      i++;
+      continue;
+    }
+    if (/^---+$/.test(line.trim())) {
+      out.push('<hr>');
+      i++;
+      continue;
+    }
+    if (/^> /.test(line)) {
+      const quote = [];
+      while (i < lines.length && /^> /.test(lines[i])) {
+        quote.push(lines[i].slice(2));
+        i++;
+      }
+      out.push(`<blockquote>${inlineMarkdown(quote.join(' '))}</blockquote>`);
+      continue;
+    }
+    if (/^[-*] /.test(line)) {
+      const items = [];
+      while (i < lines.length) {
+        if (!lines[i].trim()) {
+          if (i + 1 < lines.length && /^[-*] /.test(lines[i + 1])) { i++; continue; }
+          break;
+        }
+        if (!/^[-*] /.test(lines[i])) break;
+        items.push(`<li>${inlineMarkdown(lines[i].replace(/^[-*] /, ''))}</li>`);
+        i++;
+      }
+      out.push('<ul>' + items.join('') + '</ul>');
+      continue;
+    }
+    if (/^\d+\. /.test(line)) {
+      const items = [];
+      while (i < lines.length) {
+        if (!lines[i].trim()) {
+          if (i + 1 < lines.length && /^\d+\. /.test(lines[i + 1])) { i++; continue; }
+          break;
+        }
+        if (!/^\d+\. /.test(lines[i])) break;
+        items.push(`<li>${inlineMarkdown(lines[i].replace(/^\d+\. /, ''))}</li>`);
+        i++;
+      }
+      out.push('<ol>' + items.join('') + '</ol>');
+      continue;
+    }
+    const para = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !/^(#{1,6}) /.test(lines[i]) &&
+      !/^[-*] /.test(lines[i]) &&
+      !/^\d+\. /.test(lines[i]) &&
+      !/^> /.test(lines[i]) &&
+      !/^---+$/.test(lines[i].trim())
+    ) {
+      para.push(lines[i]);
+      i++;
+    }
+    out.push('<p>' + inlineMarkdown(para.join(' ')) + '</p>');
+  }
+  return out.join('');
 }
 
 function relativeDate(iso) {

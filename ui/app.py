@@ -283,9 +283,9 @@ def _plain_str(value) -> str:
 def _job_to_dict(job: Job) -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
     reject_code = _plain_str(job.reject_code) or None
-    desc = job.description_text or job.description or ""
-    desc = sanitize_skill_object_dumps(desc)
-    compensation = extract_compensation(desc)
+    plain = sanitize_skill_object_dumps(job.description_text or job.description or "")
+    display = sanitize_skill_object_dumps(job.description or job.description_text or "")
+    compensation = extract_compensation(plain)
     return {
         "id": job.id,
         "title": job.title or "",
@@ -301,7 +301,7 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
         "gaps": _parse_json_list(job.skill_gaps),
         "reasoning": job.fit_explanation or "",
         "cover_letter": job.cover_letter or "",
-        "description": desc,
+        "description": display,
         "salary": compensation.salary,
         "equity": compensation.equity,
         "url": job.url or "",

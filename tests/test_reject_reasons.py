@@ -30,6 +30,36 @@ def test_language_requirement_reason():
     assert "mandarin" in result["reject_detail"]
 
 
+def test_job_to_dict_keeps_original_description_format():
+    html_job = Job(
+        external_id="html-1",
+        source="remotive",
+        company="Acme",
+        title="Engineer",
+        location="Remote",
+        url="https://example.com/jobs/html-1",
+        description="<h2>About</h2><p>We need <strong>Python</strong>.</p>",
+        description_text="About We need Python.",
+        status="review",
+    )
+    html_data = _job_to_dict(html_job)
+    assert html_data["description"].startswith("<h2>About</h2>")
+
+    md_job = Job(
+        external_id="md-1",
+        source="wearedevelopers",
+        company="Acme",
+        title="Engineer",
+        location="Remote",
+        url="https://example.com/jobs/md-1",
+        description="## About\n\nWe need **Python**.",
+        description_text="About We need Python.",
+        status="review",
+    )
+    md_data = _job_to_dict(md_job)
+    assert md_data["description"].startswith("## About")
+
+
 def test_job_to_dict_includes_salary_and_equity():
     job = Job(
         external_id="comp-1",
