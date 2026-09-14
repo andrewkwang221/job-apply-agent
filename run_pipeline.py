@@ -58,6 +58,7 @@ from connectors.remotescout24 import RemoteScout24Connector
 from connectors.trulyremote import TrulyRemoteConnector
 from connectors.aijobs import AIJobsConnector
 from connectors.aijobsai import AIJobsAIConnector
+from connectors.justjoin import JustJoinConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
@@ -114,6 +115,7 @@ CONNECTORS = {
     "trulyremote": TrulyRemoteConnector,
     "aijobs": AIJobsConnector,
     "aijobsai": AIJobsAIConnector,
+    "justjoin": JustJoinConnector,
     # Slowest board — last so a full-run still finishes the others first.
     "wearedevelopers": WeAreDevelopersConnector,
 }
@@ -942,7 +944,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

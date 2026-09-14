@@ -84,6 +84,7 @@ _LISTING_DOMAINS = [
     "trulyremote.co",
     "aijobs.com",
     "aijobs.ai",
+    "justjoin.it",
 ]
 
 

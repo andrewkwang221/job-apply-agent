@@ -813,3 +813,29 @@ class TestAIJobsAINormalize:
         assert n["url"].startswith("https://job-boards.greenhouse.io/")
         assert isinstance(n["location"], str)
         assert n["ats_type"] == "greenhouse"
+
+
+class TestJustJoinNormalize:
+    def _raw(self):
+        return {
+            "id": "epam-systems-senior-data-software-engineer-lodz-data",
+            "listing_url": "https://justjoin.it/job-offer/epam-systems-senior-data-software-engineer-lodz-data",
+            "url": "https://careers.epam.com/en/vacancy/abc",
+            "title": "Senior Data Software Engineer",
+            "company": "EPAM Systems",
+            "location": "remote, Lodz",
+            "description": "<p>Python Databricks role</p>",
+            "posted_date": datetime(2026, 9, 14, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.justjoin import JustJoinConnector
+        n = JustJoinConnector().normalize(self._raw())
+        _assert_shape(n, "justjoin")
+
+    def test_title_and_apply_url(self):
+        from connectors.justjoin import JustJoinConnector
+        n = JustJoinConnector().normalize(self._raw())
+        assert n["title"] == "Senior Data Software Engineer"
+        assert n["url"].startswith("https://careers.epam.com/")
+        assert isinstance(n["location"], str)
