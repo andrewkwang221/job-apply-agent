@@ -10,14 +10,13 @@ DEFAULT_ACCEPT_KEYWORDS = [
     "remote async",
 ]
 
-DEFAULT_REJECT_KEYWORDS = [
+# US-restricted postings. Applied only when the profile does not accept US work.
+US_RESTRICT_KEYWORDS = [
     "remote us only",
     "must reside in the us",
     "must be based in the us",
     "must be located in the us",
     "must live in the us",
-    "us citizenship required",
-    "security clearance required",
     "remote within us",
     "usa timezones",
     "us timezones",
@@ -31,6 +30,11 @@ DEFAULT_REJECT_KEYWORDS = [
     "us residents only",
     "based in the united states",
     "located in the united states",
+]
+
+DEFAULT_REJECT_KEYWORDS = [
+    "us citizenship required",
+    "security clearance required",
     # APAC / Asia-only remote restrictions
     "remote apac",
     "remote - apac",
@@ -61,6 +65,16 @@ US_ONLY_LOCATIONS = {
     "usa",
     "united states",
     "us",
+}
+
+_US_ACCEPT_ALIASES = {
+    "us",
+    "usa",
+    "united states",
+    "u.s.",
+    "u.s.a",
+    "u.s.a.",
+    "united states of america",
 }
 
 # Substrings that, when found in raw_location, indicate US restriction
@@ -103,6 +117,10 @@ def _token_in_text(token: str, text: str) -> bool:
     return re.search(pattern, text) is not None
 
 
+def _profile_accepts_us(accepted_regions: Iterable[str]) -> bool:
+    return any(region in _US_ACCEPT_ALIASES for region in accepted_regions)
+
+
 def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | None = None) -> str:
     """Classify a job listing as accept, review, or reject for remote eligibility."""
     raw_location = str(job.get("raw_location_text")
@@ -125,24 +143,30 @@ def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | N
     )
     accepted_regions.extend(
         ["worldwide", "global", "anywhere", "remote anywhere"])
+    accepts_us = _profile_accepts_us(accepted_regions)
+    if accepts_us:
+        accepted_regions.extend(
+            alias for alias in _US_ACCEPT_ALIASES if alias not in accepted_regions
+        )
 
-    if raw_location in US_ONLY_LOCATIONS:
-        return "reject"
-
-    # Catch Greenhouse-style "US-Remote", "US-East", "US-West" etc.
-    if raw_location.startswith("us-") or raw_location.startswith("us "):
-        return "reject"
-
-    # Catch "Remote - United States", "Remote (U.S.)", "Remote (US)", etc.
-    if any(us in raw_location for us in _US_LOCATION_SUBSTRINGS):
-        if not any(broad in raw_location for broad in _BROAD_REGION_OVERRIDES):
-            # If an accepted profile region also appears (e.g. "Remote (US or Canada)"),
-            # downgrade to review rather than hard reject.
-            _generic = {"worldwide", "global", "anywhere", "remote anywhere"}
-            profile_specific = [r for r in accepted_regions if r not in _generic]
-            if any(r in raw_location for r in profile_specific):
-                return "review"
+    if not accepts_us:
+        if raw_location in US_ONLY_LOCATIONS:
             return "reject"
+
+        # Catch Greenhouse-style "US-Remote", "US-East", "US-West" etc.
+        if raw_location.startswith("us-") or raw_location.startswith("us "):
+            return "reject"
+
+        # Catch "Remote - United States", "Remote (U.S.)", "Remote (US)", etc.
+        if any(us in raw_location for us in _US_LOCATION_SUBSTRINGS):
+            if not any(broad in raw_location for broad in _BROAD_REGION_OVERRIDES):
+                # If an accepted profile region also appears (e.g. "Remote (US or Canada)"),
+                # downgrade to review rather than hard reject.
+                _generic = {"worldwide", "global", "anywhere", "remote anywhere"}
+                profile_specific = [r for r in accepted_regions if r not in _generic]
+                if any(r in raw_location for r in profile_specific):
+                    return "review"
+                return "reject"
 
     # Catch "Remote - [Country]" where the qualifier is a specific region not in
     # accepted_regions (e.g. "Remote - India", "Remote - Brazil").
@@ -158,7 +182,10 @@ def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | N
     if remote_only and "hybrid" in raw_location:
         return "reject"
 
-    if _phrase_in_text(DEFAULT_REJECT_KEYWORDS, combined_text):
+    reject_keywords = list(DEFAULT_REJECT_KEYWORDS)
+    if not accepts_us:
+        reject_keywords = US_RESTRICT_KEYWORDS + reject_keywords
+    if _phrase_in_text(reject_keywords, combined_text):
         return "reject"
 
     if _phrase_in_text(reject_regions, combined_text):
@@ -170,10 +197,14 @@ def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | N
     if _phrase_in_text(DEFAULT_ACCEPT_KEYWORDS, combined_text):
         return "accept"
 
+    accepted_set = set(accepted_regions)
     accepted_hit = any(_token_in_text(region, raw_location)
                        for region in accepted_regions)
-    mixed_region_hit = any(_token_in_text(region, raw_location)
-                           for region in MIXED_REGION_HINTS)
+    mixed_region_hit = any(
+        _token_in_text(region, raw_location)
+        for region in MIXED_REGION_HINTS
+        if region not in accepted_set
+    )
 
     if accepted_hit:
         if mixed_region_hit and not any(_token_in_text(region, raw_location) for region in reject_regions):

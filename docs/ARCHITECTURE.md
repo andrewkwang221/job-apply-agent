@@ -143,11 +143,11 @@ apply.workable.com         → Workable  (POST /api/v3/accounts/{slug}/jobs)
 
 Key rejection patterns (in order):
 
-1. `raw_location` matches known US-only location strings (`usa`, `united states`, `us`)
-2. Greenhouse-style prefixes: `us-remote`, `us-east`, `us-west`, etc.
-3. US substrings in location (`united states`, ` usa`, `(u.s.)`, `(us)`, etc.) unless a broad-region override (`worldwide`, `emea`, etc.) is also present
+1. `raw_location` matches known US-only location strings (`usa`, `united states`, `us`) **unless** the profile `accepted_regions` or `work_authorization` includes the US
+2. Greenhouse-style prefixes: `us-remote`, `us-east`, `us-west`, etc. (same US-acceptance gate)
+3. US substrings in location (`united states`, ` usa`, `(u.s.)`, `(us)`, etc.) unless a broad-region override (`worldwide`, `emea`, etc.) is also present, or the profile accepts US
 4. `Remote - [Country]` pattern where the country is not in the user's `accepted_regions`
-5. Description contains hard-reject keywords (`us only`, `must reside in the us`, `security clearance required`, etc.)
+5. Description contains hard-reject keywords (`security clearance required`, plus `us only` / `must reside in the us` when the profile does not accept US)
 6. Geographic-only locations with no `remote`/`worldwide`/`global` hint and no accepted-region match
 
 ### Ingestion Pipeline

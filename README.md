@@ -76,7 +76,7 @@ Each job passes through three independent decision layers. The layered design re
 
 ```
 Layer 1 — Deterministic filters
-  remote eligibility    geographic pattern matching, US-only rejection, region acceptance
+  remote eligibility    geographic pattern matching against accepted_regions
   role relevance        title keyword matching against target roles
   seniority alignment   preferred and acceptable levels from profile
   skill overlap         matched skills and domain keywords from job description

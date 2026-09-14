@@ -81,6 +81,19 @@ class TestHardRejects:
         assert result["reject_code"] == "remote"
         assert "US Only" in result["reject_detail"]
 
+    def test_united_states_not_rejected_when_profile_accepts_us(self):
+        profile = _profile()
+        profile["preferences"]["accepted_regions"] = [
+            "worldwide", "global", "united states", "us", "usa",
+        ]
+        profile["preferences"]["reject_regions"] = []
+        profile["work_authorization"] = {"usa": True}
+        result = score_job(
+            _job(location="United States", raw_location_text="United States"),
+            profile,
+        )
+        assert result["reject_code"] != "remote"
+
     def test_blacklisted_company(self):
         result = score_job(_job(company="BadCorp"), PROFILE)
         assert result["recommended_status"] == "rejected"

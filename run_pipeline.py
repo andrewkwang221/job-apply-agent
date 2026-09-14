@@ -736,7 +736,7 @@ def full_run(source: str, profile: str, model: str, analyze_status: str, analyze
 
 @cli.command()
 @click.option('--profile', default='profile.yaml', show_default=True, help='Path to candidate profile YAML')
-@click.option('--status', default='review', type=click.Choice(['review', 'new', 'shortlisted']), show_default=True, help='Job status bucket to rescore')
+@click.option('--status', default='review', type=click.Choice(['review', 'new', 'shortlisted', 'rejected']), show_default=True, help='Job status bucket to rescore')
 def rescore(profile: str, status: str):
     """Re-run rule-based scoring on existing jobs and reject those that no longer qualify."""
     candidate_profile = _load_profile(profile)
@@ -746,6 +746,7 @@ def rescore(profile: str, status: str):
         jobs = session.query(Job).filter(Job.status == status).all()
         rejected = 0
         downgraded = 0
+        restored = 0
         for job in jobs:
             job_dict = {c.name: getattr(job, c.name) for c in job.__table__.columns}
             result = score_job(job_dict, candidate_profile)
@@ -753,7 +754,20 @@ def rescore(profile: str, status: str):
             if new_status == "rejected":
                 job.status = "rejected"
                 job.fit_score = result["fit_score"]
-                rejected += 1
+                job.reject_code = result.get("reject_code")
+                job.reject_detail = result.get("reject_detail")
+                if status != "rejected":
+                    rejected += 1
+            elif (
+                status == "rejected"
+                and (job.reject_code or "") == "remote"
+            ):
+                job.status = new_status
+                job.rule_status = new_status
+                job.fit_score = result["fit_score"]
+                job.reject_code = None
+                job.reject_detail = None
+                restored += 1
             elif (
                 status == "shortlisted"
                 and new_status == "review"
@@ -765,10 +779,12 @@ def rescore(profile: str, status: str):
                 job.fit_score = result["fit_score"]
                 downgraded += 1
         session.commit()
-        kept = len(jobs) - rejected - downgraded
+        kept = len(jobs) - rejected - downgraded - restored
         msg = f"Rescored {len(jobs)} '{status}' jobs: {rejected} rejected"
         if downgraded:
             msg += f", {downgraded} downgraded to review"
+        if restored:
+            msg += f", {restored} restored from location reject"
         msg += f", {kept} kept."
         click.echo(msg)
     finally:
@@ -827,7 +843,7 @@ def help_command():
         ("fetch", "Fetch only (no scoring/LLM). Use --source all for all sources", "--source <src>  --dry-run  --initial"),
         ("evaluate", "Score new jobs against your profile", "--profile  --dry-run"),
         ("analyze", "Run LLM analysis on review jobs", "--limit N  --model <model>  --dry-run"),
-        ("rescore", "Re-apply scoring rules to existing review jobs", "--status review|new"),
+        ("rescore", "Re-apply scoring rules to existing review jobs", "--status review|new|rejected"),
         ("", "", ""),
         ("", "PERFORMANCE", ""),
         ("perf", "Plot prefill timing trend from recorded runs", "--job Coinbase  --last 5"),

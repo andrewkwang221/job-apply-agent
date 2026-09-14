@@ -178,3 +178,49 @@ class TestGeographicOnly:
 
     def test_country_not_in_accepted_rejected(self):
         assert classify_remote_eligibility(_job("south africa"), PROFILE) == "reject"
+
+
+# ---------------------------------------------------------------------------
+# Profile that accepts US work
+# ---------------------------------------------------------------------------
+
+class TestUSAcceptedProfile:
+    PROFILE = _profile(
+        accepted=["worldwide", "global", "united states", "us", "usa"],
+        rejected=[],
+        work_auth={"usa": True},
+    )
+
+    def test_united_states_accepted(self):
+        assert classify_remote_eligibility(_job("united states"), self.PROFILE) == "accept"
+
+    def test_usa_accepted(self):
+        assert classify_remote_eligibility(_job("usa"), self.PROFILE) == "accept"
+
+    def test_us_accepted(self):
+        assert classify_remote_eligibility(_job("us"), self.PROFILE) == "accept"
+
+    def test_remote_united_states_accepted(self):
+        assert classify_remote_eligibility(
+            _job("remote - united states"), self.PROFILE
+        ) == "accept"
+
+    def test_greenhouse_us_remote_accepted(self):
+        assert classify_remote_eligibility(_job("us-remote"), self.PROFILE) == "accept"
+
+    def test_must_reside_in_us_not_rejected(self):
+        assert classify_remote_eligibility(
+            _job("remote", "must reside in the us"), self.PROFILE
+        ) != "reject"
+
+    def test_india_still_rejected(self):
+        assert classify_remote_eligibility(_job("remote - india"), self.PROFILE) == "reject"
+
+    def test_security_clearance_still_rejected(self):
+        assert classify_remote_eligibility(
+            _job("remote", "security clearance required"), self.PROFILE
+        ) == "reject"
+
+    def test_work_auth_usa_alone_accepts_united_states(self):
+        profile = _profile(accepted=["worldwide"], rejected=[], work_auth={"usa": True})
+        assert classify_remote_eligibility(_job("united states"), profile) == "accept"
