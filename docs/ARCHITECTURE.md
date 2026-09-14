@@ -123,6 +123,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `AIJobsConnector` | [AIJobs.com](https://www.aijobs.com/jobs?remote=1&order=posted_at) | Guest remote Date HTML list; engineering title filter; newest-first stale-page stop; JobPosting JSON-LD; apply 302 to employer ATS |
 | `AIJobsAIConnector` | [AIJobs.ai](https://aijobs.ai/remote) | Guest Latest Jobs HTML list (skip Featured); engineering title filter; newest-first stale-page stop; job-page description; employer ATS href |
 | `JustJoinConnector` | [JustJoin](https://justjoin.it/job-offers/remote?remote-work-options=hybrid&experience-levels=mid,senior,team-leader-manager&languages=en&sortBy=newest) | Guest `/api/candidate-api/offers`; mid/senior/lead + English; remote+hybrid; newest-first cursor; job-page JSON-LD; employer `applyUrl` |
+| `BrenxorConnector` | [Brenxor](https://brenxor.com/remote-software-development-jobs) | Guest mid/senior/lead × Anywhere/USA HTML lists; engineering title filter; newest-first stale-page stop; 500 retry then skip combo; JobPosting JSON-LD; apply 302 to employer ATS |
 
 **Direct ATS connectors:**
 

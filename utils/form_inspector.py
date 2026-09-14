@@ -85,6 +85,7 @@ _LISTING_DOMAINS = [
     "aijobs.com",
     "aijobs.ai",
     "justjoin.it",
+    "brenxor.com",
 ]
 
 

@@ -839,3 +839,30 @@ class TestJustJoinNormalize:
         assert n["title"] == "Senior Data Software Engineer"
         assert n["url"].startswith("https://careers.epam.com/")
         assert isinstance(n["location"], str)
+
+
+class TestBrenxorNormalize:
+    def _raw(self):
+        return {
+            "id": "188093",
+            "listing_url": "https://brenxor.com/job-details-188093-senior-software-engineer",
+            "url": "https://job-boards.greenhouse.io/obsidiansecurity/jobs/5286170008",
+            "title": "Senior Software Engineer",
+            "company": "Obsidian Security",
+            "location": "Remote Anywhere",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 14, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.brenxor import BrenxorConnector
+        n = BrenxorConnector().normalize(self._raw())
+        _assert_shape(n, "brenxor")
+
+    def test_title_and_apply_url(self):
+        from connectors.brenxor import BrenxorConnector
+        n = BrenxorConnector().normalize(self._raw())
+        assert n["title"] == "Senior Software Engineer"
+        assert n["url"].startswith("https://job-boards.greenhouse.io/")
+        assert isinstance(n["location"], str)
+        assert n["ats_type"] == "greenhouse"
