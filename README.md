@@ -78,7 +78,7 @@ Each job passes through three independent decision layers. The layered design re
 Layer 1 — Deterministic filters
   remote eligibility    geographic pattern matching against accepted_regions
   role relevance        title keyword matching against target roles
-  seniority alignment   preferred and acceptable levels from profile
+  seniority alignment   persist skip when title/level is outside profile preferred + acceptable
   skill overlap         matched skills and domain keywords from job description
         ↓
 Layer 2 — LLM semantic evaluation  (local Ollama, no data leaves the machine)
@@ -203,7 +203,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [We Are Distributed](https://wearedistributed.org/jobs) | Sitemap + JSON-LD | Distributed-work focused jobs; engineering keyword filter; expired postings skipped |
 | [Flexa Careers](https://flexa.careers/jobs) | GraphQL API + JSON-LD | Flexible-work focused jobs; newest-first via `sort: DATE_DESC`; engineering title filter; description from per-page JSON-LD |
 | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js listing HTML | Developer category listings from `__NEXT_DATA__`; engineering title filter; apply is subscription-gated (capped at review) |
-| [RemoteJobsFinder](https://remotejobsfinder.co/en) | JSON jobs API | Guest `GET rjf-gateway-prod.globalwork.ai/api/v1/public/jobs` (no login). Unique `target_roles` plus `engineering` × remote/hybrid × Middle/Senior/Lead, USA, `minHourlyRate=30`. `limit=20` + `skip` walk (mixed dates; no prefix cap). Merge by uuid. Employer `jobUrl` when present. |
+| [RemoteJobsFinder](https://remotejobsfinder.co/en) | JSON jobs API | Guest `GET .../public/jobs` then `GET .../public/jobs/{uuid}` for `descriptionHtml`. Unique `target_roles` plus `engineering`, USA, `minHourlyRate=30`. `limit=20` + `skip` walk (mixed dates; no prefix cap). Merge by uuid. Employer `jobUrl` when present. |
 | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated (capped at review) |
 | [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated (capped at review) |
 | [FlexJobs](https://www.flexjobs.com) | Next.js search HTML | Opt-in (`--source flexjobs`, not in `all`). Playwright login via `FLEXJOBS_EMAIL` / `FLEXJOBS_PASSWORD`; homepage search sorted by date; apply is subscription-gated (capped at review) |

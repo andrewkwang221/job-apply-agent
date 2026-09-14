@@ -2,6 +2,7 @@ import re
 from typing import Dict, Any
 from utils.job_inclusion import detected_posting_language, required_languages_in_text
 from utils.remote_filter import classify_remote_eligibility
+from utils.seniority import matches_seniority_level, seniority_exclusion
 
 REVIEW_MIN_SCORE = 28
 SHORTLIST_MIN_SCORE = 65
@@ -110,20 +111,6 @@ def _expanded_keywords(profile: Dict[str, Any]) -> list:
         expanded.append("cv")
 
     return _unique(expanded)
-
-def _matches_seniority_level(text: str, level: str) -> bool:
-    normalized_level = str(level or "").strip().lower()
-    if not normalized_level or not text:
-        return False
-
-    aliases = {
-        "senior": ["senior", "sr", "sr.", "snr", "snr."],
-        "mid": ["mid", "mid-level", "midlevel", "intermediate"],
-        "lead": ["lead", "tech lead", "technical lead"],
-    }
-
-    candidates = aliases.get(normalized_level, [normalized_level])
-    return bool(_find_matches(text, candidates))
 
 def _title_role_score(title: str, target_roles: list) -> int:
     if not title:
@@ -249,6 +236,10 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
         loc = (job.get("raw_location_text") or job.get("location") or "").strip() or "unspecified"
         return _set_reject(result, "remote", f"Location not eligible: {loc}")
 
+    seniority_skip = seniority_exclusion(job, profile)
+    if seniority_skip:
+        return _set_reject(result, seniority_skip[0], seniority_skip[1])
+
     blacklist = [str(c).strip().lower() for c in profile.get("blacklisted_companies", []) if str(c).strip()]
     company = str(job.get("company", "")).strip().lower()
     blacklist_hit = next((b for b in blacklist if b == company or b in company), None)
@@ -321,14 +312,14 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
     acceptable_levels = seniority.get("acceptable", [])
             
     for level in preferred_levels:
-        if _matches_seniority_level(title, level) or _matches_seniority_level(description[:500], level):
+        if matches_seniority_level(title, level) or matches_seniority_level(description[:500], level):
             score += 10
             result["seniority_match"] = True
             break
             
     if not result["seniority_match"]:
         for level in acceptable_levels:
-            if _matches_seniority_level(title, level) or _matches_seniority_level(description[:500], level):
+            if matches_seniority_level(title, level) or matches_seniority_level(description[:500], level):
                 score += 5
                 result["seniority_match"] = True
                 break

@@ -11,21 +11,23 @@ Each call is ``limit=20`` (21+ is 400). ``skip`` walks the result set.
 walk until an empty page or ``skip >= totalRecords``. Date-filter with
 ``MAX_JOB_AGE_DAYS``. Do not prefix-cap or stop at the first stale page.
 
-Compose unique ``profile.yaml`` ``target_roles`` plus ``engineering`` ×
-``jobType`` remote/hybrid × ``level`` Middle/Senior/Lead, with
-``locations=[{"country":"USA"}]`` and ``minHourlyRate=30``. Merge by
-job uuid. On error, keep jobs already collected and continue the other
-combos.
+Compose unique ``profile.yaml`` ``target_roles`` plus ``engineering``, with
+``locations=[{"country":"USA"}]`` and ``minHourlyRate=30``. Do not send
+``jobType`` or ``level`` — persist uses shared remote and seniority rules.
+Merge by job uuid. On error, keep jobs already collected and continue the
+other searches.
 
-List JSON has no description; ``jobUrl`` is usually the employer apply
-URL. ``location`` is always a string.
+List JSON has no job text. Unseen rows are hydrated from
+``GET .../public/jobs/{uuid}`` (``descriptionHtml``). Ineligible
+remote/seniority rows are skipped before that GET. ``jobUrl`` is
+usually the employer apply URL. ``location`` is always a string.
 """
 from __future__ import annotations
 
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
-from itertools import product
 from typing import Any
 from urllib.parse import urlparse
 
@@ -36,6 +38,7 @@ from dateutil import parser as dateutil_parser
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.job_age import job_age_cutoff
+from utils.job_inclusion import exclusion_reason, load_candidate_profile
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -53,6 +56,7 @@ _FETCH_DELAY = 0.4
 # Runaway only; search is mixed-date so no stale-page stop.
 _MAX_PAGES = 40
 _MAX_FETCH_FAILURES = 5
+_DETAIL_WORKERS = 8
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -72,12 +76,6 @@ _FALLBACK_QUERIES = (
     "machine learning engineer",
     _CATCHALL_QUERY,
 )
-JOB_TYPES = ("remote", "hybrid")
-LEVELS = (
-    "Middle (2-4 years)",
-    "Senior (5+ years)",
-    "Lead / Manager",
-)
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
     "full stack", "full-stack", "fullstack", "devops", "sre", "platform",
@@ -95,10 +93,10 @@ class RemoteJobsFinderConnector(BaseConnector):
         self.source_name = "remotejobsfinder"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        combos = _iter_combos()
+        queries = _search_queries()
         logger.info(
             "Fetching jobs from RemoteJobsFinder guest API "
-            f"({len(combos)} search×jobType×level combos)…"
+            f"({len(queries)} role searches)…"
         )
         cutoff = job_age_cutoff(self.source_name)
         parsed: list[dict[str, Any]] = []
@@ -106,21 +104,18 @@ class RemoteJobsFinderConnector(BaseConnector):
         kept_jobs: list[dict[str, Any]] = []
 
         try:
-            for i, (search, job_type, level) in enumerate(combos):
-                added = _fetch_combo(
+            for i, search in enumerate(queries):
+                added = _fetch_query(
                     search,
-                    job_type,
-                    level,
                     cutoff,
                     parsed,
                     seen_ids,
                     on_page=lambda page_jobs: self._emit_page(page_jobs, kept_jobs),
                 )
                 logger.info(
-                    f"remotejobsfinder {search!r}/{job_type}/{level}: "
-                    f"+{added} (total {len(parsed)})"
+                    f"remotejobsfinder query={search!r}: +{added} (total {len(parsed)})"
                 )
-                if i + 1 < len(combos):
+                if i + 1 < len(queries):
                     time.sleep(_FETCH_DELAY)
         except Exception as e:
             logger.error(f"Error fetching jobs from RemoteJobsFinder: {e}")
@@ -142,12 +137,26 @@ class RemoteJobsFinderConnector(BaseConnector):
             )
         )
         pending = [job for job in page_jobs if job["listing_url"] in unseen]
+        if not pending:
+            return
+        profile = load_candidate_profile()
+        to_hydrate: list[dict[str, Any]] = []
+        skipped = 0
         for job in pending:
-            self._emit(job, kept_jobs)
-        if pending:
-            remember_listing_urls(
-                self.source_name, [job["listing_url"] for job in pending]
+            if profile and exclusion_reason(_inclusion_fields(job), profile):
+                skipped += 1
+                continue
+            to_hydrate.append(job)
+        if skipped:
+            logger.info(
+                f"remotejobsfinder skipped {skipped} ineligible listings before detail"
             )
+        _hydrate_details(to_hydrate)
+        for job in to_hydrate:
+            self._emit(job, kept_jobs)
+        remember_listing_urls(
+            self.source_name, [job["listing_url"] for job in pending]
+        )
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         location = raw_job.get("location") or "Remote"
@@ -207,29 +216,18 @@ def _load_profile() -> dict[str, Any]:
         return {}
 
 
-def _iter_combos(queries: list[str] | None = None) -> list[tuple[str, str, str]]:
-    searches = queries if queries is not None else _search_queries()
-    return list(product(searches, JOB_TYPES, LEVELS))
-
-
-def _api_params(
-    search: str, job_type: str, level: str, skip: int
-) -> list[tuple[str, str]]:
+def _api_params(search: str, skip: int) -> list[tuple[str, str]]:
     return [
         ("limit", str(_PAGE_SIZE)),
         ("skip", str(skip)),
         ("minHourlyRate", str(_MIN_HOURLY_RATE)),
         ("search", search),
-        ("jobType", job_type),
         ("locations", _LOCATIONS),
-        ("level", level),
     ]
 
 
-def _fetch_combo(
+def _fetch_query(
     search: str,
-    job_type: str,
-    level: str,
     cutoff: datetime,
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
@@ -239,11 +237,11 @@ def _fetch_combo(
     consecutive_failures = 0
     for page in range(_MAX_PAGES):
         skip = page * _PAGE_SIZE
-        data = _fetch_page(_api_params(search, job_type, level, skip))
+        data = _fetch_page(_api_params(search, skip))
         if data is None:
             consecutive_failures += 1
             logger.warning(
-                f"remotejobsfinder {search!r}/{job_type}/{level} skip={skip} failed "
+                f"remotejobsfinder query={search!r} skip={skip} failed "
                 f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
                 "keeping prior jobs, continuing"
             )
@@ -270,7 +268,7 @@ def _fetch_combo(
             on_page(page_jobs)
         total = _total_records(data)
         logger.info(
-            f"remotejobsfinder {search!r}/{job_type}/{level} skip={skip}: "
+            f"remotejobsfinder query={search!r} skip={skip}: "
             f"{len(raw_items)} listings, {len(page_jobs)} new"
             + (f" (totalRecords={total})" if total is not None else "")
         )
@@ -283,9 +281,74 @@ def _fetch_combo(
     return added
 
 
-def _fetch_page(params: list[tuple[str, str]]) -> dict[str, Any] | None:
+def _inclusion_fields(job: dict[str, Any]) -> dict[str, str]:
+    loc = str(job.get("location") or "")
+    desc = str(job.get("description") or "")
+    return {
+        "title": str(job.get("title") or ""),
+        "location": loc,
+        "raw_location_text": loc,
+        "description": desc,
+        "description_text": desc,
+    }
+
+
+def _detail_url(job_id: str) -> str:
+    return f"{API_URL.rstrip('/')}/{job_id}"
+
+
+def _detail_html(data: dict[str, Any]) -> str:
+    inner = data.get("data") if isinstance(data.get("data"), dict) else data
+    if not isinstance(inner, dict):
+        return ""
+    for key in ("descriptionHtml", "description_html", "description", "descriptionText"):
+        value = inner.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _merge_description(meta: str, html: str) -> str:
+    meta = (meta or "").strip()
+    html = (html or "").strip()
+    if html and meta:
+        return f"{meta}\n\n{html}"
+    return html or meta
+
+
+def _hydrate_details(pending: list[dict[str, Any]]) -> None:
+    if not pending:
+        return
+    workers = max(1, min(_DETAIL_WORKERS, len(pending)))
+
+    def _one(job: dict[str, Any]) -> None:
+        job_id = str(job.get("id") or "").strip()
+        if not job_id or job_id.startswith("http"):
+            return
+        data = _fetch_page([], url=_detail_url(job_id))
+        if not data:
+            return
+        html = _detail_html(data)
+        if html:
+            job["description"] = _merge_description(job.get("description") or "", html)
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_one, job) for job in pending]
+        for fut in as_completed(futures):
+            fut.result()
+
+
+def _fetch_page(
+    params: list[tuple[str, str]],
+    url: str | None = None,
+) -> dict[str, Any] | None:
     try:
-        resp = requests.get(API_URL, headers=_HEADERS, params=params, timeout=30)
+        resp = requests.get(
+            url or API_URL,
+            headers=_HEADERS,
+            params=params or None,
+            timeout=30,
+        )
     except (requests.Timeout, requests.ConnectionError) as e:
         logger.info(f"remotejobsfinder GET failed ({type(e).__name__})")
         return None

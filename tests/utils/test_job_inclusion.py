@@ -116,6 +116,19 @@ class TestExclusionReason:
     def test_none_without_profile(self):
         assert exclusion_reason(_job(location="Seoul"), None) is None
 
+    def test_drops_junior_when_profile_is_mid_senior(self):
+        profile = _profile(
+            seniority={"preferred": ["senior", "staff"], "acceptable": ["mid", "lead"]}
+        )
+        code, _ = exclusion_reason(_job(title="Junior Backend Engineer"), profile)
+        assert code == "seniority"
+        assert exclusion_reason(_job(title="Senior Backend Engineer"), profile) is None
+        assert exclusion_reason(_job(title="Backend Engineer"), profile) is None
+
+    def test_keeps_junior_when_profile_allows_it(self):
+        profile = _profile(seniority={"preferred": ["junior"], "acceptable": ["mid"]})
+        assert exclusion_reason(_job(title="Junior Backend Engineer"), profile) is None
+
 
 class TestPersistSkip:
     def test_persist_does_not_store_onsite(self, db_session):
@@ -189,6 +202,78 @@ class TestPersistSkip:
         )
         assert db_session.query(Job).count() == 1
         assert run.jobs_new == 1
+
+    def test_persist_does_not_store_junior_when_profile_is_mid_senior(self, db_session):
+        from connectors.base import BaseConnector
+        from models.database import PipelineRun
+        import run_pipeline
+
+        class _C(BaseConnector):
+            def get_source_name(self):
+                return "streamtest"
+
+            def normalize(self, raw_job):
+                loc = raw_job.get("location") or "Remote"
+                return {
+                    "external_id": raw_job["id"],
+                    "source": "streamtest",
+                    "company": "Acme",
+                    "title": raw_job["title"],
+                    "location": loc,
+                    "raw_location_text": loc,
+                    "description": raw_job.get("description") or "Python role",
+                    "description_text": raw_job.get("description") or "Python role",
+                    "url": raw_job["url"],
+                    "ats_type": None,
+                    "posted_date": None,
+                    "remote_eligibility": None,
+                }
+
+            def fetch_jobs(self):
+                return []
+
+        profile = _profile(
+            seniority={"preferred": ["senior", "staff"], "acceptable": ["mid", "lead"]}
+        )
+        run = PipelineRun(
+            source="streamtest",
+            started_at=__import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc
+            ),
+            status="running",
+            jobs_fetched=0,
+            jobs_new=0,
+            jobs_duplicates=0,
+        )
+        run_pipeline._persist_raw_job(
+            _C(),
+            {
+                "id": "junior-1",
+                "title": "Junior Backend Engineer",
+                "url": "https://example.com/junior-1",
+                "location": "Remote",
+            },
+            db_session,
+            run,
+            dry_run=False,
+            profile=profile,
+        )
+        assert db_session.query(Job).count() == 0
+        assert run.jobs_new == 0
+        run_pipeline._persist_raw_job(
+            _C(),
+            {
+                "id": "senior-1",
+                "title": "Senior Backend Engineer",
+                "url": "https://example.com/senior-1",
+                "location": "Remote",
+            },
+            db_session,
+            run,
+            dry_run=False,
+            profile=profile,
+        )
+        assert db_session.query(Job).count() == 1
 
 
 class TestDropIneligibleJobs:

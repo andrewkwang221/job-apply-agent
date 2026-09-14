@@ -41,3 +41,5 @@ Do not fork remote/hybrid rules in a new connector. Persist uses `utils/job_incl
 - **Remote or hybrid with a place, no regular office** — include only if it matches `personal.location` (same city/state, or Remote(US)/Remote(CA) with no other state)
 - **Regular office required** (`3 days in office`, `hybrid 3/2`, RTO, on-site required) — drop, ignore location
 - **On-site only** — drop when `remote_only`
+
+Do not fork seniority rules in a new connector. Persist uses `utils/job_inclusion.py` (`utils/seniority.py`) against `profile.yaml` `seniority.preferred` / `acceptable`.

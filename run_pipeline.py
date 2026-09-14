@@ -223,7 +223,7 @@ def _drop_stored_ineligible(profile, dry_run: bool) -> None:
         if dropped:
             action = "Would drop" if dry_run else "Dropped"
             logger.info(
-                f"{action} {dropped} stored jobs that fail remote/language/region rules"
+                f"{action} {dropped} stored jobs that fail remote/seniority/language/region rules"
             )
     except Exception as e:
         session.rollback()
@@ -334,7 +334,7 @@ def _run_evaluate(profile: str, dry_run: bool, all_jobs: bool):
         if dropped:
             action = "Would drop" if dry_run else "Dropped"
             logger.info(
-                f"{action} {dropped} stored jobs that fail remote/language/region rules"
+                f"{action} {dropped} stored jobs that fail remote/seniority/language/region rules"
             )
         query = session.query(Job)
         if all_jobs:
@@ -784,7 +784,7 @@ def _run_rescore(candidate_profile, status: str, promote: bool = False) -> str:
         dropped = drop_ineligible_jobs(session, candidate_profile, dry_run=False)
         if dropped:
             logger.info(
-                f"Dropped {dropped} stored jobs that fail remote/language/region rules"
+                f"Dropped {dropped} stored jobs that fail remote/seniority/language/region rules"
             )
         jobs = session.query(Job).filter(Job.status == status).all()
         rejected = 0

@@ -113,7 +113,7 @@ class TestHardRejects:
     def test_intern_title_rejected(self):
         result = score_job(_job(title="Software Engineering Intern"), PROFILE)
         assert result["recommended_status"] == "rejected"
-        assert result["reject_code"] in ("title_mismatch", "low_score")
+        assert result["reject_code"] == "seniority"
 
     def test_hybrid_without_office_mandate_is_not_remote_reject(self):
         result = score_job(_job(location="Hybrid", raw_location_text="Hybrid"), PROFILE)
@@ -131,10 +131,10 @@ class TestHardRejects:
         assert result["recommended_status"] == "rejected"
         assert result["reject_code"] == "remote"
 
-    def test_junior_title_penalty_may_reject(self):
-        # Junior titles incur a heavy penalty — likely rejected unless other signals strong
+    def test_junior_title_rejected(self):
         result = score_job(_job(title="Junior Python Developer", description="Python SQL"), PROFILE)
-        assert result["fit_score"] < 65
+        assert result["recommended_status"] == "rejected"
+        assert result["reject_code"] == "seniority"
 
 
 # ---------------------------------------------------------------------------
@@ -195,7 +195,7 @@ class TestThresholds:
 
     def test_low_score_rejected(self):
         result = score_job(
-            _job(title="Intern", description="no matching skills",
+            _job(title="Warehouse Associate", description="no matching skills",
                  remote_eligibility="reject"),
             PROFILE,
         )

@@ -1,8 +1,8 @@
 """Profile-based ingest filters shared by every connector.
 
-Skip (do not persist) jobs that fail remote eligibility, posting language,
-or spoken-language requirements. The same rules delete already-stored rows
-that would no longer be included.
+Skip (do not persist) jobs that fail remote eligibility, seniority,
+posting language, or spoken-language requirements. The same rules delete
+already-stored rows that would no longer be included.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from sqlalchemy import or_
 
 from models.database import InterviewPrepSheet, Job
 from utils.remote_filter import classify_remote_eligibility
+from utils.seniority import seniority_exclusion
 
 _KEEP_STATUSES = frozenset({"applied", "deferred", "archived", "expired"})
 _DELETE_CHUNK = 400
@@ -126,6 +127,10 @@ def exclusion_reason(
     if classify_remote_eligibility(job, profile) == "reject":
         loc = (job.get("raw_location_text") or job.get("location") or "").strip() or "unspecified"
         return "remote", f"Location not eligible: {loc}"
+
+    seniority_skip = seniority_exclusion(job, profile)
+    if seniority_skip:
+        return seniority_skip
 
     profile_langs = {
         str(lang).strip().lower()

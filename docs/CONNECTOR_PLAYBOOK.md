@@ -16,7 +16,7 @@ Canonical pattern: `connectors/remote100k.py` (`cap = _MAX_NEW if newest_first e
 
 ## Job inclusion (all connectors)
 
-Do **not** reimplement this per board. Persist already applies `utils/job_inclusion.py` (`classify_remote_eligibility` + language). Skip detail HTTP only when listing `location` is enough. Set `location` / `raw_location_text` as strings so the shared filter can run.
+Do **not** reimplement this per board. Persist already applies `utils/job_inclusion.py` (`classify_remote_eligibility` + profile seniority + language). Skip detail HTTP only when listing `location` / title is enough. Set `location` / `raw_location_text` as strings so the shared filter can run.
 
 When `preferences.remote_only` is true (`personal.location` e.g. `San Francisco, CA`):
 
@@ -29,6 +29,8 @@ When `preferences.remote_only` is true (`personal.location` e.g. `San Francisco,
 | On-site city/office, no remote/hybrid signal | No |
 
 Plain `Hybrid` with no city/state stays (unknown place). On-site SF is still dropped (`remote_only`). Also skip postings not in `languages` and `Remote - [Country]` outside `accepted_regions`.
+
+Seniority uses `profile.yaml` `seniority.preferred` and `seniority.acceptable` (see `utils/seniority.py`). Detected intern/junior/director/etc. outside that list are dropped. Titles with no seniority word are kept.
 
 ## Per-board workflow
 

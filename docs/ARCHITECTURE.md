@@ -103,7 +103,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `NodeskConnector` | [Nodesk](https://nodesk.co) | Guest Algolia `jobPosts` + JobPosting JSON-LD; engineering slug filter; skips expired/stale postings |
 | `Remote100kConnector` | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD; ATS apply URL extracted from page HTML; `?ref=` tracking params stripped |
 | `RemoteJobsIoConnector` | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js `__NEXT_DATA__` listing scrape; engineering title filter; apply paywalled |
-| `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Guest public jobs API; profile `target_roles` + `engineering`; remote/hybrid × Mid/Senior/Lead; mixed-date `skip` walk; employer `jobUrl` |
+| `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Guest public jobs API; profile `target_roles` + `engineering`; USA + hourly floor; mixed-date `skip` walk; detail `descriptionHtml`; employer `jobUrl` |
 | `DailyRemoteConnector` | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Software-board HTML cards; relative dates; company/apply Premium-gated (review cap) |
 | `ArcDevConnector` | [Arc.dev](https://arc.dev/remote-jobs) | Public `__NEXT_DATA__` board + engineering categories; Fast apply gated (review cap) |
 | `FlexJobsConnector` | [FlexJobs](https://www.flexjobs.com) | Playwright login + homepage `/search` `__NEXT_DATA__`; opt-in `--source flexjobs`; apply paywalled (review cap) |
@@ -152,13 +152,17 @@ Key rejection patterns (in order):
 6. Description contains hard-reject keywords (`security clearance required`, plus `us only` / `must reside in the us` when the profile does not accept US)
 7. Geographic-only locations with no `remote`/`hybrid`/`worldwide`/`global` hint and no accepted-region match
 
+### Seniority Filter (`utils/seniority.py`)
+
+`seniority_exclusion(job, profile)` skips jobs whose detected level is outside `seniority.preferred` + `seniority.acceptable`. Title words first (`intern`, `junior`, `mid`, `senior`, `staff`, `lead`, `principal`, `director`); else a `Level:` line in the description. Unstated seniority is kept. Staff also allows principal. No `seniority` block in the profile means no filter.
+
 ### Ingestion Pipeline
 
 `run_pipeline.py` orchestrates:
 
 - fetching from each connector
 - normalizing via `connector.normalize(raw_job)`
-- skipping jobs that fail `utils/job_inclusion.py` (fully remote vs place-tied hybrid/remote vs office-required; posting language; accepted regions)
+- skipping jobs that fail `utils/job_inclusion.py` (fully remote vs place-tied hybrid/remote vs office-required; profile seniority; posting language; accepted regions)
 - deleting already-stored jobs that fail the same rules (except applied/deferred/archived/expired)
 - deduplication via `utils/dedup.py` (URL + content hash)
 - upsert into `jobs` table

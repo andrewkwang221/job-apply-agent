@@ -221,7 +221,7 @@ class WeAreDevelopersConnector(BaseConnector):
                     if reason == "owned-source":
                         skipped_owned += 1
                         continue
-                    if reason in {"remote", "language", "job_language"}:
+                    if reason in {"remote", "seniority", "language", "job_language"}:
                         skipped_profile += 1
                         continue
                     if not raw:
