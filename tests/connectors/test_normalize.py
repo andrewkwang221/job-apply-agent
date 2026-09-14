@@ -732,3 +732,30 @@ class TestRemoteScout24Normalize:
         assert n["title"] == "Senior Backend Engineer"
         assert n["url"] == "https://jobs.lever.co/acme/abc"
         assert isinstance(n["location"], str)
+
+
+class TestTrulyRemoteNormalize:
+    def _raw(self):
+        return {
+            "id": "85031",
+            "listing_url": "https://trulyremote.co/jobs?listing=85031",
+            "url": "https://job-boards.greenhouse.io/gitlab/jobs/8770702002",
+            "title": "Staff Backend Engineer",
+            "company": "GitLab",
+            "location": "North America",
+            "description": "Go-based PostgreSQL automation at GitLab scale.",
+            "posted_date": datetime(2026, 9, 14, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.trulyremote import TrulyRemoteConnector
+        n = TrulyRemoteConnector().normalize(self._raw())
+        _assert_shape(n, "trulyremote")
+
+    def test_title_and_apply_url(self):
+        from connectors.trulyremote import TrulyRemoteConnector
+        n = TrulyRemoteConnector().normalize(self._raw())
+        assert n["title"] == "Staff Backend Engineer"
+        assert n["url"].startswith("https://job-boards.greenhouse.io/")
+        assert isinstance(n["location"], str)
+        assert n["ats_type"] == "greenhouse"
