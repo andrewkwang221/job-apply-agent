@@ -15,7 +15,7 @@ import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
-from models.database import Job, PipelineRun, ApplicationHistory, ensure_job_columns
+from models.database import Job, PipelineRun, ApplicationHistory, ensure_company_profiles, ensure_job_columns
 from connectors.remotive import RemotiveConnector
 from connectors.remoteok import RemoteOKConnector
 from connectors.weworkremotely import WeWorkRemotelyConnector
@@ -136,6 +136,7 @@ engine = create_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 if engine.dialect.name == "sqlite":
     ensure_job_columns(engine)
+    ensure_company_profiles(engine)
 
 @click.group()
 def cli():

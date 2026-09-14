@@ -59,6 +59,7 @@ def ensure_job_columns(engine) -> None:
                 conn.execute(text(sql))
         conn.commit()
 
+
 class PipelineRun(Base):
     __tablename__ = "pipeline_runs"
 
@@ -103,3 +104,25 @@ class InterviewPrepSheet(Base):
     error_message = Column(Text, nullable=True)
     generated_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=_utc_now)
+
+
+class CompanyProfile(Base):
+    __tablename__ = "company_profiles"
+
+    id = Column(Integer, primary_key=True)
+    name_key = Column(String, unique=True, nullable=False)
+    display_name = Column(String, nullable=True)
+    website_url = Column(String, nullable=True)
+    website_host = Column(String, unique=True, nullable=True)
+    status = Column(String, nullable=False, default="processing")
+    analysis = Column(Text, nullable=True)
+    sources = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    generated_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
+
+
+def ensure_company_profiles(engine) -> None:
+    """Create company_profiles if this DB predates the Alembic revision."""
+    CompanyProfile.__table__.create(bind=engine, checkfirst=True)

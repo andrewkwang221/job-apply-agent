@@ -172,7 +172,7 @@ Key rejection patterns (in order):
 
 - SQLite via SQLAlchemy
 - Migrations via Alembic
-- Tables: `jobs`, `application_history`, `pipeline_runs`
+- Tables: `jobs`, `application_history`, `pipeline_runs`, `interview_prep_sheets`, `company_profiles`
 
 ### Job Apply Intelligence Engine (`utils/scoring.py`, `utils/application_filter.py`)
 
@@ -191,6 +191,14 @@ Uses local LLM models through **Ollama** (`/api/chat`):
 - conservative status updates: only promotes review→shortlist or review→rejected
 - malformed or failed responses do not break the pipeline
 - LLM output stored in dedicated fields; never overwrites `rule_status`
+
+### Company research (`utils/company_research.py`)
+
+On-demand from the Job Panel Company tab (not a pipeline stage):
+
+- cache key is a suffix-stripped company name (`Acme Inc` == `Acme`); a second job at the same employer reuses the row
+- official site from JD links, Clearbit autocomplete, Wikidata P856, or DuckDuckGo (never Wikipedia)
+- homepage/about + Wikidata facts summarized by Ollama into `company_profiles`
 
 ### Application Prefill Agent (`utils/form_inspector.py`, `utils/form_filler.py`)
 

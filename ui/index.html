@@ -149,6 +149,8 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .card-title-link:hover{text-decoration:underline;}
 .card-company-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
 .card-company{font-size:14px;font-weight:600;color:var(--text-secondary);}
+a.card-company{color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;gap:5px;}
+a.card-company:hover{text-decoration:underline;}
 .tag{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:500;}
 .tag-location{background:var(--bg-subtle);color:var(--text-secondary);}
 .tag-remote{background:var(--green-light);color:var(--green);}
@@ -479,6 +481,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
       <div class="card-top" id="cardTop"></div>
       <div class="card-tabs">
         <div class="card-tab active" onclick="switchTab('overview',this)">Overview</div>
+        <div class="card-tab" onclick="switchTab('company',this);loadCompany()">Company</div>
         <div class="card-tab" onclick="switchTab('analysis',this)">Analysis</div>
         <div class="card-tab" onclick="switchTab('cover',this)">Cover Letter</div>
         <div class="card-tab" onclick="switchTab('prep',this);loadPrep()">Interview Prep</div>
@@ -500,6 +503,15 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
             <div class="score-ring-label" id="scoreCategory">—</div>
           </div>
           <div class="overview-right" id="overviewRight"></div>
+        </div>
+      </div>
+      <div class="tab-pane" id="pane-company">
+        <div id="companyContent">
+          <div class="prep-empty">Click <strong>Generate</strong> to research this company.</div>
+          <div class="prep-actions"><button class="btn-secondary" id="btnGenCompany" onclick="generateCompany()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            Generate
+          </button></div>
         </div>
       </div>
       <div class="tab-pane" id="pane-analysis"><div id="analysisContent"></div></div>
@@ -864,7 +876,9 @@ function renderCard(i, direction) {
         </a>` : ''}
       </div>
       <div class="card-company-row">
-        <span class="card-company">${esc(job.company)}</span>
+        ${job.company_website ? `<a class="card-company" href="${esc(job.company_website)}" target="_blank" rel="noopener noreferrer" title="${esc(job.company_website)}">${esc(job.company)}
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        </a>` : `<span class="card-company">${esc(job.company)}</span>`}
         <span class="tag tag-location">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
           ${esc(job.location)}
@@ -1292,6 +1306,170 @@ async function generateCover() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ── Company research ───────────────────────────────────────────────────────
+let _companyPollTimer = null;
+
+async function loadCompany() {
+  const job = jobs[idx];
+  if (!job) return;
+  try {
+    const data = await api(`/api/jobs/${job.id}/company`);
+    if (data.found && data.profile?.status === 'completed') {
+      renderCompanyProfile(data.profile);
+    } else if (data.running) {
+      _setCompanyLoading(true);
+      _scheduleCompanyPoll(job.id);
+    } else if (data.found && data.profile?.status === 'failed') {
+      _renderCompanyFailed(data.profile);
+    } else {
+      _renderCompanyEmpty();
+    }
+  } catch(e) { /* ignore */ }
+}
+
+function _renderCompanyEmpty() {
+  const el = document.getElementById('companyContent');
+  if (!el) return;
+  el.innerHTML = `<div class="prep-empty">Click <strong>Generate</strong> to research this company.</div>
+    <div class="prep-actions"><button class="btn-secondary" id="btnGenCompany" onclick="generateCompany()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      Generate
+    </button></div>`;
+}
+
+async function generateCompany(regenerate) {
+  const job = jobs[idx];
+  if (!job) return;
+  const btn = document.getElementById('btnGenCompany');
+  if (btn) btn.disabled = true;
+  try {
+    const q = regenerate ? '?regenerate=true' : '';
+    await api(`/api/jobs/${job.id}/company${q}`, 'POST');
+    _setCompanyLoading(true);
+    _scheduleCompanyPoll(job.id);
+  } catch(e) {
+    showToast('Failed to start company research: ' + e.message, 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _setCompanyLoading(on) {
+  const el = document.getElementById('companyContent');
+  if (!el) return;
+  if (on) {
+    el.innerHTML = `<div class="prep-empty"><span class="prep-spinner"></span>Researching this company…</div>`;
+  }
+}
+
+function _scheduleCompanyPoll(jobId) {
+  clearTimeout(_companyPollTimer);
+  _companyPollTimer = setTimeout(async () => {
+    if (!jobs[idx] || jobs[idx].id !== jobId || activeTab !== 'company') return;
+    try {
+      const data = await api(`/api/jobs/${jobId}/company`);
+      if (data.found && data.profile?.status === 'completed') {
+        renderCompanyProfile(data.profile);
+      } else if (data.found && data.profile?.status === 'failed') {
+        _renderCompanyFailed(data.profile);
+      } else if (data.running || data.profile?.status === 'processing') {
+        _scheduleCompanyPoll(jobId);
+      }
+    } catch(e) { _scheduleCompanyPoll(jobId); }
+  }, 2500);
+}
+
+function _renderCompanyFailed(profile) {
+  clearTimeout(_companyPollTimer);
+  const el = document.getElementById('companyContent');
+  if (!el) return;
+  el.innerHTML = `<div class="prep-empty" style="color:var(--red)">Research failed: ${esc(profile.error_message || 'Unknown error')}</div>
+    <div class="prep-actions"><button class="btn-secondary" id="btnGenCompany" onclick="generateCompany(true)">Retry</button></div>`;
+}
+
+function _applyHeaderCompanyLink(url, name) {
+  const job = jobs[idx];
+  if (job && url) job.company_website = url;
+  const row = document.querySelector('.card-company-row');
+  if (!row || !url) return;
+  const current = row.querySelector('.card-company');
+  if (!current) return;
+  const a = document.createElement('a');
+  a.className = 'card-company';
+  a.href = url;
+  a.target = '_blank';
+  a.rel = 'noopener noreferrer';
+  a.title = url;
+  a.innerHTML = `${esc(name || job?.company || '')}
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
+  current.replaceWith(a);
+}
+
+function renderCompanyProfile(profile) {
+  clearTimeout(_companyPollTimer);
+  const el = document.getElementById('companyContent');
+  if (!el) return;
+  const a = profile.analysis || {};
+  const sources = profile.sources || [];
+  if (profile.website_url) _applyHeaderCompanyLink(profile.website_url, profile.display_name);
+
+  function pills(arr, cls='') { return (arr||[]).map(s=>`<span class="prep-pill ${cls}">${esc(s)}</span>`).join(''); }
+  function kv(label, value) {
+    if (!value) return '';
+    return `<div class="prep-kv"><span class="prep-kv-label">${esc(label)}</span><span>${esc(value)}</span></div>`;
+  }
+
+  let host = '';
+  if (profile.website_url) {
+    try { host = new URL(profile.website_url).hostname.replace(/^www\./, ''); }
+    catch { host = profile.website_url; }
+  }
+
+  el.innerHTML = `
+    <div class="prep-sheet">
+      <div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">🏢</span><span class="prep-section-title">${esc(profile.display_name || 'Company')}</span></div>
+        <div class="prep-section-body">
+          ${profile.website_url ? `<div class="prep-kv"><span class="prep-kv-label">Website</span><a href="${esc(profile.website_url)}" target="_blank" rel="noopener noreferrer">${esc(host)}</a></div>` : ''}
+          ${kv('Industry', a.industry)}
+          ${kv('Business model', a.business_model)}
+          ${kv('Stage / size', a.stage_or_size)}
+          ${kv('HQ / remote', a.hq_and_remote)}
+          ${a.summary ? `<div style="margin-top:8px;font-size:13.5px;line-height:1.6;color:var(--text-secondary)">${esc(a.summary)}</div>` : ''}
+        </div>
+      </div>
+      ${a.products?.length ? `<div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">📦</span><span class="prep-section-title">Products</span></div>
+        <div class="prep-section-body"><div class="prep-pills">${pills(a.products)}</div></div>
+      </div>` : ''}
+      ${a.tech_or_domain?.length ? `<div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">⚙️</span><span class="prep-section-title">Domain</span></div>
+        <div class="prep-section-body"><div class="prep-pills">${pills(a.tech_or_domain,'skill')}</div></div>
+      </div>` : ''}
+      ${a.why_apply?.length ? `<div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">💡</span><span class="prep-section-title">Why apply</span></div>
+        <div class="prep-section-body">${a.why_apply.map(s=>`<div class="prep-q"><span class="prep-q-num">•</span><span>${esc(s)}</span></div>`).join('')}</div>
+      </div>` : ''}
+      ${a.watch_outs?.length ? `<div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">⚠️</span><span class="prep-section-title">Watch-outs</span></div>
+        <div class="prep-section-body"><div class="prep-pills">${pills(a.watch_outs,'danger')}</div></div>
+      </div>` : ''}
+      ${a.unknowns?.length ? `<div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">❓</span><span class="prep-section-title">Unknowns</span></div>
+        <div class="prep-section-body"><div class="prep-pills">${pills(a.unknowns)}</div></div>
+      </div>` : ''}
+      ${sources.length ? `<div class="prep-section">
+        <div class="prep-section-head"><span class="prep-section-icon">🔗</span><span class="prep-section-title">Sources</span></div>
+        <div class="prep-section-body"><div class="prep-pills">${pills(sources)}</div></div>
+      </div>` : ''}
+      <div class="prep-actions">
+        <button class="btn-secondary" id="btnGenCompany" onclick="generateCompany(true)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Regenerate
+        </button>
+      </div>
+    </div>`;
 }
 
 // ── Interview Prep ─────────────────────────────────────────────────────────
@@ -1846,7 +2024,7 @@ function switchTabById(name) {
   const tabs = document.querySelectorAll('.card-tab');
   const panes = document.querySelectorAll('.tab-pane');
   tabs.forEach((t, i) => {
-    const names = ['overview','analysis','cover','prep','description'];
+    const names = ['overview','company','analysis','cover','prep','description'];
     t.classList.toggle('active', names[i] === name);
   });
   panes.forEach(p => p.classList.toggle('active', p.id === 'pane-' + name));

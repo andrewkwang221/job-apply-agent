@@ -32,8 +32,9 @@ from sqlalchemy import create_engine, func, or_
 from sqlalchemy.orm import sessionmaker
 
 import config
-from models.database import InterviewPrepSheet, Job, ensure_job_columns
+from models.database import CompanyProfile, InterviewPrepSheet, Job, ensure_company_profiles, ensure_job_columns
 from utils.compensation import extract_compensation
+from utils.company_research import company_name_key
 from utils.scoring import REJECT_LABELS
 from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
@@ -47,6 +48,7 @@ _engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": 
 _Session = sessionmaker(bind=_engine)
 if _engine.dialect.name == "sqlite":
     ensure_job_columns(_engine)
+    ensure_company_profiles(_engine)
 
 HTML_PATH = Path(__file__).parent / "index.html"
 
@@ -280,7 +282,7 @@ def _plain_str(value) -> str:
     return value if isinstance(value, str) else ""
 
 
-def _job_to_dict(job: Job) -> Dict[str, Any]:
+def _job_to_dict(job: Job, company_website: str = "") -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
     reject_code = _plain_str(job.reject_code) or None
     plain = sanitize_skill_object_dumps(job.description_text or job.description or "")
@@ -290,6 +292,7 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
         "id": job.id,
         "title": job.title or "",
         "company": job.company or "",
+        "company_website": company_website or "",
         "location": job.raw_location_text or job.location or "Remote",
         "source": job.source or "",
         "status": job.status or "new",
@@ -315,6 +318,26 @@ def _job_to_dict(job: Job) -> Dict[str, Any]:
         "rule_status": _plain_str(job.rule_status) or None,
         "llm_status": _plain_str(job.llm_status) or None,
     }
+
+
+def _company_website_map(session, companies: List[str]) -> Dict[str, str]:
+    keys = {company_name_key(c) for c in companies if company_name_key(c)}
+    if not keys:
+        return {}
+    rows = (
+        session.query(CompanyProfile.name_key, CompanyProfile.website_url)
+        .filter(
+            CompanyProfile.name_key.in_(keys),
+            CompanyProfile.status == "completed",
+        )
+        .all()
+    )
+    return {key: url for key, url in rows if url}
+
+
+def _job_to_dict_with_site(session, job: Job) -> Dict[str, Any]:
+    sites = _company_website_map(session, [job.company or ""])
+    return _job_to_dict(job, sites.get(company_name_key(job.company or ""), ""))
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +385,14 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
         if cap and cap > 0:
             query = query.limit(cap)
         jobs = query.all()
-        payload: Dict[str, Any] = {"jobs": [_job_to_dict(j) for j in jobs], "total": len(jobs)}
+        sites = _company_website_map(session, [j.company or "" for j in jobs])
+        payload: Dict[str, Any] = {
+            "jobs": [
+                _job_to_dict(j, sites.get(company_name_key(j.company or ""), ""))
+                for j in jobs
+            ],
+            "total": len(jobs),
+        }
         if status == "rejected":
             rows = (
                 session.query(Job.reject_code, func.count(Job.id))
@@ -401,7 +431,7 @@ async def get_job(job_id: int):
                         job.description = refreshed
                         job.description_text = cleaned
                         session.commit()
-        return _job_to_dict(job)
+        return _job_to_dict_with_site(session, job)
     finally:
         session.close()
 
@@ -540,7 +570,7 @@ async def explain_job(job_id: int):
             job.recommended_resume = analysis.get("recommended_resume")
         session.commit()
         session.refresh(job)
-        return {"ok": True, "job": _job_to_dict(job)}
+        return {"ok": True, "job": _job_to_dict_with_site(session, job)}
     except HTTPException:
         raise
     except Exception as exc:
@@ -1115,6 +1145,111 @@ async def generate_interview_prep(job_id: int):
         _prep_running[job_id] = True
 
     threading.Thread(target=_run_prep_thread, args=(job_id,), daemon=True).start()
+    return {"ok": True, "message": "Generation started"}
+
+
+# ---------------------------------------------------------------------------
+# Company research (cached per normalized company name)
+# ---------------------------------------------------------------------------
+
+_company_running: Dict[str, bool] = {}
+_company_lock = threading.Lock()
+
+
+def _parse_json_field(raw: Any) -> Any:
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return raw
+
+
+def _company_profile_to_dict(row: CompanyProfile) -> Dict[str, Any]:
+    return {
+        "id": row.id,
+        "name_key": row.name_key,
+        "display_name": row.display_name or "",
+        "website_url": row.website_url or "",
+        "website_host": row.website_host or "",
+        "status": row.status,
+        "analysis": _parse_json_field(row.analysis) or {},
+        "sources": _parse_json_field(row.sources) or [],
+        "error_message": row.error_message,
+        "generated_at": row.generated_at.isoformat() if row.generated_at else None,
+    }
+
+
+def _run_company_thread(job_id: int, name_key: str, regenerate: bool) -> None:
+    from utils.company_research import run_company_research
+
+    session = _Session()
+    try:
+        with open("profile.yaml", encoding="utf-8") as fh:
+            profile = yaml.safe_load(fh) or {}
+    except Exception:
+        profile = {}
+    try:
+        run_company_research(job_id, profile, session, regenerate=regenerate)
+    except Exception:
+        pass
+    finally:
+        session.close()
+        with _company_lock:
+            _company_running.pop(name_key, None)
+
+
+@app.get("/api/jobs/{job_id}/company")
+async def get_company_profile(job_id: int):
+    from utils.company_research import find_profile
+
+    session = _Session()
+    try:
+        job = session.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            raise HTTPException(404, f"Job {job_id} not found")
+        key = company_name_key(job.company or "")
+        row = find_profile(session, job.company or "")
+        with _company_lock:
+            running = bool(key and _company_running.get(key))
+        if not row:
+            return {"found": False, "running": running}
+        return {
+            "found": True,
+            "running": running,
+            "profile": _company_profile_to_dict(row),
+        }
+    finally:
+        session.close()
+
+
+@app.post("/api/jobs/{job_id}/company")
+async def generate_company_profile(job_id: int, regenerate: bool = False):
+    session = _Session()
+    try:
+        job = session.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            raise HTTPException(404, f"Job {job_id} not found")
+        key = company_name_key(job.company or "")
+        if not key:
+            raise HTTPException(400, "Job has no company name")
+        if not regenerate:
+            from utils.company_research import find_profile
+
+            existing = find_profile(session, job.company or "")
+            if existing and existing.status == "completed":
+                return {"ok": True, "message": "Already cached", "cached": True}
+    finally:
+        session.close()
+
+    with _company_lock:
+        if _company_running.get(key):
+            return {"ok": True, "message": "Already generating"}
+        _company_running[key] = True
+
+    threading.Thread(
+        target=_run_company_thread, args=(job_id, key, regenerate), daemon=True
+    ).start()
     return {"ok": True, "message": "Generation started"}
 
 
