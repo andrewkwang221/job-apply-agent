@@ -100,10 +100,11 @@ CONNECTORS = {
     "remotecom": RemoteComConnector,
     "remoteco": RemoteCoConnector,
     "devremote": DevRemoteConnector,
-    "wearedevelopers": WeAreDevelopersConnector,
     "anywherepositions": AnywherePositionsConnector,
     "remoterocketship": RemoteRocketshipConnector,
     "dice": DiceConnector,
+    # Slowest board — last so a full-run still finishes the others first.
+    "wearedevelopers": WeAreDevelopersConnector,
 }
 
 _SOURCE_CHOICES = tuple([*CONNECTORS.keys(), "all"])
@@ -842,7 +843,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  wearedevelopers  anywherepositions  remoterocketship  dice", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

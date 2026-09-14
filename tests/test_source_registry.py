@@ -32,6 +32,12 @@ def test_public_board_connectors_are_registered():
     assert "dice" in CONNECTORS
 
 
+def test_wearedevelopers_runs_last_on_full_run():
+    from run_pipeline import CONNECTORS
+
+    assert list(CONNECTORS)[-1] == "wearedevelopers"
+
+
 def test_flexjobs_is_opt_in_not_in_all():
     from run_pipeline import CONNECTORS, DISABLED_SOURCES
 
