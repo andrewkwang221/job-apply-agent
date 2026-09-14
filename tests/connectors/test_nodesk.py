@@ -14,6 +14,7 @@ import pytest
 
 from connectors.nodesk import (
     NodeskConnector,
+    _MAX_NEW,
     _extract_jsonld,
     _is_engineering_url,
     _parse_sitemap,
@@ -61,6 +62,7 @@ def _job_html(
     valid_through=None,
     location_name="Worldwide",
     date_posted=None,
+    quoted_type=True,
 ) -> str:
     ld = {
         "@context": "https://schema.org/",
@@ -75,8 +77,9 @@ def _job_html(
     if valid_through:
         ld["validThrough"] = valid_through
     blob = json.dumps(ld)
+    type_attr = 'type="application/ld+json"' if quoted_type else "type=application/ld+json"
     return f"""<html><head>
-<script type="application/ld+json">{blob}</script>
+<script {type_attr}>{blob}</script>
 </head><body></body></html>"""
 
 
@@ -223,6 +226,12 @@ class TestExtractJsonld:
         raw = _extract_jsonld(html, "https://nodesk.co/remote-jobs/acme-old-engineer/")
         assert raw is None
 
+    def test_unquoted_ld_json_type(self):
+        html = _job_html(title="Staff Engineer", quoted_type=False)
+        raw = _extract_jsonld(html, "https://nodesk.co/remote-jobs/acme-staff-engineer/")
+        assert raw is not None
+        assert raw["title"] == "Staff Engineer"
+
 
 # ---------------------------------------------------------------------------
 # NodeskConnector.fetch_jobs (mocked HTTP)
@@ -297,6 +306,24 @@ class TestNodeskFetch:
         jobs = NodeskConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["company"] == "Stripe"
+
+    @patch("connectors.nodesk.time.sleep")
+    @patch("connectors.nodesk.requests.get")
+    def test_no_lastmod_does_not_slice_to_max_new(self, mock_get, mock_sleep):
+        slugs = [f"acme-engineer-{i}" for i in range(_MAX_NEW + 10)]
+        items = "\n".join(
+            f"  <url><loc>https://nodesk.co/remote-jobs/{s}/</loc></url>" for s in slugs
+        )
+        xml = (
+            '<?xml version="1.0"?>\n'
+            '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+            f"{items}\n</urlset>"
+        ).encode()
+        mock_get.side_effect = [_mock_response(xml)] + [
+            _mock_response(_job_html()) for _ in slugs
+        ]
+        NodeskConnector().fetch_jobs()
+        assert mock_get.call_count == 1 + _MAX_NEW + 10
 
 
 # ---------------------------------------------------------------------------

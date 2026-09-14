@@ -9,8 +9,11 @@ Strategy
 1. Parse sitemap.xml to collect all ``/remote-jobs/<slug>/`` URLs.
 2. Filter to engineering-relevant slugs (keyword substring match).
 3. For each new URL (pipeline dedup skips already-seen ones) fetch the
-   page and extract the ``JobPosting`` JSON-LD block.
-4. Skip postings whose ``validThrough`` date has already passed.
+   page and extract the ``JobPosting`` JSON-LD block (quoted or unquoted
+   ``type=application/ld+json``).
+4. Skip postings whose ``validThrough`` date has already passed, or whose
+   ``datePosted`` is older than ``job_age_cutoff``. The sitemap has no
+   ``lastmod`` and is not newest-first, so do not prefix-slice.
 5. Return the nodesk.co page URL as the job URL — the prefill system
    will open it, find the employer apply link via ``extract_apply_url``,
    and navigate to the real ATS.
@@ -42,8 +45,18 @@ _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
 # Prefix cap is valid only when sitemap lastmod is present (newest-first).
 _MAX_NEW = 150
-# Unsorted sitemaps: cap new detail fetches; leftover locs stay for next run.
-_MAX_UNSEEN_FETCHES = 300
+# Mixed lastmod-less sitemap (~15k locs, ~4k engineering). Walk unseen
+# engineering URLs in one run; this is a runaway guard, not a newest prefix.
+_MAX_UNSEEN_FETCHES = 20000
+
+_LD_SCRIPT_RE = re.compile(
+    r"<script([^>]*)>(.*?)</script>",
+    re.DOTALL | re.IGNORECASE,
+)
+_LD_TYPE_RE = re.compile(
+    r"""type\s*=\s*['"]?application/ld\+json['"]?""",
+    re.IGNORECASE,
+)
 # Politeness delay between page fetches (seconds).
 _FETCH_DELAY = 0.4
 
@@ -210,13 +223,12 @@ def _fetch_job_page(url: str) -> Dict[str, Any] | None:
 def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
     """Parse a JobPosting JSON-LD block from page HTML and return a raw job dict."""
     cutoff = job_age_cutoff("nodesk")
-    for match in re.finditer(
-        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-        html,
-        re.DOTALL | re.IGNORECASE,
-    ):
+    for match in _LD_SCRIPT_RE.finditer(html):
+        attrs, raw = match.group(1), match.group(2)
+        if not _LD_TYPE_RE.search(attrs):
+            continue
         try:
-            data = json.loads(match.group(1).strip())
+            data = json.loads(raw.strip())
         except Exception:
             continue
 
