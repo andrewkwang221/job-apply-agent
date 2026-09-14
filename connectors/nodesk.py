@@ -104,11 +104,14 @@ class NodeskConnector(BaseConnector):
             seen.add(url)
             unique.append(url)
 
-        to_fetch = unseen_listing_urls(unique, self.source_name)
+        to_fetch = unseen_listing_urls(
+            unique, self.source_name, include_seen_listings=False
+        )
         total = len(to_fetch)
+        already = len(unique) - total
         logger.info(
             f"Algolia: {len(hits)} live hits, {len(unique)} engineering in-window, "
-            f"{skipped_stale} stale, fetching {total} detail pages"
+            f"{skipped_stale} stale, {already} already stored, fetching {total} detail pages"
         )
 
         jobs: List[Dict[str, Any]] = []

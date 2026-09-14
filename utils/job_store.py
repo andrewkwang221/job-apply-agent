@@ -54,8 +54,8 @@ def _norm_url(url: str) -> str:
     return (url or "").strip().rstrip("/")
 
 
-def known_job_urls(source: str) -> set[str]:
-    """Return stored job URLs plus listing URLs already crawled for ``source``."""
+def known_job_urls(source: str, *, include_seen_listings: bool = True) -> set[str]:
+    """Return stored job URLs, and optionally listing URLs already crawled."""
     session = _session()
     if session is None:
         return set()
@@ -67,11 +67,12 @@ def known_job_urls(source: str) -> set[str]:
             .all()
         )
         urls = {_norm_url(r[0]) for r in rows if r[0]}
-        seen = session.execute(
-            text("SELECT url FROM seen_listing_urls WHERE source = :source"),
-            {"source": source},
-        )
-        urls.update(_norm_url(r[0]) for r in seen if r[0])
+        if include_seen_listings:
+            seen = session.execute(
+                text("SELECT url FROM seen_listing_urls WHERE source = :source"),
+                {"source": source},
+            )
+            urls.update(_norm_url(r[0]) for r in seen if r[0])
         return {u for u in urls if u}
     except Exception as e:
         logger.debug(f"known_job_urls({source!r}) failed: {e}")
@@ -104,14 +105,19 @@ def unseen_listing_urls(
     source: str,
     *,
     max_new: int | None = None,
+    include_seen_listings: bool = True,
 ) -> list[str]:
     """Return sitemap/listing URLs not already stored or crawled.
 
     Matches ``Job.url`` (trailing slash ignored) or ``Job.external_id`` against
     the last path segment. When ``max_new`` is set, only that many unseen URLs
     are returned (leftovers stay in the sitemap for the next run).
+
+    ``include_seen_listings=False`` ignores ``seen_listing_urls`` and only
+    skips URLs already stored as jobs (live indexes that re-list the same
+    locs after a crawl that stored nothing).
     """
-    known_urls = known_job_urls(source)
+    known_urls = known_job_urls(source, include_seen_listings=include_seen_listings)
     known_ids = known_external_ids(source)
     out: list[str] = []
     seen_this_run: set[str] = set()

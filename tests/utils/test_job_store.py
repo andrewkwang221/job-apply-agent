@@ -86,5 +86,19 @@ def test_remember_and_known_roundtrip(tmp_path, monkeypatch):
             "remote100k",
         )
         assert unseen == ["https://remote100k.com/remote-job/brand-new-engineer"]
+
+        crawled_only = job_store.unseen_listing_urls(
+            [
+                "https://remote100k.com/remote-job/old-engineer/",
+                "https://remote100k.com/remote-job/stored-slug",
+                "https://remote100k.com/remote-job/brand-new-engineer",
+            ],
+            "remote100k",
+            include_seen_listings=False,
+        )
+        assert crawled_only == [
+            "https://remote100k.com/remote-job/old-engineer/",
+            "https://remote100k.com/remote-job/brand-new-engineer",
+        ]
     finally:
         _reset_engine()

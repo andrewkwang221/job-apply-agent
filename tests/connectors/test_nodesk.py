@@ -22,7 +22,7 @@ from connectors.nodesk import (
 )
 
 
-def _passthrough_unseen(urls, source, max_new=None):
+def _passthrough_unseen(urls, source, max_new=None, include_seen_listings=True):
     urls = list(urls)
     return urls[:max_new] if max_new is not None else urls
 
