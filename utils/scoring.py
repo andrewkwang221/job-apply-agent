@@ -5,7 +5,7 @@ from utils.remote_filter import classify_remote_eligibility
 from utils.seniority import matches_seniority_level, seniority_exclusion
 
 REVIEW_MIN_SCORE = 28
-SHORTLIST_MIN_SCORE = 65
+SHORTLIST_MIN_SCORE = 60
 
 # Sources that require a paid subscription or don't have a direct apply URL.
 # Jobs from these sources are capped at 'review' so they never reach shortlisted.

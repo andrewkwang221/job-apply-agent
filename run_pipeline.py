@@ -1437,7 +1437,7 @@ python run_pipeline.py full-run [--email] [--source all]   # Full fetch + score 
 python run_pipeline.py fetch --source all [--initial] [--age-days N]  # Fetch only
 python run_pipeline.py evaluate                            # Score fetched jobs
 python run_pipeline.py analyze                             # LLM pass on review jobs
-python run_pipeline.py rescore [--promote]                 # Re-score review jobs; --promote shortlists 65+
+python run_pipeline.py rescore [--promote]                 # Re-score review jobs; --promote shortlists 60+
 python run_pipeline.py triage                              # Work through review queue
 python run_pipeline.py open-job                            # Open & prefill application form
 python run_pipeline.py stats                               # Job counts by status
