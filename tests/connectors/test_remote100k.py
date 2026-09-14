@@ -7,11 +7,12 @@ ATS URL detection, tracking-param stripping, and normalize() shape.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import config
 from connectors.remote100k import (
     Remote100kConnector,
     _MAX_NEW,
@@ -48,16 +49,19 @@ def _job_html(
     title="Senior Backend Engineer",
     company="Acme",
     apply_url="https://jobs.ashbyhq.com/acme/abc-123?ref=remote100k",
-    date_posted="2026-03-15T00:00:00.000Z",
+    date_posted=None,
     salary_min=None,
     salary_max=None,
+    quoted_type=True,
 ) -> str:
     ld = {
         "@context": "https://schema.org/",
         "@type": "JobPosting",
         "title": title,
         "description": f"{company} is hiring a {title}.",
-        "datePosted": date_posted,
+        "datePosted": date_posted or datetime.now(tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        ),
         "employmentType": "FULL_TIME",
         "hiringOrganization": {"@type": "Organization", "name": company},
         "jobLocationType": "TELECOMMUTE",
@@ -75,8 +79,9 @@ def _job_html(
                 "unitText": "YEAR",
             },
         }
+    type_attr = 'type="application/ld+json"' if quoted_type else "type=application/ld+json"
     return f"""<html><head>
-<script type="application/ld+json">{json.dumps(ld)}</script>
+<script {type_attr}>{json.dumps(ld)}</script>
 </head><body>
 <a href="{apply_url}" style="border-radius:12px">Apply Now</a>
 </body></html>"""
@@ -246,6 +251,12 @@ class TestExtractJob:
         raw = _extract_job(html, self._URL)
         assert raw["id"] == "acme-senior-backend-engineer"
 
+    def test_unquoted_ld_json_type(self):
+        html = _job_html(title="Staff Engineer", quoted_type=False)
+        raw = _extract_job(html, self._URL)
+        assert raw is not None
+        assert raw["title"] == "Staff Engineer"
+
 
 # ---------------------------------------------------------------------------
 # Remote100kConnector.fetch_jobs (mocked HTTP)
@@ -303,7 +314,7 @@ class TestRemote100kFetch:
 
     @patch("connectors.remote100k.time.sleep")
     @patch("connectors.remote100k.requests.get")
-    def test_no_lastmod_does_not_slice_to_max_new(self, mock_get, mock_sleep):
+    def test_no_lastmod_uses_newest_first_cap(self, mock_get, mock_sleep):
         slugs = [f"acme-engineer-{i}" for i in range(_MAX_NEW + 10)]
         items = "\n".join(
             f"  <url><loc>https://remote100k.com/remote-job/{s}</loc></url>" for s in slugs
@@ -317,7 +328,31 @@ class TestRemote100kFetch:
             _mock_response(_job_html()) for _ in slugs
         ]
         Remote100kConnector().fetch_jobs()
-        assert mock_get.call_count == 1 + _MAX_NEW + 10
+        assert mock_get.call_count == 1 + _MAX_NEW
+
+    @patch("connectors.remote100k.time.sleep")
+    @patch("connectors.remote100k.requests.get")
+    def test_stops_on_first_stale_job(self, mock_get, mock_sleep):
+        now = datetime.now(tz=timezone.utc)
+        stale = (now - timedelta(days=config.MAX_JOB_AGE_DAYS_INITIAL + 10)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        xml = b"""<?xml version="1.0"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://remote100k.com/remote-job/fresh-engineer</loc></url>
+  <url><loc>https://remote100k.com/remote-job/old-engineer</loc></url>
+  <url><loc>https://remote100k.com/remote-job/later-engineer</loc></url>
+</urlset>"""
+        mock_get.side_effect = [
+            _mock_response(xml),
+            _mock_response(_job_html("Fresh Engineer", "NewCo")),
+            _mock_response(_job_html("Old Engineer", "OldCo", date_posted=stale)),
+            _mock_response(_job_html("Later Engineer", "LaterCo")),
+        ]
+        jobs = Remote100kConnector().fetch_jobs()
+        assert [j["title"] for j in jobs] == ["Fresh Engineer"]
+        assert mock_get.call_count == 3
+
 
 
 # ---------------------------------------------------------------------------

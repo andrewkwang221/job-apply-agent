@@ -8,12 +8,13 @@ Strategy
 --------
 1. Parse sitemap.xml (handles both flat <urlset> and <sitemapindex>).
 2. Filter to /remote-job/ URLs with engineering-relevant slug keywords.
-3. For each new URL fetch the page; extract the JobPosting JSON-LD block
-   for title, company, salary, and date; then scan the raw HTML for the
-   direct ATS apply URL (Ashby, Greenhouse, Lever, etc.) and strip the
-   site's ?ref=remote100k tracking parameter.
-4. Store the ATS URL directly so detect_ats() classifies it correctly and
-   the prefill system navigates straight to the application form.
+3. The live sitemap has no ``lastmod`` but is newest-first (JSON-LD
+   ``datePosted``). Walk unseen engineering URLs in document order, drop
+   stale rows via ``job_age_cutoff``, and stop at the first stale job.
+4. Extract the JobPosting JSON-LD block (quoted or unquoted type), then
+   the direct ATS apply URL, stripping ``?ref=remote100k``.
+5. Store the ATS URL so detect_ats() classifies it and prefill goes
+   straight to the application form.
 """
 from __future__ import annotations
 
@@ -31,6 +32,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.job_age import job_age_cutoff
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
@@ -40,9 +42,21 @@ logger = setup_logger("remote100k_connector")
 _SITEMAP_URL = "https://remote100k.com/sitemap.xml"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
 
-_MAX_NEW = 150
+# Live sitemap has no lastmod; datePosted walk on 2026-09-14 was newest-first.
+_SITEMAP_NEWEST_FIRST = True
+# Runaway only; first-stale stop should fire earlier (~160 eng URLs at 30 days).
+_MAX_NEW = 400
 _MAX_UNSEEN_FETCHES = 300
 _FETCH_DELAY = 0.4
+
+_LD_SCRIPT_RE = re.compile(
+    r"<script([^>]*)>(.*?)</script>",
+    re.DOTALL | re.IGNORECASE,
+)
+_LD_TYPE_RE = re.compile(
+    r"""type\s*=\s*['"]?application/ld\+json['"]?""",
+    re.IGNORECASE,
+)
 
 _NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
@@ -77,20 +91,28 @@ class Remote100kConnector(BaseConnector):
         try:
             resp = requests.get(_SITEMAP_URL, headers=_HEADERS, timeout=15)
             resp.raise_for_status()
-            urls, newest_first = _parse_sitemap(resp.content)
+            urls, has_lastmod = _parse_sitemap(resp.content)
         except Exception as e:
             logger.error(f"Failed to fetch remote100k sitemap: {e}")
             logger.debug(traceback.format_exc())
             return []
 
+        newest_first = has_lastmod or _SITEMAP_NEWEST_FIRST
         eng_urls = [u for u in urls if _is_engineering_url(u)]
         cap = _MAX_NEW if newest_first else _MAX_UNSEEN_FETCHES
         to_fetch = unseen_listing_urls(eng_urls, self.source_name, max_new=cap)
+        cutoff = job_age_cutoff(self.source_name)
         logger.info(
             f"Sitemap: {len(urls)} job URLs total, "
             f"{len(eng_urls)} match engineering keywords, "
             f"newest_first={newest_first}, fetching {len(to_fetch)}"
         )
+        if not to_fetch:
+            logger.info(
+                "No unseen Remote100K listing URLs; "
+                "already crawled or stored. --initial only widens the age window."
+            )
+            return []
 
         jobs: list[dict[str, Any]] = []
         crawled: list[str] = []
@@ -99,7 +121,19 @@ class Remote100kConnector(BaseConnector):
                 raw = _fetch_job_page(url)
                 crawled.append(url)
                 if raw:
-                    self._emit(raw, jobs)
+                    posted = raw.get("posted_date")
+                    if posted:
+                        if posted.tzinfo is None:
+                            posted = posted.replace(tzinfo=timezone.utc)
+                        if posted < cutoff:
+                            if newest_first:
+                                logger.info(
+                                    "remote100k hit first stale job — stopping"
+                                )
+                                break
+                            raw = None
+                    if raw:
+                        self._emit(raw, jobs)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
                 logger.warning(f"Failed to fetch {url}: {e}")
@@ -140,8 +174,9 @@ class Remote100kConnector(BaseConnector):
 def _parse_sitemap(content: bytes) -> tuple[list[str], bool]:
     """Return (/remote-job/ URLs, newest_first) from a urlset or sitemap index.
 
-    Prefix-capping is valid only when ``lastmod`` is present. Missing lastmod
-    leaves document order and ``newest_first=False``.
+    Prefix-capping from this parser is valid only when ``lastmod`` is present.
+    Missing lastmod leaves document order and ``newest_first=False``; fetch_jobs
+    may still treat the board as newest-first via ``_SITEMAP_NEWEST_FIRST``.
     """
     try:
         root = ET.fromstring(content)
@@ -222,13 +257,12 @@ def _extract_job(html: str, page_url: str) -> dict[str, Any] | None:
     """Parse JSON-LD and extract ATS apply URL from page HTML."""
     # --- JSON-LD ---
     jsonld: dict[str, Any] = {}
-    for match in re.finditer(
-        r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-        html,
-        re.DOTALL | re.IGNORECASE,
-    ):
+    for match in _LD_SCRIPT_RE.finditer(html):
+        attrs, raw = match.group(1), match.group(2)
+        if not _LD_TYPE_RE.search(attrs):
+            continue
         try:
-            data = json.loads(match.group(1).strip())
+            data = json.loads(raw.strip())
         except Exception:
             continue
         if data.get("@type") == "JobPosting":
