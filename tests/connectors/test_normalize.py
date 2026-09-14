@@ -317,7 +317,7 @@ class TestRemoteJobsFinderNormalize:
     def _raw(self):
         return {
             "id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-            "url": "https://remotejobsfinder.co/en/remote-jobs/usa/senior-engineer_aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+            "url": "https://jobs.lever.co/acme/abc",
             "title": "Senior Engineer",
             "company": "Acme",
             "location": "USA",

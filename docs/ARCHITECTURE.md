@@ -103,7 +103,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `NodeskConnector` | [Nodesk](https://nodesk.co) | Guest Algolia `jobPosts` + JobPosting JSON-LD; engineering slug filter; skips expired/stale postings |
 | `Remote100kConnector` | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD; ATS apply URL extracted from page HTML; `?ref=` tracking params stripped |
 | `RemoteJobsIoConnector` | [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js `__NEXT_DATA__` listing scrape; engineering title filter; apply paywalled |
-| `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Active-listings sitemap + JobPosting JSON-LD; `/en/remote-jobs/` and `/en/hybrid-jobs/`; engineering slug filter |
+| `RemoteJobsFinderConnector` | [RemoteJobsFinder](https://remotejobsfinder.co/en) | Guest public jobs API; profile `target_roles` + `engineering`; remote/hybrid × Mid/Senior/Lead; mixed-date `skip` walk; employer `jobUrl` |
 | `DailyRemoteConnector` | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Software-board HTML cards; relative dates; company/apply Premium-gated (review cap) |
 | `ArcDevConnector` | [Arc.dev](https://arc.dev/remote-jobs) | Public `__NEXT_DATA__` board + engineering categories; Fast apply gated (review cap) |
 | `FlexJobsConnector` | [FlexJobs](https://www.flexjobs.com) | Playwright login + homepage `/search` `__NEXT_DATA__`; opt-in `--source flexjobs`; apply paywalled (review cap) |
