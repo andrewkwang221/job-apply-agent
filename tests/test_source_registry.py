@@ -33,6 +33,7 @@ def test_public_board_connectors_are_registered():
     assert "workable" in CONNECTORS
     assert "remotescout24" in CONNECTORS
     assert "trulyremote" in CONNECTORS
+    assert "aijobs" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -65,3 +66,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "workable" not in _NO_DIRECT_APPLY_SOURCES
     assert "remotescout24" not in _NO_DIRECT_APPLY_SOURCES
     assert "trulyremote" not in _NO_DIRECT_APPLY_SOURCES
+    assert "aijobs" not in _NO_DIRECT_APPLY_SOURCES
