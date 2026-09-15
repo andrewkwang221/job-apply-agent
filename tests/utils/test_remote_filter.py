@@ -81,6 +81,39 @@ class TestUSOnlyRejects:
     def test_hybrid_without_office_mandate_is_not_rejected(self):
         assert classify_remote_eligibility(_job("hybrid"), PROFILE) == "review"
 
+    def test_bare_hybrid_rejected_when_home_is_known(self):
+        profile = _profile(
+            accepted=["worldwide", "global", "united states", "us", "usa"],
+            rejected=[],
+            work_auth={"usa": True},
+            location="San Francisco, CA",
+        )
+        assert classify_remote_eligibility(_job("Hybrid"), profile) == "reject"
+
+    def test_onsite_title_rejected_when_remote_only(self):
+        assert classify_remote_eligibility(
+            {
+                "title": "On-site Software Engineer",
+                "raw_location_text": "San Francisco, CA",
+                "location": "San Francisco, CA",
+                "description_text": "",
+                "description": "",
+            },
+            PROFILE,
+        ) == "reject"
+
+    def test_description_requires_other_city_rejected(self):
+        profile = _profile(
+            accepted=["worldwide", "global", "united states", "us", "usa"],
+            rejected=[],
+            work_auth={"usa": True},
+            location="San Francisco, CA",
+        )
+        assert classify_remote_eligibility(
+            _job("Remote", "Candidates must be based in New York, NY."),
+            profile,
+        ) == "reject"
+
 
 # ---------------------------------------------------------------------------
 # Hybrid / office attendance
@@ -123,6 +156,10 @@ class TestHybridOffice:
         assert classify_remote_eligibility(
             _job("New York, NY (Remote available)"), profile
         ) == "reject"
+        assert classify_remote_eligibility(_job("remote, Warsaw"), profile) == "reject"
+        assert classify_remote_eligibility(_job("remote, Krakow"), profile) == "reject"
+        assert classify_remote_eligibility(_job("remote, Gdansk"), profile) == "reject"
+        assert classify_remote_eligibility(_job("remote, Warszawa"), profile) == "reject"
 
     def test_ca_or_us_partial_remote_kept_for_sf_home(self):
         profile = _profile(
@@ -137,6 +174,7 @@ class TestHybridOffice:
         assert classify_remote_eligibility(
             _job("Los Angeles, CA, United States (Hybrid)"), profile
         ) != "reject"
+        assert classify_remote_eligibility(_job("Hybrid, United States"), profile) != "reject"
         assert classify_remote_eligibility(_job("Remote (CA)"), profile) != "reject"
         assert classify_remote_eligibility(_job("Remote (US)"), profile) != "reject"
         assert classify_remote_eligibility(

@@ -8,10 +8,10 @@ def test_weworkremotely_is_registered_and_enabled():
     assert "weworkremotely" not in DISABLED_SOURCES
 
 
-def test_no_sources_are_skipped_on_all_except_flexjobs():
+def test_no_sources_are_skipped_on_all_except_opt_in():
     from run_pipeline import DISABLED_SOURCES
 
-    assert DISABLED_SOURCES == {"flexjobs"}
+    assert DISABLED_SOURCES == {"flexjobs", "justjoin"}
 
 
 def test_public_board_connectors_are_registered():
@@ -50,6 +50,13 @@ def test_flexjobs_is_opt_in_not_in_all():
 
     assert "flexjobs" in CONNECTORS
     assert "flexjobs" in DISABLED_SOURCES
+
+
+def test_justjoin_is_opt_in_not_in_all():
+    from run_pipeline import CONNECTORS, DISABLED_SOURCES
+
+    assert "justjoin" in CONNECTORS
+    assert "justjoin" in DISABLED_SOURCES
 
 
 def test_gated_apply_sources_stay_capped_at_review():

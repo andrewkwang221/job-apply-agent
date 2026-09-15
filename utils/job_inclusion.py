@@ -17,7 +17,7 @@ from models.database import InterviewPrepSheet, Job
 from utils.remote_filter import classify_remote_eligibility
 from utils.seniority import seniority_exclusion
 
-_KEEP_STATUSES = frozenset({"applied", "deferred", "archived", "expired"})
+_KEEP_STATUSES = frozenset({"applied"})
 _DELETE_CHUNK = 400
 
 # Markers per language that rarely appear in English/French/Arabic text.
@@ -154,7 +154,7 @@ def exclusion_reason(
 
 
 def drop_ineligible_jobs(session, profile: dict[str, Any] | None, *, dry_run: bool = False) -> int:
-    """Delete stored jobs that fail ingest rules. Keeps applied/deferred/archived/expired."""
+    """Delete stored jobs that fail ingest rules. Keeps applied rows."""
     if not profile:
         return 0
     jobs = session.query(Job).filter(

@@ -3,7 +3,7 @@ Workable public job-board connector.
 
 Fetches guest results from GET https://jobs.workable.com/api/v1/jobs
 (listing UI: /search?day_range=7&workplace=remote&workplace=hybrid
-&experience=mid_senior_level&experience=director). No login.
+&experience=mid_senior_level). No login.
 
 ``query`` is unique ``profile.yaml`` ``target_roles`` plus ``engineering``.
 Keywords and skills are too broad. Merge by job id. Other query-string
@@ -32,6 +32,7 @@ from dateutil import parser as dateutil_parser
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.job_age import job_age_cutoff
+from utils.job_inclusion import exclusion_reason, load_candidate_profile
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -45,7 +46,6 @@ _FIXED_QUERY = (
     ("workplace", "remote"),
     ("workplace", "hybrid"),
     ("experience", "mid_senior_level"),
-    ("experience", "director"),
 )
 LISTING_URL = f"{BASE_URL}/search?{urlencode(_FIXED_QUERY)}"
 _PROFILE_PATH = "profile.yaml"
@@ -130,8 +130,17 @@ class WorkableConnector(BaseConnector):
             )
         )
         pending = [job for job in page_jobs if job["listing_url"] in unseen]
+        profile = load_candidate_profile()
+        skipped = 0
         for job in pending:
+            if profile and exclusion_reason(_inclusion_fields(job), profile):
+                skipped += 1
+                continue
             self._emit(job, kept_jobs)
+        if skipped:
+            logger.info(
+                f"workable skipped {skipped} ineligible listings before emit"
+            )
         if pending:
             remember_listing_urls(
                 self.source_name, [job["listing_url"] for job in pending]
@@ -370,4 +379,16 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | N
         "description": description,
         "location": _job_location(item),
         "posted_date": posted_date,
+    }
+
+
+def _inclusion_fields(job: dict[str, Any]) -> dict[str, str]:
+    loc = str(job.get("location") or "")
+    desc = str(job.get("description") or "")
+    return {
+        "title": str(job.get("title") or ""),
+        "location": loc,
+        "raw_location_text": loc,
+        "description": desc,
+        "description_text": desc,
     }

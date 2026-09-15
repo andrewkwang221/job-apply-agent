@@ -26,9 +26,10 @@ When `preferences.remote_only` is true (`personal.location` e.g. `San Francisco,
 | Remote with a place (`Remote (US)`, `Remote (CA)`, `United States (Remote available)`) | Yes if US-wide or same state/city as `personal.location`. **No** other states (e.g. Boston MA + “Remote available”) |
 | Hybrid with a place, **no** regular office days | Same as remote-with-place: home city/state or CA/US-wide only |
 | Hybrid / remote with **regular office** (`3 days in office`, `hybrid 3/2`, on-site required, RTO) | **Never** — ignore location |
-| On-site city/office, no remote/hybrid signal | No |
+| Bare `Hybrid` (no matching city/state) | No |
+| On-site city/office, or on-site title with no remote signal | No |
 
-Plain `Hybrid` with no city/state stays (unknown place). On-site SF is still dropped (`remote_only`). Also skip postings not in `languages` and `Remote - [Country]` outside `accepted_regions`.
+Also skip postings not in `languages` and `Remote - [Country]` outside `accepted_regions`.
 
 Seniority uses `profile.yaml` `seniority.preferred` and `seniority.acceptable` (see `utils/seniority.py`). Detected intern/junior/director/etc. outside that list are dropped. Titles with no seniority word are kept.
 

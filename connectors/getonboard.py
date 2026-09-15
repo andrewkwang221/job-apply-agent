@@ -8,6 +8,7 @@ import yaml
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.job_age import job_age_cutoff
+from utils.job_inclusion import exclusion_reason, load_candidate_profile
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -80,6 +81,7 @@ class GetOnBoardConnector(BaseConnector):
         jobs: List[Dict[str, Any]] = []
         page = 1
         cutoff = job_age_cutoff(self.source_name)
+        profile = load_candidate_profile()
 
         while page <= MAX_PAGES:
             response = requests.get(
@@ -118,6 +120,8 @@ class GetOnBoardConnector(BaseConnector):
                     continue
                 job_id = job.get("id")
                 if job_id and job_id not in seen_ids:
+                    if profile and exclusion_reason(_inclusion_fields(job), profile):
+                        continue
                     seen_ids.add(job_id)
                     self._emit(job, jobs)
 
@@ -148,12 +152,8 @@ class GetOnBoardConnector(BaseConnector):
                 company_attrs = inner.get("attributes", {})
                 company = company_attrs.get("name", "Unknown") or "Unknown"
 
-        # Location: use countries list, fall back to "Remote"
-        countries = attrs.get("countries", [])
-        if countries and countries != ["Remote"]:
-            location = ", ".join(str(c) for c in countries)
-        else:
-            location = "Remote"
+        # Location: modality + countries so shared inclusion can drop onsite/hybrid-elsewhere
+        location = _job_location(attrs)
 
         # Description: combine description + functions + projects for full context
         description_parts = [
@@ -189,3 +189,35 @@ class GetOnBoardConnector(BaseConnector):
 
     def get_source_name(self) -> str:
         return self.source_name
+
+
+def _job_location(attrs: dict) -> str:
+    countries = attrs.get("countries") or []
+    if countries and countries != ["Remote"]:
+        place = ", ".join(str(c) for c in countries if c)
+    else:
+        place = "Remote"
+    modality = str(attrs.get("remote_modality") or "").strip().lower().replace("_", " ")
+    if modality and modality not in {"fully remote", "remote", ""}:
+        if place.lower() == "remote":
+            return modality
+        return f"{modality}, {place}"
+    return place or "Remote"
+
+
+def _inclusion_fields(raw_job: dict) -> dict:
+    attrs = raw_job.get("attributes") or {}
+    loc = _job_location(attrs)
+    description_parts = [
+        attrs.get("description") or "",
+        attrs.get("functions") or "",
+        attrs.get("projects") or "",
+    ]
+    description = "\n".join(p for p in description_parts if p)
+    return {
+        "title": str(attrs.get("title") or ""),
+        "location": loc,
+        "raw_location_text": loc,
+        "description": description,
+        "description_text": description,
+    }

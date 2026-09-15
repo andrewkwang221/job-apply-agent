@@ -95,7 +95,7 @@ def test_api_params_keep_listing_filters_and_page_token():
     assert params.count(("workplace", "remote")) == 1
     assert params.count(("workplace", "hybrid")) == 1
     assert params.count(("experience", "mid_senior_level")) == 1
-    assert params.count(("experience", "director")) == 1
+    assert params.count(("experience", "director")) == 0
     assert API_URL == "https://jobs.workable.com/api/v1/jobs"
     assert "day_range=7" in LISTING_URL
     assert _PAGE_SIZE == 20

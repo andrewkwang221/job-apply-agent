@@ -162,13 +162,25 @@ _FOREIGN_PLACE_RE = re.compile(
     r"\b(?:germany|berlin|france|paris|united kingdom|\buk\b|london|"
     r"india|bangalore|bengaluru|brazil|canada|toronto|mexico|"
     r"australia|sydney|netherlands|amsterdam|ireland|dublin|"
-    r"spain|portugal|italy|sweden|poland|singapore|japan|"
+    r"spain|portugal|italy|sweden|poland|polska|warsaw|warszawa|"
+    r"krakow|cracow|kraków|gdansk|gdańsk|wroclaw|wrocław|"
+    r"poznan|poznań|singapore|japan|"
     r"korea|israel|uae|dubai|switzerland|zurich)\b",
     re.I,
 )
 _UNRESTRICTED_REMOTE_RE = re.compile(
     r"\b(?:worldwide|global|anywhere|work[\s-]?from[\s-]?anywhere|"
     r"fully[\s-]?remote|remote[\s-]?first|remote[\s-]?only)\b",
+    re.I,
+)
+_GENERIC_PLACE_QUALIFIERS = frozenset({
+    "available", "friendly", "ok", "okay", "only", "first", "possible",
+    "optional", "preferred", "yes", "fully", "async", "usa", "us",
+    "united states", "u.s.", "u.s.a", "u.s.a.", "worldwide", "global",
+    "anywhere", "remote", "hybrid",
+})
+_REMOTE_QUALIFIER_RE = re.compile(
+    r"\b(?:remote|hybrid)\b\s*[-–,;/:(]?\s*(.+)$",
     re.I,
 )
 
@@ -235,6 +247,17 @@ def named_us_states(text: str) -> set[str]:
     return found
 
 
+def _place_qualifier_after_remote(location: str) -> str | None:
+    """City/region after 'remote' / 'hybrid', e.g. 'remote, Warsaw' → 'warsaw'."""
+    match = _REMOTE_QUALIFIER_RE.search(location or "")
+    if not match:
+        return None
+    qual = re.sub(r"\s+", " ", match.group(1)).strip("()[] \t-–,;:/").lower()
+    if not qual or qual in _GENERIC_PLACE_QUALIFIERS:
+        return None
+    return qual
+
+
 def _is_place_tied(location: str) -> bool:
     """True when the listing names an office city/state, not just 'remote' / 'worldwide'."""
     if not location:
@@ -242,6 +265,8 @@ def _is_place_tied(location: str) -> bool:
     if named_us_states(location) or _CITY_STATE_RE.search(location):
         return True
     if _FOREIGN_PLACE_RE.search(location):
+        return True
+    if _place_qualifier_after_remote(location):
         return True
     return False
 
@@ -272,6 +297,16 @@ def place_matches_home(location: str, home: dict[str, Any]) -> bool:
 
     if _has_us_country(loc):
         return home_country == "us"
+
+    qual = _place_qualifier_after_remote(loc)
+    if qual:
+        if qual in home_cities or any(city and city in qual for city in home_cities):
+            return not (named_us_states(qual) - home_states)
+        if qual in home_states or US_STATE_NAMES.get(qual) in home_states:
+            return True
+        if qual in _US_ACCEPT_ALIASES:
+            return home_country == "us"
+        return False
 
     return True
 
@@ -324,6 +359,60 @@ def strict_office_required(text: str) -> bool:
         return False
     scrubbed = _HOME_OFFICE_RE.sub(" ", text)
     return bool(_STRICT_OFFICE_RE.search(scrubbed))
+
+
+_REMOTE_SIGNAL_RE = re.compile(
+    r"\b(?:remote|hybrid|wfh|work[\s-]?from[\s-]?home|work[\s-]?from[\s-]?anywhere)\b",
+    re.I,
+)
+_ONSITE_SIGNAL_RE = re.compile(
+    r"\b(?:on[\s-]?site|onsite|in[\s-]?office|in\s+the\s+office)\b",
+    re.I,
+)
+_HYBRID_RE = re.compile(r"\bhybrid\b", re.I)
+_MUST_BE_IN_RE = re.compile(
+    r"(?:must|required\s+to|need\s+to|should)\s+(?:be\s+)?"
+    r"(?:located|based|residing|reside|living|live|working|work)\s+"
+    r"(?:in|from|within)\s+([^\n.;]{3,80})",
+    re.I,
+)
+_REMOTE_IN_RE = re.compile(
+    r"\bremote\s+(?:in|from|within|only\s+in)\s+([^\n.;]{3,80})",
+    re.I,
+)
+
+
+def _has_remote_signal(text: str) -> bool:
+    return bool(text and _REMOTE_SIGNAL_RE.search(text))
+
+
+def _is_onsite_only(title: str, location: str) -> bool:
+    """True when title/location require on-site work with no remote/hybrid signal."""
+    blob = f"{title or ''} {location or ''}".strip()
+    if not blob or not _ONSITE_SIGNAL_RE.search(blob):
+        return False
+    return not _has_remote_signal(blob)
+
+
+def _description_place_excludes_home(text: str, home: dict[str, Any]) -> bool:
+    """True when the JD requires living in a place that is not personal.location."""
+    if not text or not home:
+        return False
+    snippets: list[str] = []
+    for pattern in (_MUST_BE_IN_RE, _REMOTE_IN_RE):
+        for match in pattern.finditer(text):
+            snippets.append(match.group(1).strip())
+    home_states = set(home.get("states") or [])
+    for snippet in snippets:
+        lowered = snippet.lower()
+        if _UNRESTRICTED_REMOTE_RE.search(lowered):
+            continue
+        extra_states = named_us_states(snippet) - home_states
+        if extra_states:
+            return True
+        if _is_place_tied(snippet) and not place_matches_home(snippet, home):
+            return True
+    return False
 
 
 def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | None = None) -> str:
@@ -388,19 +477,38 @@ def classify_remote_eligibility(job: Dict[str, Any], profile: Dict[str, Any] | N
     office_text = f"{title} {raw_location} {cleaned_desc}".strip()
     if remote_only and strict_office_required(office_text):
         return "reject"
+    if remote_only and _is_onsite_only(title, raw_location):
+        return "reject"
 
     # Hybrid / city + "remote available": keep only when the named place matches
     # personal.location (same city/state, or US-wide with no other state).
     # Fully remote / worldwide is not place-tied and is unchanged.
+    # Bare "Hybrid" (no matching city/state) is dropped when home is known.
     if remote_only:
         home = profile_home_location(profile)
-        if (
-            home
-            and not _is_unrestricted_remote(raw_location)
-            and _is_place_tied(raw_location)
-            and not place_matches_home(raw_location, home)
-        ):
-            return "reject"
+        if home:
+            if (
+                not _is_unrestricted_remote(raw_location)
+                and _is_place_tied(raw_location)
+                and not place_matches_home(raw_location, home)
+            ):
+                return "reject"
+            if (
+                _HYBRID_RE.search(raw_location)
+                and not _is_unrestricted_remote(raw_location)
+            ):
+                home_match = (
+                    _is_place_tied(raw_location)
+                    and place_matches_home(raw_location, home)
+                ) or (
+                    _has_us_country(raw_location)
+                    and home.get("country") == "us"
+                    and not (named_us_states(raw_location) - set(home.get("states") or []))
+                )
+                if not home_match:
+                    return "reject"
+            if _description_place_excludes_home(cleaned_desc, home):
+                return "reject"
 
     reject_keywords = list(DEFAULT_REJECT_KEYWORDS)
     if not accepts_us:

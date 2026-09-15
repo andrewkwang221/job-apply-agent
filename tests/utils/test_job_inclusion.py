@@ -44,6 +44,14 @@ class TestExclusionReason:
     def test_keeps_hybrid_without_office_mandate(self):
         assert exclusion_reason(_job(location="Hybrid", raw_location_text="Hybrid"), PROFILE) is None
 
+    def test_drops_bare_hybrid_when_home_is_known(self):
+        profile = _profile()
+        profile["personal"] = {"location": "San Francisco, CA"}
+        assert exclusion_reason(
+            _job(location="Hybrid", raw_location_text="Hybrid"),
+            profile,
+        )[0] == "remote"
+
     def test_drops_other_state_remote_available_for_sf_home(self):
         profile = _profile()
         profile["personal"] = {"location": "San Francisco, CA"}
@@ -65,6 +73,14 @@ class TestExclusionReason:
             _job(location="Remote (US)", raw_location_text="Remote (US)"),
             profile,
         ) is None
+        assert exclusion_reason(
+            _job(location="remote, Warsaw", raw_location_text="remote, Warsaw"),
+            profile,
+        )[0] == "remote"
+        assert exclusion_reason(
+            _job(location="remote, Krakow", raw_location_text="remote, Krakow"),
+            profile,
+        )[0] == "remote"
 
     def test_drops_strict_office_hybrid(self):
         code, _ = exclusion_reason(
@@ -314,6 +330,42 @@ class TestDropIneligibleJobs:
             url="https://example.com/applied",
             status="applied",
         )
+        deferred_onsite = Job(
+            external_id="deferred",
+            source="test",
+            company="Acme",
+            title="Office Engineer",
+            location="Seoul",
+            raw_location_text="Seoul",
+            description="Python backend role.",
+            description_text="Python backend role.",
+            url="https://example.com/deferred",
+            status="deferred",
+        )
+        archived_onsite = Job(
+            external_id="archived",
+            source="test",
+            company="Acme",
+            title="Office Engineer",
+            location="Seoul",
+            raw_location_text="Seoul",
+            description="Python backend role.",
+            description_text="Python backend role.",
+            url="https://example.com/archived",
+            status="archived",
+        )
+        expired_onsite = Job(
+            external_id="expired",
+            source="test",
+            company="Acme",
+            title="Office Engineer",
+            location="Seoul",
+            raw_location_text="Seoul",
+            description="Python backend role.",
+            description_text="Python backend role.",
+            url="https://example.com/expired",
+            status="expired",
+        )
         spanish = Job(
             external_id="es",
             source="test",
@@ -326,7 +378,10 @@ class TestDropIneligibleJobs:
             url="https://example.com/es",
             status="new",
         )
-        db_session.add_all([eligible, onsite, applied_onsite, spanish])
+        db_session.add_all([
+            eligible, onsite, applied_onsite, deferred_onsite,
+            archived_onsite, expired_onsite, spanish,
+        ])
         db_session.commit()
         db_session.add(
             InterviewPrepSheet(job_application_id=onsite.id, status="completed")
@@ -334,7 +389,7 @@ class TestDropIneligibleJobs:
         db_session.commit()
 
         dropped = drop_ineligible_jobs(db_session, PROFILE, dry_run=False)
-        assert dropped == 2
+        assert dropped == 5
         remaining = {j.external_id for j in db_session.query(Job).all()}
         assert remaining == {"ok", "applied"}
         assert db_session.query(InterviewPrepSheet).count() == 0

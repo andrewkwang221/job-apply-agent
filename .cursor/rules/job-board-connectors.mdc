@@ -35,11 +35,14 @@ New `connectors/*.py` + `CONNECTORS` register is not architecture.
 
 ## Job inclusion
 
-Do not fork remote/hybrid rules in a new connector. Persist uses `utils/job_inclusion.py`. Listing-time skip is OK when location is already known.
+Do not fork these rules in a connector. Persist and listing skips use `utils/job_inclusion.py`. Skip detail HTTP when listing `location` / title is enough.
 
-- **Fully remote / worldwide** — include
-- **Remote or hybrid with a place, no regular office** — include only if it matches `personal.location` (same city/state, or Remote(US)/Remote(CA) with no other state)
-- **Regular office required** (`3 days in office`, `hybrid 3/2`, RTO, on-site required) — drop, ignore location
-- **On-site only** — drop when `remote_only`
+Drop (do not fetch or store) jobs that are:
 
-Do not fork seniority rules in a new connector. Persist uses `utils/job_inclusion.py` (`utils/seniority.py`) against `profile.yaml` `seniority.preferred` / `acceptable`.
+1. **On-site**
+2. **Hybrid with regular office visits** (`3 days in office`, `hybrid 3/2`, RTO, on-site required)
+3. **Remote tied to a place outside** `personal.location` (same city/state, or Remote(US)/Remote(CA) with no other state). Fully remote / worldwide is not place-tied — include
+4. **Hybrid tied to a place outside** `personal.location`, including bare `Hybrid` with no matching city/state
+5. **Seniority outside** `seniority.preferred` / `acceptable`
+6. **Required spoken language outside** `languages`
+7. **Posting written in a language outside** `languages`

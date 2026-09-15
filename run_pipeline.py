@@ -139,8 +139,9 @@ SYSTEM_BROWSER_DOMAINS = {
 # Sources skipped when --source all is used. Enable individually with --source <name>.
 # We Work Remotely, DailyRemote, and Arc.dev are fetched; apply is gated so scoring
 # caps them at review (see _NO_DIRECT_APPLY_SOURCES). FlexJobs is paid-login and
-# opt-in only (`--source flexjobs`).
-DISABLED_SOURCES: set[str] = {"flexjobs"}
+# opt-in only (`--source flexjobs`). JustJoin is Poland-focused and opt-in
+# (`--source justjoin`).
+DISABLED_SOURCES: set[str] = {"flexjobs", "justjoin"}
 
 engine = create_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
