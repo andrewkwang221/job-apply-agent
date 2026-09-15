@@ -290,3 +290,28 @@ class TestSendReport:
         with patch("utils.email_report._get_credential", side_effect=lambda k: creds.get(k, "")), \
              patch("smtplib.SMTP", side_effect=Exception("SMTP error")):
             assert send_report([], {}) is False
+
+
+class TestOllamaReachable:
+    def test_tags_url_from_chat_endpoint(self):
+        from utils.llm_analysis import ollama_tags_url
+        assert ollama_tags_url().endswith("/api/tags")
+
+    def test_true_on_200(self):
+        from utils.llm_analysis import ollama_is_reachable
+        with patch("utils.llm_analysis.requests.get") as get:
+            get.return_value.raise_for_status = MagicMock()
+            ok, err = ollama_is_reachable()
+        assert ok is True
+        assert err == ""
+
+    def test_false_on_connection_refused(self):
+        from utils.llm_analysis import ollama_is_reachable
+        import requests as req
+        with patch(
+            "utils.llm_analysis.requests.get",
+            side_effect=req.ConnectionError("actively refused"),
+        ):
+            ok, err = ollama_is_reachable()
+        assert ok is False
+        assert "refused" in err

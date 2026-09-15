@@ -64,7 +64,7 @@ from connectors.jobgether import JobgetherConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
-from utils.llm_analysis import analyze_job_with_ollama
+from utils.llm_analysis import analyze_job_with_ollama, ollama_is_reachable
 from utils.scoring import SHORTLIST_MIN_SCORE, _NO_DIRECT_APPLY_SOURCES, dump_score_breakdown, score_job
 from utils.resume_selector import select_resume
 from utils.logger import setup_logger
@@ -477,6 +477,15 @@ def _run_analyze(profile: str, model: str, target_status: str, limit: int, dry_r
             .all()
         )
         logger.info(f"Found {len(jobs_to_analyze)} jobs to analyze.")
+        reachable, ollama_error = ollama_is_reachable()
+        if not reachable:
+            logger.error(
+                "Ollama is not running at %s. Start it with `ollama serve` "
+                "(or the Ollama tray app), then re-run analyze. %s",
+                config.OLLAMA_URL,
+                ollama_error,
+            )
+            return
 
         counts = {"promoted": 0, "kept_review": 0, "rejected": 0, "failed": 0, "unchanged": 0}
 

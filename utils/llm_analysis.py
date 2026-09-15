@@ -210,6 +210,23 @@ def fallback_analysis(job: Dict[str, Any]) -> Dict[str, Any]:
         "llm_status": "failed",
     }
 
+
+def ollama_tags_url() -> str:
+    base = config.OLLAMA_URL
+    if "/api/" in base:
+        return base.split("/api/", 1)[0] + "/api/tags"
+    return "http://localhost:11434/api/tags"
+
+
+def ollama_is_reachable(timeout: float = 3.0) -> tuple[bool, str]:
+    """True when the local Ollama HTTP server answers. No model load."""
+    try:
+        response = requests.get(ollama_tags_url(), timeout=timeout)
+        response.raise_for_status()
+        return True, ""
+    except requests.RequestException as exc:
+        return False, str(exc)
+
 def analyze_job_with_ollama(job: Dict[str, Any], profile: Dict[str, Any], model: str) -> Dict[str, Any]:
     prompt = build_analysis_prompt(job, profile)
     resume_names = [str(item.get("name")) for item in profile.get("resumes", []) if item.get("name")]
