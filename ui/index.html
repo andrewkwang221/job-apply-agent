@@ -91,12 +91,16 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-link{width:26px;height:26px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);text-decoration:none;transition:all var(--transition);flex-shrink:0;}
 .list-link:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
 .list-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;width:148px;}
-.list-actions .list-archive,.list-actions .list-shortlist{flex:1;}
+.list-actions.three{width:222px;}
+.list-actions.two{width:156px;}
+.list-actions .list-archive,.list-actions .list-shortlist,.list-actions .list-applied{flex:1;}
 .list-archive{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
 .list-archive:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--text-muted);}
 .list-archive:disabled{opacity:.45;cursor:default;}
 .list-shortlist{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid var(--green-mid);background:var(--green-light);color:var(--green);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
 .list-shortlist:hover{background:var(--green-mid);color:var(--green);border-color:var(--green);}
+.list-applied{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid #6d28d9;background:var(--purple-light);color:var(--purple);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
+.list-applied:hover{background:#4c1d95;color:#e9d5ff;border-color:var(--purple);}
 .list-archive:disabled:hover{background:var(--bg-subtle);color:var(--text-secondary);border-color:var(--border);}
 .list-view-header .list-archive{text-transform:none;letter-spacing:0;width:78px;padding:3px 6px;white-space:nowrap;}
 .btn-pipeline{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
@@ -277,6 +281,8 @@ a.card-company:hover{text-decoration:underline;}
 .btn-explain:disabled{opacity:.55;cursor:default;transform:none;}
 .btn-archive{background:var(--bg-subtle);color:var(--text-secondary);border-color:var(--border);}
 .btn-archive:hover{background:var(--bg-hover);color:var(--text-primary);transform:translateY(-1px);}
+.btn-applied{background:var(--purple-light);color:var(--purple);border-color:#6d28d9;}
+.btn-applied:hover{background:#6d28d9;color:#fff;border-color:var(--purple);box-shadow:0 4px 16px rgba(192,132,252,.3);transform:translateY(-1px);}
 .action-sep{width:1px;height:36px;background:var(--border);flex-shrink:0;}
 .btn-open-apply{display:flex;align-items:center;gap:7px;padding:12px 20px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s ease;box-shadow:0 2px 8px rgba(59,130,246,.3);white-space:nowrap;flex-shrink:0;}
 .btn-open-apply:hover{background:#2563eb;box-shadow:0 4px 16px rgba(59,130,246,.4);transform:translateY(-1px);}
@@ -632,6 +638,9 @@ a.card-company:hover{text-decoration:underline;}
         </button>
         <button class="btn-triage-action btn-archive" id="btnArchiveQueue" onclick="archiveCurrentJob()" style="display:none">
           Archive
+        </button>
+        <button class="btn-triage-action btn-applied" id="btnAppliedQueue" onclick="triageAction('applied')" style="display:none">
+          Applied
         </button>
         <div class="action-sep"></div>
         <button class="btn-open-apply" onclick="openApply()">
@@ -1239,6 +1248,8 @@ function renderCard(i, direction) {
   document.getElementById('actionBarArchived').style.display = archived ? 'flex' : 'none';
   const archiveQueue = document.getElementById('btnArchiveQueue');
   if (archiveQueue) archiveQueue.style.display = job.status === 'shortlisted' ? '' : 'none';
+  const appliedQueue = document.getElementById('btnAppliedQueue');
+  if (appliedQueue) appliedQueue.style.display = (job.status === 'review' || job.status === 'shortlisted') ? '' : 'none';
 
   if (rejected || archived) switchTabById('analysis');
   else switchTabById('overview');
@@ -1413,9 +1424,9 @@ function renderList(jobList) {
     if (currentStatus === 'rejected') {
       header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span><span style="width:26px"></span>`;
     } else if (currentStatus === 'review') {
-      header.innerHTML = `${scoreHead}<span style="width:148px;text-align:center">Actions</span><span style="width:26px"></span>`;
+      header.innerHTML = `${scoreHead}<span style="width:222px;text-align:center">Actions</span><span style="width:26px"></span>`;
     } else if (currentStatus === 'shortlisted') {
-      header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center">Actions</span><span style="width:26px"></span>`;
+      header.innerHTML = `${scoreHead}<span style="width:156px;text-align:center">Actions</span><span style="width:26px"></span>`;
     } else {
       header.innerHTML = `${scoreHead}<span style="width:26px"></span>`;
     }
@@ -1428,12 +1439,16 @@ function renderList(jobList) {
     const rowActions = currentStatus === 'rejected'
       ? `<button class="list-archive" type="button" title="Archive" style="width:78px" onclick="archiveJobAt(${original}, event)">Archive</button>`
       : currentStatus === 'review'
-      ? `<div class="list-actions">
+      ? `<div class="list-actions three">
           <button class="list-archive" type="button" title="Archive" onclick="setJobStatusAt(${original}, 'archived', event)">Archive</button>
           <button class="list-shortlist" type="button" title="Shortlist" onclick="setJobStatusAt(${original}, 'shortlisted', event)">Shortlist</button>
+          <button class="list-applied" type="button" title="Applied" onclick="setJobStatusAt(${original}, 'applied', event)">Applied</button>
         </div>`
       : currentStatus === 'shortlisted'
-      ? `<button class="list-archive" type="button" title="Archive" style="width:78px" onclick="archiveJobAt(${original}, event)">Archive</button>`
+      ? `<div class="list-actions two">
+          <button class="list-archive" type="button" title="Archive" onclick="archiveJobAt(${original}, event)">Archive</button>
+          <button class="list-applied" type="button" title="Applied" onclick="setJobStatusAt(${original}, 'applied', event)">Applied</button>
+        </div>`
       : '';
     const criterion = _isEvalList() && listSortBy !== 'sum';
     const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
@@ -1619,7 +1634,7 @@ async function setJobStatusAt(i, status, evt) {
   if (!job) return;
   try {
     await api(`/api/jobs/${job.id}/status`, 'POST', {status});
-    const toasts = {archived: 'Archived', shortlisted: '✓ Shortlisted'};
+    const toasts = {archived: 'Archived', shortlisted: '✓ Shortlisted', applied: '✓ Marked as applied'};
     showToast(toasts[status] || status, 'success');
     jobs.splice(i, 1);
     if (idx >= jobs.length) idx = Math.max(0, jobs.length - 1);
