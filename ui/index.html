@@ -1081,9 +1081,10 @@ async function confirmRejectStale() {
 }
 
 // ── Card render ────────────────────────────────────────────────────────────
-function renderCard(i, direction) {
+function renderCard(i, opts) {
   const job = jobs[i];
   if (!job) return;
+  const animate = !opts || opts.animate !== false;
 
   if (!job._bodyHydrated) {
     job._bodyHydrated = true;
@@ -1092,7 +1093,8 @@ function renderCard(i, direction) {
       const keptCover = jobs[i].cover_letter;
       jobs[i] = Object.assign(jobs[i], full, {_bodyHydrated: true});
       if (keptCover && !jobs[i].cover_letter) jobs[i].cover_letter = keptCover;
-      if (idx === i) renderCard(i);
+      // Fill in description/analysis without restarting the slide-in.
+      if (idx === i) renderCard(i, { animate: false });
     }).catch(() => {});
   }
 
@@ -1103,9 +1105,11 @@ function renderCard(i, direction) {
   if (_prefillPollTimer) { clearInterval(_prefillPollTimer); _prefillPollTimer = null; }
 
   const card = document.getElementById('jobCard');
-  card.classList.remove('slide-in');
-  void card.offsetWidth;
-  card.classList.add('slide-in');
+  if (animate) {
+    card.classList.remove('slide-in');
+    void card.offsetWidth;
+    card.classList.add('slide-in');
+  }
 
   // Top section
   let postingHost = '';
@@ -1254,8 +1258,10 @@ function renderCard(i, direction) {
   const appliedQueue = document.getElementById('btnAppliedQueue');
   if (appliedQueue) appliedQueue.style.display = (job.status === 'review' || job.status === 'shortlisted') ? '' : 'none';
 
-  if (rejected || archived) switchTabById('analysis');
-  else switchTabById('overview');
+  if (animate) {
+    if (rejected || archived) switchTabById('analysis');
+    else switchTabById('overview');
+  }
   updateNav();
 }
 
