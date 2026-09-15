@@ -33,6 +33,10 @@ from sqlalchemy.orm import defer, sessionmaker
 
 import config
 from models.database import CompanyProfile, InterviewPrepSheet, Job, ensure_company_profiles, ensure_job_columns
+from utils.application_filter import (
+    applied_to_same_company_within_days,
+    recent_applied_company_keys,
+)
 from utils.compensation import extract_compensation
 from utils.company_research import company_name_key
 from utils.scoring import REJECT_LABELS, _NO_DIRECT_APPLY_SOURCES, parse_score_breakdown
@@ -317,6 +321,7 @@ def _job_to_dict(
     company_website: str = "",
     *,
     include_body: bool = True,
+    applied_company_keys: Optional[set] = None,
 ) -> Dict[str, Any]:
     score = job.llm_fit_score if job.llm_fit_score is not None else job.fit_score
     reject_code = _plain_str(job.reject_code) or None
@@ -330,11 +335,19 @@ def _job_to_dict(
         salary = compensation.salary
         equity = compensation.equity
     eval_code, eval_label = _eval_bucket(job)
+    company_key = company_name_key(job.company or "")
+    applied_same_company = bool(
+        applied_company_keys
+        and company_key
+        and company_key in applied_company_keys
+    )
     return {
         "id": job.id,
         "title": job.title or "",
         "company": job.company or "",
         "company_website": company_website or "",
+        "applied_same_company": applied_same_company,
+        "applied_to_same_company_within": applied_to_same_company_within_days(),
         "location": job.raw_location_text or job.location or "Remote",
         "source": job.source or "",
         "status": job.status or "new",
@@ -383,7 +396,11 @@ def _company_website_map(session, companies: List[str]) -> Dict[str, str]:
 
 def _job_to_dict_with_site(session, job: Job) -> Dict[str, Any]:
     sites = _company_website_map(session, [job.company or ""])
-    return _job_to_dict(job, sites.get(company_name_key(job.company or ""), ""))
+    return _job_to_dict(
+        job,
+        sites.get(company_name_key(job.company or ""), ""),
+        applied_company_keys=recent_applied_company_keys(session),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -540,11 +557,13 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
             query = query.limit(cap)
         jobs = query.all()
         sites = _company_website_map(session, [j.company or "" for j in jobs])
+        applied_keys = recent_applied_company_keys(session)
         rows = [
             _job_to_dict(
                 j,
                 sites.get(company_name_key(j.company or ""), ""),
                 include_body=False,
+                applied_company_keys=applied_keys,
             )
             for j in jobs
         ]

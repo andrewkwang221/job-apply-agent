@@ -46,6 +46,72 @@ class TestHasAlreadyApplied:
 
 
 # ---------------------------------------------------------------------------
+# application_filter — recent_applied_company_keys()
+# ---------------------------------------------------------------------------
+
+def _applied_job(db_session, *, company="Acme Inc", updated_at, created_at=None, suffix="1"):
+    from models.database import Job
+    job = Job(
+        external_id=f"applied-{suffix}",
+        source="test",
+        company=company,
+        title=f"Engineer {suffix}",
+        location="Remote",
+        url=f"https://example.com/jobs/applied-{suffix}",
+        status="applied",
+        created_at=created_at or updated_at,
+        updated_at=updated_at,
+    )
+    db_session.add(job)
+    db_session.commit()
+    return job
+
+
+class TestRecentAppliedCompanyKeys:
+    def test_includes_recent_applied_job(self, db_session):
+        from datetime import datetime, timezone
+        from utils.application_filter import recent_applied_company_keys
+        from utils.company_research import company_name_key
+
+        now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+        _applied_job(db_session, updated_at=now)
+        keys = recent_applied_company_keys(db_session, now=now, days=30)
+        assert company_name_key("Acme") in keys
+
+    def test_excludes_applied_job_outside_window(self, db_session):
+        from datetime import datetime, timedelta, timezone
+        from utils.application_filter import recent_applied_company_keys
+
+        now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+        old = now - timedelta(days=31)
+        _applied_job(db_session, updated_at=old, created_at=old)
+        assert recent_applied_company_keys(db_session, now=now, days=30) == set()
+
+    def test_includes_application_history(self, db_session):
+        from datetime import date, datetime, timezone
+        from utils.application_filter import recent_applied_company_keys
+        from utils.company_research import company_name_key
+
+        now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+        db_session.add(ApplicationHistory(
+            company="Stripe",
+            job_title="Backend Engineer",
+            applied_date=date(2026, 9, 1),
+        ))
+        db_session.commit()
+        keys = recent_applied_company_keys(db_session, now=now, days=30)
+        assert company_name_key("Stripe") in keys
+
+    def test_empty_when_window_is_zero(self, db_session):
+        from datetime import datetime, timezone
+        from utils.application_filter import recent_applied_company_keys
+
+        now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+        _applied_job(db_session, updated_at=now)
+        assert recent_applied_company_keys(db_session, now=now, days=0) == set()
+
+
+# ---------------------------------------------------------------------------
 # resume_selector — select_resume()
 # ---------------------------------------------------------------------------
 

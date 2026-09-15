@@ -7,7 +7,8 @@ DRY_RUN = True  # Default to safe mode
 SAFETY_LIMITS = {
     "max_applications_per_day": 2000,
     "max_auto_opens_per_session": 10,
-    "require_confirmation_after": 3
+    "require_confirmation_after": 3,
+    "applied_to_same_company_within": 30
 }
 
 # Rate limiting

@@ -64,6 +64,8 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-info{flex:1;min-width:0;}
 .list-title{font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .list-company{font-size:11.5px;color:var(--text-secondary);}
+.company-applied-star{color:var(--orange);margin-left:4px;font-size:12px;line-height:1;cursor:help;flex-shrink:0;}
+.card-company .company-applied-star{font-size:13px;}
 .list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:46px;width:46px;text-align:center;flex-shrink:0;}
 .list-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0;}
 .list-toolbar .reject-counts{flex:1;padding-bottom:12px;}
@@ -1048,7 +1050,7 @@ function openRejectStaleModal() {
         <div style="width:26px;height:26px;border-radius:50%;background:${j.avatar_color};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0">${esc(j.avatar_text)}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(j.title)}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary)">${esc(j.company)} &middot; ${j.created_at ? relativeDate(j.created_at) : '—'}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">${esc(j.company)}${companyAppliedStar(j)} &middot; ${j.created_at ? relativeDate(j.created_at) : '—'}</div>
         </div>
       </div>`).join('');
     listEl.style.display = '';
@@ -1122,9 +1124,9 @@ function renderCard(i, direction) {
         </a>` : ''}
       </div>
       <div class="card-company-row">
-        ${job.company_website ? `<a class="card-company" href="${esc(job.company_website)}" target="_blank" rel="noopener noreferrer" title="${esc(job.company_website)}">${esc(job.company)}
+        ${job.company_website ? `<a class="card-company" href="${esc(job.company_website)}" target="_blank" rel="noopener noreferrer" title="${esc(job.company_website)}">${esc(job.company)}${companyAppliedStar(job)}
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        </a>` : `<span class="card-company">${esc(job.company)}</span>`}
+        </a>` : `<span class="card-company">${esc(job.company)}${companyAppliedStar(job)}</span>`}
         <span class="tag tag-location">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
           ${esc(job.location)}
@@ -1474,7 +1476,7 @@ function renderList(jobList) {
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
       <div class="list-info">
         <div class="list-title">${esc(j.title)}</div>
-        <div class="list-company">${esc(j.company)}</div>
+        <div class="list-company">${esc(j.company)}${companyAppliedStar(j)}</div>
       </div>
       <div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(tip)}">${esc(label)}</div>
       <div class="list-score" style="${shownScore != null ? scoreColor(shownScore, criterion) : 'color:var(--text-muted)'}">${shownScore != null ? shownScore : '—'}</div>
@@ -1842,7 +1844,7 @@ function _applyHeaderCompanyLink(url, name) {
   a.target = '_blank';
   a.rel = 'noopener noreferrer';
   a.title = url;
-  a.innerHTML = `${esc(name || job?.company || '')}
+  a.innerHTML = `${esc(name || job?.company || '')}${companyAppliedStar(job)}
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>`;
   current.replaceWith(a);
 }
@@ -2509,6 +2511,12 @@ async function api(url, method='GET', body=null) {
 
 function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function companyAppliedStar(job) {
+  if (!job || !job.applied_same_company) return '';
+  const days = job.applied_to_same_company_within || 30;
+  return `<span class="company-applied-star" title="Applied to this company within the last ${days} days">★</span>`;
 }
 
 function looksLikeHtml(s) {

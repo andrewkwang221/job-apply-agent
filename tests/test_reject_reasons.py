@@ -94,6 +94,8 @@ def test_job_to_dict_includes_reject_fields():
     assert data["reject_code"] == "title_keyword"
     assert data["reject_label"] == "Title keyword"
     assert "account executive" in data["reject_detail"]
+    assert data["applied_same_company"] is False
+    assert data["applied_to_same_company_within"] == 30
 
 
 def test_job_to_dict_includes_eval_bucket():
@@ -203,6 +205,70 @@ def test_list_review_is_lean_without_rescoring(memory_client):
     assert job["score_breakdown"]["skills"] == 0
     detail = client.get(f"/api/jobs/{job['id']}").json()
     assert "long job description" in detail["description"]
+
+
+def test_list_marks_recent_same_company_apply(memory_client):
+    client, _job_id = memory_client
+    now = datetime.utcnow()
+    old = now - timedelta(days=31)
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="applied-recent-acme",
+            source="test",
+            company="Acme Inc",
+            title="Staff Engineer",
+            location="Remote",
+            url="https://example.com/jobs/applied-recent-acme",
+            status="applied",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.add(Job(
+            external_id="applied-old-beta",
+            source="test",
+            company="Beta",
+            title="Old apply",
+            location="Remote",
+            url="https://example.com/jobs/applied-old-beta",
+            status="applied",
+            created_at=old,
+            updated_at=old,
+        ))
+        session.add(Job(
+            external_id="review-acme",
+            source="test",
+            company="Acme",
+            title="Senior Backend Engineer",
+            location="Remote",
+            url="https://example.com/jobs/review-acme",
+            status="review",
+            fit_score=70,
+        ))
+        session.add(Job(
+            external_id="review-beta",
+            source="test",
+            company="Beta",
+            title="Backend Engineer",
+            location="Remote",
+            url="https://example.com/jobs/review-beta",
+            status="review",
+            fit_score=71,
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    rows = {j["title"]: j for j in client.get("/api/jobs?status=review").json()["jobs"]}
+    assert rows["Senior Backend Engineer"]["applied_same_company"] is True
+    assert rows["Backend Engineer"]["applied_same_company"] is False
+    acme = client.get(
+        f"/api/jobs/{rows['Senior Backend Engineer']['id']}"
+    ).json()
+    assert acme["applied_same_company"] is True
+    applied = {j["title"]: j for j in client.get("/api/jobs?status=applied").json()["jobs"]}
+    assert applied["Staff Engineer"]["applied_same_company"] is True
+    assert applied["Old apply"]["applied_same_company"] is False
 
 
 @pytest.fixture()
