@@ -9,6 +9,10 @@ os.makedirs(LOGS_DIR, exist_ok=True)
 
 _ANSI_GREEN      = '\x1b[32m'
 _ANSI_LIGHT_BLUE = '\x1b[94m'
+_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
+_LOG_FILE_PATH = os.path.join(LOGS_DIR, "job_apply_agent.log")
+_shared_file_handler = None
 
 
 class _ConnectorAwareFormatter(colorlog.ColoredFormatter):
@@ -22,6 +26,45 @@ class _ConnectorAwareFormatter(colorlog.ColoredFormatter):
         return result
 
 
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    """Rotate when possible; if Windows still holds the file, keep writing."""
+
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except OSError:
+            if self.stream:
+                try:
+                    self.stream.close()
+                except OSError:
+                    pass
+                self.stream = None
+            try:
+                self.stream = self._open()
+            except OSError:
+                pass
+
+
+def _ensure_shared_file_handler() -> logging.Handler:
+    """One rotating file handler per process, on the root logger."""
+    global _shared_file_handler
+    if _shared_file_handler is not None:
+        return _shared_file_handler
+    handler = _SafeRotatingFileHandler(
+        _LOG_FILE_PATH,
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG)
+    root.addHandler(handler)
+    _shared_file_handler = handler
+    return handler
+
+
 def setup_logger(name: str) -> logging.Logger:
     """Sets up a logger with a colored console handler (INFO) and rotating file handler (DEBUG)."""
     logger = logging.getLogger(name)
@@ -31,16 +74,11 @@ def setup_logger(name: str) -> logging.Logger:
     if logger.hasHandlers():
         return logger
 
-    # Log format specified in the Day-1 spec
-    log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    date_format = "%Y-%m-%d %H:%M:%S"
-
-    # 1. Console Handler (INFO level with colors)
     console_handler = colorlog.StreamHandler()
     console_handler.setLevel(logging.INFO)
     console_formatter = _ConnectorAwareFormatter(
-        "%(log_color)s" + log_format,
-        datefmt=date_format,
+        "%(log_color)s" + _LOG_FORMAT,
+        datefmt=_DATE_FORMAT,
         log_colors={
             'DEBUG': 'cyan',
             'INFO': 'green',
@@ -50,21 +88,7 @@ def setup_logger(name: str) -> logging.Logger:
         }
     )
     console_handler.setFormatter(console_formatter)
-
-    # 2. File Handler (DEBUG level, rotating with max 10MB and 5 backups)
-    log_file_path = os.path.join(LOGS_DIR, "job_apply_agent.log")
-    file_handler = RotatingFileHandler(
-        log_file_path,
-        maxBytes=10 * 1024 * 1024,  # 10 MB limit
-        backupCount=5,              # Keep up to 5 historical logs
-        encoding="utf-8"
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(log_format, datefmt=date_format)
-    file_handler.setFormatter(file_formatter)
-
-    # Add Handlers
     logger.addHandler(console_handler)
-    logger.addHandler(file_handler)
-
+    _ensure_shared_file_handler()
+    logger.propagate = True
     return logger
