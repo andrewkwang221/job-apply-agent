@@ -65,16 +65,26 @@ def _ensure_shared_file_handler() -> logging.Handler:
     return handler
 
 
+class _FlushingStreamHandler(colorlog.StreamHandler):
+    """Write INFO to the terminal immediately (Windows/piped consoles buffer otherwise)."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self.flush()
+
+
 def setup_logger(name: str) -> logging.Logger:
     """Sets up a logger with a colored console handler (INFO) and rotating file handler (DEBUG)."""
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)  # Catch all levels; handlers will do the filtering
 
-    # Prevent handler duplication if setup_logger is called multiple times for the same module
-    if logger.hasHandlers():
+    # Only this logger — Logger.hasHandlers() also walks to root, which already
+    # has the shared file handler, and would skip a console for every name after
+    # the first setup_logger() call (so the terminal only showed remotive).
+    if logger.handlers:
         return logger
 
-    console_handler = colorlog.StreamHandler()
+    console_handler = _FlushingStreamHandler()
     console_handler.setLevel(logging.INFO)
     console_formatter = _ConnectorAwareFormatter(
         "%(log_color)s" + _LOG_FORMAT,

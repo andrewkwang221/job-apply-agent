@@ -179,6 +179,30 @@ class TestSelectResume:
 
 
 # ---------------------------------------------------------------------------
+# logger — each named logger gets a console handler
+# ---------------------------------------------------------------------------
+
+class TestSetupLogger:
+    def test_second_logger_still_gets_console_handler(self):
+        import logging
+        from logging.handlers import RotatingFileHandler
+        from utils.logger import setup_logger
+
+        first = setup_logger("console_probe_first")
+        second = setup_logger("console_probe_second")
+
+        def consoles(log):
+            return [
+                h for h in log.handlers
+                if isinstance(h, logging.StreamHandler)
+                and not isinstance(h, RotatingFileHandler)
+            ]
+
+        assert consoles(first)
+        assert consoles(second)
+
+
+# ---------------------------------------------------------------------------
 # email_report — _build_html() and send_report()
 # ---------------------------------------------------------------------------
 

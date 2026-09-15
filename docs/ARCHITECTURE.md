@@ -124,6 +124,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `AIJobsAIConnector` | [AIJobs.ai](https://aijobs.ai/remote) | Guest Latest Jobs HTML list (skip Featured); engineering title filter; newest-first stale-page stop; job-page description; employer ATS href |
 | `JustJoinConnector` | [JustJoin](https://justjoin.it/job-offers/remote?remote-work-options=hybrid&experience-levels=mid,senior,team-leader-manager&languages=en&sortBy=newest) | Poland-focused; opt-in (`--source justjoin`, not in `all`). Guest `/api/candidate-api/offers`; mid/senior/lead + English; remote+hybrid; newest-first cursor |
 | `BrenxorConnector` | [Brenxor](https://brenxor.com/remote-software-development-jobs) | Guest mid/senior/lead × Anywhere/USA HTML lists; engineering title filter; newest-first stale-page stop; 500 retry then skip combo; JobPosting JSON-LD; apply 302 to employer ATS |
+| `JobgetherConnector` | [Jobgether](https://jobgether.com/search-offers?sort=date&location=anywhere) | Guest `GET /api/v1/jobs`; `sort=date` + `locations=anywhere`; engineering keyword walks; page cap 10×25; newest-first stale-page stop; JobPosting JSON-LD; apply review-capped |
 
 **Direct ATS connectors:**
 

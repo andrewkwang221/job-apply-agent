@@ -866,3 +866,29 @@ class TestBrenxorNormalize:
         assert n["url"].startswith("https://job-boards.greenhouse.io/")
         assert isinstance(n["location"], str)
         assert n["ats_type"] == "greenhouse"
+
+
+class TestJobgetherNormalize:
+    def _raw(self):
+        return {
+            "id": "6aa964db",
+            "listing_url": "https://jobgether.com/offer/6aa964db-lead-software-engineer",
+            "url": "https://jobgether.com/offer/6aa964db-lead-software-engineer",
+            "title": "Lead Software Engineer - Edge Services",
+            "company": "Outsystems",
+            "location": "Anywhere",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 15, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.jobgether import JobgetherConnector
+        n = JobgetherConnector().normalize(self._raw())
+        _assert_shape(n, "jobgether")
+
+    def test_keeps_jobgether_url(self):
+        from connectors.jobgether import JobgetherConnector
+        n = JobgetherConnector().normalize(self._raw())
+        assert n["url"].startswith("https://jobgether.com/offer/")
+        assert n["location"] == "Anywhere"
+        assert isinstance(n["location"], str)

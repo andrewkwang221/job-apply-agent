@@ -86,6 +86,7 @@ _LISTING_DOMAINS = [
     "aijobs.ai",
     "justjoin.it",
     "brenxor.com",
+    "jobgether.com",
 ]
 
 
