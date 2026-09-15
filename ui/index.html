@@ -995,18 +995,19 @@ async function loadJobs(status, opts) {
   const asList = !!(opts && opts.asList);
   _queueListComplete = false;
   try {
-    const unlimited = _LIST_STATUSES.has(status) || asList;
+    const unlimited = _LIST_STATUSES.has(status) || status === 'shortlisted' || asList;
     const qs = [];
     if (unlimited) qs.push('limit=0');
     const suffix = qs.length ? `&${qs.join('&')}` : '';
     const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${suffix}`);
     jobs = data.jobs || [];
+    if (status === 'shortlisted') jobs = _sortShortlisted(jobs);
     rejectCounts = data.reject_counts || [];
     listFilter = 'all';
     listSortBy = 'sum';
     viewingListCard = false;
     idx = 0;
-    _queueListComplete = asList;
+    _queueListComplete = asList || status === 'shortlisted';
     if (_LIST_STATUSES.has(status) || asList) queueView = 'list';
     else queueView = 'card';
     if (jobs.length === 0) {
@@ -1354,8 +1355,24 @@ function _listScoreValue(j) {
   return typeof n === 'number' ? n : 0;
 }
 
+function _fetchTime(job) {
+  const t = Date.parse(job && job.created_at || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+function _sortShortlisted(jobList) {
+  return jobList.slice().sort((a, b) => {
+    const dt = _fetchTime(b) - _fetchTime(a);
+    if (dt) return dt;
+    return (b.id || 0) - (a.id || 0);
+  });
+}
+
 function _sortedListJobs(jobList) {
   const visible = _visibleListJobs(jobList);
+  if (currentStatus === 'shortlisted') {
+    return _sortShortlisted(visible);
+  }
   if (!_isEvalList()) return visible;
   return visible.slice().sort((a, b) => {
     const av = _listScoreValue(a);
@@ -1370,7 +1387,7 @@ function _sortedListJobs(jobList) {
 function _syncListSort() {
   const wrap = document.getElementById('listSortWrap');
   const sel = document.getElementById('listSortSelect');
-  const show = _isEvalList();
+  const show = _isEvalList() && currentStatus !== 'shortlisted';
   if (wrap) wrap.style.display = show ? 'flex' : 'none';
   if (sel && sel.value !== listSortBy) sel.value = listSortBy;
 }

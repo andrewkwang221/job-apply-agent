@@ -528,11 +528,14 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
             session.query(Job)
             .filter(Job.status == status)
             .options(*(defer(col) for col in _LIST_DEFER_COLS))
-            .order_by(Job.fit_score.desc().nullslast(), Job.id.desc())
         )
+        if status == "shortlisted":
+            query = query.order_by(Job.created_at.desc().nullslast(), Job.id.desc())
+        else:
+            query = query.order_by(Job.fit_score.desc().nullslast(), Job.id.desc())
         cap = limit
         if cap is None:
-            cap = 0 if status in _LIST_STATUSES else 200
+            cap = 0 if status in _LIST_STATUSES or status == "shortlisted" else 200
         if cap and cap > 0:
             query = query.limit(cap)
         jobs = query.all()

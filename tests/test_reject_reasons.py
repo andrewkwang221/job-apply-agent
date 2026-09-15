@@ -1,4 +1,5 @@
 """Reject-reason persistence: score_job codes and UI serialization."""
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -276,6 +277,72 @@ def test_list_rejected_returns_all_jobs(memory_client):
     assert all_rows.json()["total"] == 6
     capped = client.get("/api/jobs?status=rejected&limit=2")
     assert capped.json()["total"] == 2
+
+
+def test_shortlisted_lists_newest_fetch_first(memory_client):
+    client, _job_id = memory_client
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="sl-new",
+            source="test",
+            company="Acme",
+            title="Newer high score",
+            location="Remote",
+            url="https://example.com/jobs/sl-new",
+            status="shortlisted",
+            fit_score=99,
+            created_at=datetime(2026, 9, 14, 12, 0, 0),
+        ))
+        session.add(Job(
+            external_id="sl-old",
+            source="test",
+            company="Acme",
+            title="Older low score",
+            location="Remote",
+            url="https://example.com/jobs/sl-old",
+            status="shortlisted",
+            fit_score=60,
+            created_at=datetime(2026, 9, 1, 8, 0, 0),
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    r = client.get("/api/jobs?status=shortlisted")
+    assert r.status_code == 200
+    titles = [j["title"] for j in r.json()["jobs"]]
+    assert titles == ["Newer high score", "Older low score"]
+    assert r.json()["total"] == 2
+
+
+def test_shortlisted_lists_all_jobs_newest_fetch_first(memory_client):
+    client, _job_id = memory_client
+    session = app_module._Session()
+    try:
+        for i in range(201):
+            session.add(Job(
+                external_id=f"sl-bulk-{i}",
+                source="test",
+                company="Acme",
+                title=f"Shortlisted {i}",
+                location="Remote",
+                url=f"https://example.com/jobs/sl-bulk-{i}",
+                status="shortlisted",
+                fit_score=90 if i == 200 else 60,
+                created_at=datetime(2026, 1, 1, 0, 0, 0) + timedelta(hours=i),
+            ))
+        session.commit()
+    finally:
+        session.close()
+
+    r = client.get("/api/jobs?status=shortlisted")
+    assert r.status_code == 200
+    payload = r.json()
+    assert payload["total"] == 201
+    titles = [j["title"] for j in payload["jobs"]]
+    assert titles[0] == "Shortlisted 200"
+    assert titles[-1] == "Shortlisted 0"
 
 
 def test_restore_clears_reject_reason(memory_client):
