@@ -413,6 +413,102 @@ async def stats():
         session.close()
 
 
+_DASHBOARD_STATUSES = (
+    "new",
+    "review",
+    "shortlisted",
+    "applied",
+    "deferred",
+    "rejected",
+    "expired",
+    "archived",
+)
+_DASHBOARD_PIE_SKIP = frozenset({"rejected", "archived"})
+
+
+def _dashboard_day_key(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    text = str(value)
+    return text[:10] if len(text) >= 10 else None
+
+
+def dashboard_payload(session, *, now: datetime | None = None, days: int = 7) -> Dict[str, Any]:
+    """Last-week fetch counts by status, plus top connectors excluding rejects/archives."""
+    now = now or datetime.utcnow()
+    if now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
+    today = now.date()
+    day_list = [today - timedelta(days=offset) for offset in range(days - 1, -1, -1)]
+    since = datetime.combine(day_list[0], datetime.min.time())
+
+    week_rows = (
+        session.query(Job.created_at, Job.status)
+        .filter(Job.created_at.isnot(None), Job.created_at >= since)
+        .all()
+    )
+    by_day: Dict[str, Dict[str, int]] = {
+        d.isoformat(): {status: 0 for status in _DASHBOARD_STATUSES} for d in day_list
+    }
+    for created_at, status in week_rows:
+        key = _dashboard_day_key(created_at)
+        if key not in by_day:
+            continue
+        status_key = status or "new"
+        by_day[key][status_key] = by_day[key].get(status_key, 0) + 1
+
+    stacked = []
+    for d in day_list:
+        key = d.isoformat()
+        counts = {status: by_day[key].get(status, 0) for status in _DASHBOARD_STATUSES}
+        counts.update({
+            status: n
+            for status, n in by_day[key].items()
+            if status not in _DASHBOARD_STATUSES and n
+        })
+        stacked.append({
+            "date": key,
+            "label": f"{d.strftime('%a')} {d.month}/{d.day}",
+            "counts": counts,
+            "total": sum(counts.values()),
+        })
+
+    source_rows = (
+        session.query(Job.source, func.count(Job.id))
+        .filter(~Job.status.in_(tuple(_DASHBOARD_PIE_SKIP)))
+        .group_by(Job.source)
+        .order_by(func.count(Job.id).desc(), Job.source.asc())
+        .limit(20)
+        .all()
+    )
+    connectors = [
+        {"source": (source or "unknown").strip() or "unknown", "count": n}
+        for source, n in source_rows
+        if n
+    ]
+    return {
+        "days": days,
+        "since": since.isoformat(),
+        "until": now.isoformat(),
+        "statuses": list(_DASHBOARD_STATUSES),
+        "by_day": stacked,
+        "connectors": connectors,
+        "week_total": sum(row["total"] for row in stacked),
+        "connector_total": sum(row["count"] for row in connectors),
+    }
+
+
+@app.get("/api/dashboard")
+async def dashboard():
+    session = _Session()
+    try:
+        return dashboard_payload(session)
+    finally:
+        session.close()
+
+
 _LIST_STATUSES = frozenset({"rejected", "expired", "archived"})
 _LIST_DEFER_COLS = (
     Job.description,

@@ -337,12 +337,47 @@ a.card-company:hover{text-decoration:underline;}
 [data-tip]{position:relative;cursor:default;}
 [data-tip]::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 7px);left:50%;transform:translateX(-50%);background:#0a1e2e;color:#e8f6f8;font-size:11.5px;font-weight:500;line-height:1.45;white-space:nowrap;padding:6px 10px;border-radius:7px;border:1px solid var(--border);box-shadow:var(--shadow-md);pointer-events:none;opacity:0;transition:opacity .15s ease;z-index:100;}
 [data-tip]:hover::after{opacity:1;}
+.pill-dashboard{background:var(--bg-subtle);color:var(--text-secondary);}
+.pill-dashboard.active{background:var(--accent-mid);color:#fff;box-shadow:0 0 0 2px var(--accent);}
+.dashboard-view{flex:1;min-height:0;overflow:auto;padding:24px 28px 36px;display:none;flex-direction:column;gap:18px;max-width:1120px;margin:0 auto;width:100%;}
+.dashboard-view.open{display:flex;}
+.dashboard-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.dashboard-title{font-size:20px;font-weight:800;letter-spacing:-.4px;}
+.dashboard-sub{font-size:12.5px;color:var(--text-muted);}
+.dashboard-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;align-items:stretch;}
+@media (max-width:920px){.dashboard-grid{grid-template-columns:1fr;}}
+.dash-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-lg);padding:18px 18px 16px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;min-height:360px;}
+.dash-card-title{font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:4px;}
+.dash-card-caption{font-size:11.5px;color:var(--text-muted);margin-bottom:14px;line-height:1.45;}
+.dash-bar-wrap{display:flex;gap:10px;flex:1;min-height:220px;}
+.dash-y{width:28px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end;font-size:10px;color:var(--text-muted);padding-bottom:22px;}
+.dash-bars{flex:1;display:flex;align-items:flex-end;gap:8px;min-width:0;}
+.dash-bar-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;height:100%;}
+.dash-bar-stack{width:100%;max-width:42px;flex:1;display:flex;flex-direction:column-reverse;justify-content:flex-start;border-radius:6px 6px 2px 2px;overflow:hidden;background:var(--bg-subtle);min-height:0;}
+.dash-bar-seg{width:100%;min-height:0;}
+.dash-bar-label{font-size:10.5px;color:var(--text-muted);text-align:center;line-height:1.25;white-space:nowrap;}
+.dash-legend{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:12px;}
+.dash-legend-item{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-secondary);}
+.dash-swatch{width:9px;height:9px;border-radius:2px;flex-shrink:0;}
+.dash-pie-wrap{display:flex;gap:16px;align-items:center;flex:1;min-height:0;}
+.dash-pie-svg{flex-shrink:0;}
+.dash-pie-legend{flex:1;min-width:0;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:5px;}
+.dash-pie-legend::-webkit-scrollbar{width:6px;}
+.dash-pie-legend::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.dash-pie-row{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);}
+.dash-pie-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dash-pie-count{font-weight:700;color:var(--text-primary);flex-shrink:0;}
+.dash-empty{flex:1;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:13px;}
 </style>
 </head>
 <body>
 
 <header class="status-strip">
   <div class="strip-logo">JobApply<span>Agent</span></div>
+  <div class="strip-divider"></div>
+  <div class="status-pill pill-dashboard" id="dashPill" onclick="showDashboard(this)">
+    Dashboard
+  </div>
   <div class="strip-divider"></div>
   <div class="status-pill pill-new" data-status="new" onclick="filterJobs('new',this)">
     <span>New</span><span class="count">—</span>
@@ -661,6 +696,26 @@ a.card-company:hover{text-decoration:underline;}
   </div>
 </div>
 
+<div class="dashboard-view" id="dashboardView">
+  <div class="dashboard-head">
+    <div class="dashboard-title">Dashboard</div>
+    <div class="dashboard-sub" id="dashboardSub"></div>
+  </div>
+  <div class="dashboard-grid">
+    <div class="dash-card">
+      <div class="dash-card-title">Jobs fetched last 7 days</div>
+      <div class="dash-card-caption" id="dashBarCaption">Stacked by current status · source: jobs.created_at</div>
+      <div class="dash-bar-wrap" id="dashBarChart"></div>
+      <div class="dash-legend" id="dashBarLegend"></div>
+    </div>
+    <div class="dash-card">
+      <div class="dash-card-title">Top 20 connectors</div>
+      <div class="dash-card-caption">Jobs that are not rejected or archived</div>
+      <div class="dash-pie-wrap" id="dashPieChart"></div>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- Fill URL modal -->
@@ -785,7 +840,7 @@ async function loadStats() {
   try {
     const data = await api('/api/stats');
     const c = data.counts || {};
-    document.querySelectorAll('.status-pill').forEach(el => {
+    document.querySelectorAll('.status-pill[data-status]').forEach(el => {
       const s = el.dataset.status;
       el.querySelector('.count').textContent = c[s] ?? 0;
     });
@@ -800,6 +855,129 @@ async function loadStats() {
       }
     }
   } catch(e) { console.warn('stats:', e); }
+}
+
+const _DASH_STATUS_COLORS = {
+  new: '#38bdf8',
+  review: '#fbbf24',
+  shortlisted: '#34d399',
+  applied: '#c084fc',
+  deferred: '#9ecfda',
+  rejected: '#f87171',
+  expired: '#6fa8b8',
+  archived: '#4b6d7a',
+};
+const _DASH_STATUS_LABELS = {
+  new: 'New', review: 'Review', shortlisted: 'Shortlisted', applied: 'Applied',
+  deferred: 'Deferred', rejected: 'Rejected', expired: 'Expired', archived: 'Archived',
+};
+const _DASH_PIE_COLORS = [
+  '#38bdf8','#34d399','#fbbf24','#c084fc','#f87171','#22d3ee','#a3e635','#fb7185',
+  '#818cf8','#2dd4bf','#f59e0b','#e879f9','#60a5fa','#4ade80','#f472b6','#94a3b8',
+  '#38bdf8','#86efac','#fcd34d','#c4b5fd',
+];
+
+function _hideDashboard() {
+  const dash = document.getElementById('dashboardView');
+  const pill = document.getElementById('dashPill');
+  if (dash) dash.classList.remove('open');
+  if (pill) pill.classList.remove('active');
+  const triage = document.getElementById('triageArea');
+  if (triage) triage.style.display = '';
+}
+
+function showDashboard(el) {
+  document.querySelectorAll('.status-pill').forEach(p => p.classList.remove('active'));
+  if (el) el.classList.add('active');
+  const triage = document.getElementById('triageArea');
+  if (triage) triage.style.display = 'none';
+  const dash = document.getElementById('dashboardView');
+  if (dash) dash.classList.add('open');
+  const staleBtn = document.getElementById('rejectStaleBtn');
+  if (staleBtn) staleBtn.classList.remove('visible');
+  loadDashboard();
+}
+
+async function loadDashboard() {
+  try {
+    const data = await api('/api/dashboard');
+    const sub = document.getElementById('dashboardSub');
+    if (sub) sub.textContent = `${data.week_total || 0} jobs fetched in the last ${data.days || 7} days`;
+    const cap = document.getElementById('dashBarCaption');
+    if (cap) cap.textContent = 'Stacked by current status · counted from fetch date (created_at)';
+    _renderDashBars(data);
+    _renderDashPie(data);
+  } catch (e) {
+    console.warn('dashboard:', e);
+  }
+}
+
+function _renderDashBars(data) {
+  const host = document.getElementById('dashBarChart');
+  const legend = document.getElementById('dashBarLegend');
+  if (!host) return;
+  const statuses = data.statuses || Object.keys(_DASH_STATUS_COLORS);
+  const days = data.by_day || [];
+  const max = Math.max(1, ...days.map(d => d.total || 0));
+  const used = statuses.filter(s => days.some(d => (d.counts || {})[s]));
+  if (legend) {
+    legend.innerHTML = used.map(s =>
+      `<span class="dash-legend-item"><span class="dash-swatch" style="background:${_DASH_STATUS_COLORS[s] || '#6fa8b8'}"></span>${_DASH_STATUS_LABELS[s] || s}</span>`
+    ).join('');
+  }
+  if (!days.length) {
+    host.innerHTML = '<div class="dash-empty">No fetches in the last 7 days</div>';
+    return;
+  }
+  const yTicks = [max, Math.round(max / 2), 0];
+  host.innerHTML = `
+    <div class="dash-y">${yTicks.map(n => `<span>${n}</span>`).join('')}</div>
+    <div class="dash-bars">${days.map(day => {
+      const segs = statuses.filter(s => (day.counts || {})[s] > 0).map(s => {
+        const n = day.counts[s];
+        const pct = (n / max) * 100;
+        return `<div class="dash-bar-seg" title="${_DASH_STATUS_LABELS[s] || s}: ${n}" style="height:${pct}%;background:${_DASH_STATUS_COLORS[s] || '#6fa8b8'}"></div>`;
+      }).join('');
+      return `<div class="dash-bar-col"><div class="dash-bar-stack">${segs}</div><div class="dash-bar-label">${day.label}</div></div>`;
+    }).join('')}</div>`;
+}
+
+function _pieArc(cx, cy, r, start, end) {
+  const large = end - start > Math.PI ? 1 : 0;
+  const x1 = cx + r * Math.cos(start);
+  const y1 = cy + r * Math.sin(start);
+  const x2 = cx + r * Math.cos(end);
+  const y2 = cy + r * Math.sin(end);
+  return `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+}
+
+function _renderDashPie(data) {
+  const host = document.getElementById('dashPieChart');
+  if (!host) return;
+  const items = data.connectors || [];
+  const total = items.reduce((s, i) => s + (i.count || 0), 0);
+  if (!total) {
+    host.innerHTML = '<div class="dash-empty">No active jobs to chart</div>';
+    return;
+  }
+  const cx = 110, cy = 110, r = 96;
+  let angle = -Math.PI / 2;
+  const paths = items.map((item, i) => {
+    const slice = (item.count / total) * Math.PI * 2;
+    const start = angle;
+    const end = angle + Math.max(slice, 0.0001);
+    angle = end;
+    const color = _DASH_PIE_COLORS[i % _DASH_PIE_COLORS.length];
+    const pct = Math.round((item.count / total) * 1000) / 10;
+    return `<path d="${_pieArc(cx, cy, r, start, end)}" fill="${color}" title="${item.source}: ${item.count} (${pct}%)"><title>${item.source}: ${item.count} (${pct}%)</title></path>`;
+  }).join('');
+  const legend = items.map((item, i) => {
+    const color = _DASH_PIE_COLORS[i % _DASH_PIE_COLORS.length];
+    return `<div class="dash-pie-row" title="${item.source}"><span class="dash-swatch" style="background:${color}"></span><span class="dash-pie-name">${item.source}</span><span class="dash-pie-count">${item.count}</span></div>`;
+  }).join('');
+  host.innerHTML = `
+    <svg class="dash-pie-svg" width="220" height="220" viewBox="0 0 220 220">${paths}</svg>
+    <div class="dash-pie-legend">${legend}</div>`;
 }
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
@@ -839,6 +1017,7 @@ async function loadJobs(status, opts) {
 }
 
 function filterJobs(status, el) {
+  _hideDashboard();
   document.querySelectorAll('.status-pill').forEach(p => p.classList.remove('active'));
   if (el) el.classList.add('active');
   loadJobs(status);
