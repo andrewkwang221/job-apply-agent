@@ -5,6 +5,7 @@ Generates a tailored, concise cover letter for a shortlisted job using
 the candidate profile and any prior LLM analysis already in the DB.
 """
 import json
+import re
 from typing import Any, Dict
 
 import requests
@@ -16,9 +17,47 @@ from utils.llm_analysis import _candidate_summary, _job_description
 COVER_LETTER_SYSTEM_PROMPT = (
     "You are a professional cover letter writer. "
     "Write concise, authentic cover letters in plain text (no markdown, no headers). "
-    "Three short paragraphs: why this role, what you bring, brief close. "
+    "Output only three short body paragraphs: why this role, what you bring, brief close. "
+    "Do not write a salutation (no 'Dear …') or a closing signature (no 'Sincerely' / 'Best' / name). "
     "Match the tone to the company. Never use generic filler phrases like 'I am excited to apply'."
 )
+
+# Greeting on its own opening line, e.g. "Dear Hiring Manager at Acquia,"
+_GREETING_RE = re.compile(
+    r"^(?:"
+    r"dear\s+[^\n.]{1,70}"
+    r"|to\s+whom\s+it\s+may\s+concern"
+    r"|(?:hello|hi)(?:\s+(?:there|team|(?:hiring\s+)?(?:team|manager)|[A-Z][a-z]+))?"
+    r"),?\s*(?:\n+|$)",
+    re.IGNORECASE,
+)
+
+# Sign-off block at the end, e.g. "Sincerely,\nAndrew Wang"
+_CLOSING_RE = re.compile(
+    r"(?:\n+\s*)+"
+    r"(?:sincerely yours|yours sincerely|yours truly|yours faithfully|"
+    r"best regards|kind regards|warm regards|respectfully yours|"
+    r"sincerely|respectfully|cordially|regards|best|cheers)"
+    r",?\s*"
+    r"(?:\n[^\n]{1,80}){0,2}"
+    r"\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_letter_frame(content: str) -> str:
+    """Remove salutations and signatures the model included despite the prompt."""
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[a-zA-Z]*\s*\n?", "", text)
+        text = re.sub(r"\n?```\s*$", "", text).strip()
+
+    prev = None
+    while text and text != prev:
+        prev = text
+        text = _GREETING_RE.sub("", text, count=1).strip()
+        text = _CLOSING_RE.sub("", text).strip()
+    return text
 
 
 def build_cover_letter_prompt(job: Dict[str, Any], profile: Dict[str, Any]) -> str:
@@ -98,9 +137,12 @@ def generate_cover_letter(
         content = str(data.get("message", {}).get("content") or "").strip()
         if not content:
             raise ValueError("Ollama returned empty content")
+        body = _strip_letter_frame(content)
+        if not body:
+            body = content
         name = str((profile.get("personal") or {}).get("name") or "").strip()
         signature = f"Best,\n{name}" if name else "Best,"
-        cover_letter = f"Dear Hiring Team,\n\n{content}\n\n{signature}"
+        cover_letter = f"Dear Hiring Team,\n\n{body}\n\n{signature}"
         return {"cover_letter": cover_letter, "status": "ok"}
     except Exception as exc:
         return {"cover_letter": None, "status": "failed", "error": str(exc)}

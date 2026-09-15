@@ -193,3 +193,71 @@ class TestGenerateCoverLetter:
             generate_cover_letter(_job(), _profile())
         payload = mock_post.call_args[1]["json"]
         assert "format" not in payload
+
+    def test_strips_model_greeting_and_closing(self):
+        from utils.cover_letter import generate_cover_letter
+        llm = (
+            "Dear Hiring Manager at Acquia,\n\n"
+            "I am well-equipped to tackle the challenges you face.\n\n"
+            "I look forward to contributing to the team.\n\n"
+            "Sincerely,\n"
+            "Andrew Wang"
+        )
+        with patch(self._T, return_value=self._mock_resp(llm)):
+            result = generate_cover_letter(_job(), _profile())
+        letter = result["cover_letter"]
+        assert letter.startswith("Dear Hiring Team,\n\n")
+        assert letter.endswith("Best,\nJane Doe")
+        assert letter.count("Dear ") == 1
+        assert "Dear Hiring Manager" not in letter
+        assert "Sincerely" not in letter
+        assert letter.count("Jane Doe") == 1
+        assert letter.count("Andrew Wang") == 0
+        assert "I am well-equipped" in letter
+
+
+class TestStripLetterFrame:
+    def test_body_only_unchanged(self):
+        from utils.cover_letter import _strip_letter_frame
+        body = "I bring strong backend skills.\n\nI look forward to contributing."
+        assert _strip_letter_frame(body) == body
+
+    def test_strips_dear_hiring_manager(self):
+        from utils.cover_letter import _strip_letter_frame
+        text = "Dear Hiring Manager at Acquia,\n\nI am well-equipped to help."
+        assert _strip_letter_frame(text) == "I am well-equipped to help."
+
+    def test_strips_sincerely_and_name(self):
+        from utils.cover_letter import _strip_letter_frame
+        text = "I look forward to contributing.\n\nSincerely,\nAndrew Wang"
+        assert _strip_letter_frame(text) == "I look forward to contributing."
+
+    def test_keeps_thank_you_in_closing_paragraph(self):
+        from utils.cover_letter import _strip_letter_frame
+        text = (
+            "I am eager to bring my skills to Acquia. "
+            "Thank you for considering my application. "
+            "I look forward to discussing this role."
+        )
+        assert _strip_letter_frame(text) == text
+
+    def test_duplicate_frame_like_user_letter(self):
+        from utils.cover_letter import _strip_letter_frame
+        text = (
+            "Dear Hiring Manager at Acquia,\n\n"
+            "I am well-equipped to tackle the challenges you face.\n\n"
+            "Thank you for considering my application. I look forward to discussing this role.\n\n"
+            "Sincerely,\n"
+            "Andrew Wang"
+        )
+        out = _strip_letter_frame(text)
+        assert out.startswith("I am well-equipped")
+        assert "Dear " not in out
+        assert "Sincerely" not in out
+        assert "Andrew Wang" not in out
+        assert "Thank you for considering" in out
+
+    def test_strips_markdown_fence(self):
+        from utils.cover_letter import _strip_letter_frame
+        text = "```\nI bring backend experience.\n```"
+        assert _strip_letter_frame(text) == "I bring backend experience."

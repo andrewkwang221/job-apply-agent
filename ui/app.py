@@ -745,7 +745,14 @@ async def download_cover_pdf(job_id: int):
 # Prefill state
 # ---------------------------------------------------------------------------
 
-_prefill: Dict[str, Any] = {"status": "idle", "job_id": None, "result": None, "log": [], "started_at": None}
+_prefill: Dict[str, Any] = {
+    "status": "idle",
+    "job_id": None,
+    "result": None,
+    "log": [],
+    "started_at": None,
+    "cover_letter": None,
+}
 _prefill_lock = threading.Lock()
 _prefill_cancel = threading.Event()
 
@@ -770,6 +777,7 @@ def _cancel_existing_prefill() -> None:
         _prefill["job_id"] = None
         _prefill["result"] = None
         _prefill["log"] = []
+        _prefill["cover_letter"] = None
 
 
 def _scrape_job_meta(url: str) -> Dict[str, Any]:
@@ -851,11 +859,32 @@ def _scrape_job_meta(url: str) -> Dict[str, Any]:
     }
 
 
+def _persist_prefill_cover_letter(job_id: Any, text: str) -> bool:
+    """Save Open & Apply cover letter text onto the job row."""
+    if not job_id or not (text or "").strip():
+        return False
+    session = _Session()
+    try:
+        db_job = session.query(Job).filter(Job.id == job_id).first()
+        if not db_job:
+            return False
+        db_job.cover_letter = text
+        session.commit()
+        return True
+    except Exception as exc:
+        session.rollback()
+        _prefill_log(f"Cover letter save failed: {exc}")
+        return False
+    finally:
+        session.close()
+
+
 def _run_prefill_thread(job_dict: Dict[str, Any], profile: Dict[str, Any]) -> None:
     with _prefill_lock:
         _prefill["log"] = []
         _prefill["started_at"] = datetime.utcnow().isoformat()
         _prefill["status"] = "running"  # "starting" → "running" so the UI poll keeps going
+        _prefill["cover_letter"] = job_dict.get("cover_letter") or None
 
     _prefill_log(f"Starting prefill for: {job_dict.get('title', '')} @ {job_dict.get('company', '')}")
 
@@ -904,20 +933,14 @@ def _run_prefill_thread(job_dict: Dict[str, Any], profile: Dict[str, Any]) -> No
         try:
             cl_result = generate_cover_letter(job, profile)
             if cl_result.get("status") == "ok":
-                job["cover_letter"] = cl_result["cover_letter"]
-                preview = cl_result["cover_letter"][:120].replace("\n", " ")
+                letter = cl_result["cover_letter"]
+                job["cover_letter"] = letter
+                with _prefill_lock:
+                    _prefill["cover_letter"] = letter
+                preview = letter[:120].replace("\n", " ")
                 _prefill_log(f"Cover letter generated: {preview}…")
-                # Persist to DB.
-                _session = _Session()
-                try:
-                    db_job = _session.query(Job).filter(Job.id == job.get("id")).first()
-                    if db_job:
-                        db_job.cover_letter = cl_result["cover_letter"]
-                        _session.commit()
-                except Exception:
-                    pass
-                finally:
-                    _session.close()
+                if _persist_prefill_cover_letter(job.get("id"), letter):
+                    _prefill_log("Cover letter saved — it will appear on the Cover Letter tab.")
                 # Write PDF so the user can also upload it manually.
                 try:
                     from utils.form_filler import _resolve_cover_letter_path
@@ -1038,6 +1061,7 @@ async def open_job(job_id: int):
         _prefill["job_id"] = job_id
         _prefill["result"] = None
         _prefill["log"] = []
+        _prefill["cover_letter"] = None
 
     try:
         with open("profile.yaml", encoding="utf-8") as fh:
@@ -1096,6 +1120,7 @@ async def prefill_url(body: DirectFillRequest):
         _prefill["job_id"] = None
         _prefill["result"] = None
         _prefill["log"] = []
+        _prefill["cover_letter"] = None
 
     try:
         with open("profile.yaml", encoding="utf-8") as fh:

@@ -15,6 +15,26 @@ personal:
   second_language: "SQL"             # used for "preferred/second programming language" fields
   age: 30                            # used to auto-select age-range buckets (18-24, 25-34, … 75+)
   years_experience: 10               # used to answer "how many years of experience?" dropdowns
+  current_company: "Example Corp"    # used for employment / current employer fields
+  current_title: "Senior Engineer"   # used for current job title fields
+
+# Repeating employment/education rows for ATS history sections (Dice, Greenhouse, …).
+work_history:
+  - company: "Example Corp"
+    title: "Senior Engineer"
+    from: "Jan 2022"
+    to: "present"
+  - company: "Previous Co"
+    title: "Engineer"
+    from: "Jun 2018"
+    to: "Dec 2021"
+
+education:
+  - school: "Example University"
+    degree: "Bachelor's"
+    field: "Computer Science"
+    from: "2014"
+    to: "2018"
 
 summary:
   - "Short optional bullets describing seniority, domain strengths, and notable background."

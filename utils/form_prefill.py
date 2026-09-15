@@ -18,6 +18,11 @@ from playwright.async_api import async_playwright  # noqa: F401 — imported for
 from utils.ats_detector import MANUAL_ONLY_ATS, detect_ats
 from utils.form_filler import fill_form, try_upload_resume
 from utils.form_inspector import extract_apply_url, scan_fields, try_click_apply
+from utils.profile_history import (
+    education_entries,
+    format_history_date,
+    work_history_entries,
+)
 
 # Domains where Playwright is blocked by bot detection.
 SYSTEM_BROWSER_DOMAINS = {
@@ -758,6 +763,44 @@ async def _fix_react_phone_input(page, profile: Dict[str, Any], log_fn=None) -> 
         _log(f"React phone fix error: {exc}")
 
 
+_ADD_HISTORY_NAME = {
+    "employment": re.compile(
+        r"add\s*(another\s*)?(employment|experience|position|employer|work(\s+history|\s+experience)?)",
+        re.I,
+    ),
+    "education": re.compile(
+        r"add\s*(another\s*)?(education|school|degree|university|college)",
+        re.I,
+    ),
+}
+
+# Combined start/end date inputs (Dice, Workday) — not Greenhouse month/year splits.
+_START_DATE_RE = r"start\s*date(?!\s*(month|year))"
+_END_DATE_RE = r"(?:end\s*date|graduation(?:\s*date)?)(?!\s*(month|year))"
+
+
+async def _click_history_add(page, kind: str, log_fn=None) -> bool:
+    """Click Add Employment / Add Education when the section starts empty."""
+    def _log(msg: str) -> None:
+        if log_fn:
+            try:
+                log_fn(msg)
+            except Exception:
+                pass
+
+    pattern = _ADD_HISTORY_NAME[kind]
+    for role in ("button", "link"):
+        loc = page.get_by_role(role, name=pattern)
+        try:
+            if await loc.count() > 0 and await loc.first.is_visible(timeout=800):
+                await loc.first.click()
+                _log(f"{kind.title()} history: clicked Add")
+                return True
+        except Exception:
+            continue
+    return False
+
+
 async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, timing: bool = False) -> None:
     """Fill repeating employment history groups using the work_history from the profile.
 
@@ -775,15 +818,16 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
 
     _tlog = timing if callable(timing) else (_log if timing else (lambda _: None))
 
-    work_history = profile.get("work_history") or []
+    work_history = work_history_entries(profile)
     if not work_history:
+        _log("Employment history: no work_history in profile — skipping")
         return
 
     # Present/ongoing roles must come first so the form's first employment slot
     # gets the current employer — YAML order may put a past role first.
     work_history = sorted(
         work_history,
-        key=lambda e: (0 if str(e.get("to") or "").strip().lower() == "present" else 1),
+        key=lambda e: (0 if str(e.get("to") or "").strip().lower() in {"present", "current", "now"} else 1),
     )
 
     # Selectors for the "Add another" button in employment sections.
@@ -792,10 +836,13 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
         "button:has-text('Add Another')",
         "button:has-text('Add employment')",
         "button:has-text('Add Employment')",
+        "button:has-text('Add experience')",
+        "button:has-text('Add Experience')",
         "button:has-text('Add position')",
         "button:has-text('+ Add')",
         "a:has-text('Add another')",
         "a:has-text('Add employment')",
+        "a:has-text('Add experience')",
     ]
 
     # ---------------------------------------------------------------------------
@@ -884,11 +931,12 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
 
     async def _fill_at_idx(idx: int, value: str) -> bool:
         """Fill the text-input at the given absolute DOM position."""
-        if not value:
+        if not value or idx is None:
             return False
         try:
             el = page.locator(_INP_SEL).nth(idx)
             # Diagnostic: log what element we're about to write to.
+            info = {}
             try:
                 info = await el.evaluate(
                     "e => ({id: e.id, name: e.name, placeholder: e.placeholder, "
@@ -898,15 +946,53 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
                 _log(f"  fill_at_idx({idx}, {value!r}): id={info.get('id')!r} name={info.get('name')!r} label={info.get('label')!r}")
             except Exception:
                 pass
+            fill_value = value
+            itype = (info.get("type") or "").lower()
+            if itype == "date":
+                fill_value = format_history_date(value, "iso")
+            elif itype == "month":
+                fill_value = format_history_date(value, "iso")[:7]
             try:
-                await el.fill(value)
+                await el.fill(fill_value)
                 return True
             except Exception:
                 await el.click()
                 await el.press("Control+a")
-                await el.press_sequentially(value, delay=20)
+                await el.press_sequentially(fill_value, delay=20)
                 return True
         except Exception:
+            return False
+
+    async def _typeahead_at_idx(idx: int, value: str) -> bool:
+        """Type into an ARIA combobox (Dice company/school typeaheads) and pick a match."""
+        if not value or idx is None:
+            return False
+        try:
+            el = page.locator('select, [role="combobox"]').nth(idx)
+            tag = (await el.evaluate("el => el.tagName.toLowerCase()")).lower()
+            if tag == "select":
+                return await _fill_dd_at_idx(idx, value)
+            await el.click(timeout=5000)
+            await page.wait_for_timeout(200)
+            inp = el.locator("input").first
+            target = inp if await inp.count() > 0 else el
+            try:
+                await target.fill("")
+            except Exception:
+                await target.press("Control+a")
+            await target.press_sequentially(value, delay=25)
+            await page.wait_for_timeout(500)
+            opt = page.locator("[role='option']").filter(
+                has_text=re.compile(re.escape(value.split(",")[0].strip()), re.I)
+            ).first
+            if await opt.count() > 0:
+                await opt.click()
+            else:
+                await page.keyboard.press("Enter")
+            _log(f"  typeahead(idx={idx}, {value!r})")
+            return True
+        except Exception as exc:
+            _log(f"  typeahead(idx={idx}, {value!r}): exception: {exc}")
             return False
 
     async def _fill_dd_at_idx(idx: int, value: str) -> bool:
@@ -1038,19 +1124,33 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
 
         if entry_num == 0:
             snap_co = await page.evaluate(_JS_LIST_INP_POS, [r"company|employer"])
+            snap_co_dd = await page.evaluate(_JS_LIST_DD_POS, [r"company|employer"])
+            if not snap_co and not snap_co_dd:
+                if await _click_history_add(page, "employment", _log):
+                    await page.wait_for_timeout(600)
+                    snap_co = await page.evaluate(_JS_LIST_INP_POS, [r"company|employer"])
+                    snap_co_dd = await page.evaluate(_JS_LIST_DD_POS, [r"company|employer"])
             snap_ti = await page.evaluate(_JS_LIST_INP_POS, [r"title|position"])
             snap_sm = await page.evaluate(_JS_LIST_DD_POS,  [r"start\s*(date\s*)?month"])
             snap_em = await page.evaluate(_JS_LIST_DD_POS,  [r"end\s*(date\s*)?month"])
-            _log(f"Employment first entry {company!r}: co={snap_co[:2]} ti={snap_ti[:2]} sm={snap_sm} em={snap_em}")
+            snap_sd = await page.evaluate(_JS_LIST_INP_POS, [_START_DATE_RE])
+            snap_ed = await page.evaluate(_JS_LIST_INP_POS, [_END_DATE_RE])
+            _log(f"Employment first entry {company!r}: co={snap_co[:2]} ti={snap_ti[:2]} sm={snap_sm} em={snap_em} sd={snap_sd} ed={snap_ed}")
             co_idx = snap_co[0] if snap_co else None
+            co_dd_idx = snap_co_dd[0] if snap_co_dd else None
             ti_idx = snap_ti[0] if snap_ti else None
             sm_idx = snap_sm[0] if snap_sm else None
             em_idx = snap_em[0] if snap_em else None
+            sd_idx = snap_sd[0] if snap_sd else None
+            ed_idx = snap_ed[0] if snap_ed else None
         else:
             pre_co = await page.evaluate(_JS_LIST_INP_POS, [r"company|employer"])
+            pre_co_dd = await page.evaluate(_JS_LIST_DD_POS, [r"company|employer"])
             pre_ti = await page.evaluate(_JS_LIST_INP_POS, [r"title|position"])
             pre_sm = await page.evaluate(_JS_LIST_DD_POS,  [r"start\s*(date\s*)?month"])
             pre_em = await page.evaluate(_JS_LIST_DD_POS,  [r"end\s*(date\s*)?month"])
+            pre_sd = await page.evaluate(_JS_LIST_INP_POS, [_START_DATE_RE])
+            pre_ed = await page.evaluate(_JS_LIST_INP_POS, [_END_DATE_RE])
             _log(f"Employment snapshot for {company!r}: co={len(pre_co)} ti={len(pre_ti)} sm={len(pre_sm)} em={len(pre_em)}")
 
             clicked = False
@@ -1061,58 +1161,76 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
                 ")).filter(el => { const r = el.getBoundingClientRect();"
                 "  return r.width > 0 && r.height > 0; }).length"
             )
-            for sel in add_btn_selectors:
+            if await _click_history_add(page, "employment", _log):
+                clicked = True
+            if not clicked:
+                for sel in add_btn_selectors:
+                    try:
+                        btn = page.locator(sel).first
+                        if await btn.count() > 0 and await btn.is_visible(timeout=500):
+                            await btn.click()
+                            clicked = True
+                            _log(f"Employment history: clicked 'Add another' for {company!r}")
+                            break
+                    except Exception:
+                        continue
+            if clicked:
+                # Wait for a new visible input to appear (Greenhouse pre-renders
+                # sections as hidden DOM nodes and reveals them on click, so we
+                # must filter by bounding rect, not just DOM presence).
+                _t0 = asyncio.get_event_loop().time()
                 try:
-                    btn = page.locator(sel).first
-                    if await btn.count() > 0 and await btn.is_visible(timeout=500):
-                        await btn.click()
-                        # Wait for a new visible input to appear (Greenhouse pre-renders
-                        # sections as hidden DOM nodes and reveals them on click, so we
-                        # must filter by bounding rect, not just DOM presence).
-                        _t0 = asyncio.get_event_loop().time()
-                        try:
-                            await page.wait_for_function(
-                                "([n]) => Array.from(document.querySelectorAll("
-                                "  \"input:not([type='hidden']):not([type='submit'])"
-                                "  :not([type='checkbox']):not([type='radio']):not([type='file'])\""
-                                ")).filter(el => { const r = el.getBoundingClientRect();"
-                                "  return r.width > 0 && r.height > 0; }).length > n",
-                                arg=[pre_input_count],
-                                timeout=5000,
-                            )
-                        except Exception:
-                            pass
-                        _tlog(f"  [timing] add-another wait: {(asyncio.get_event_loop().time()-_t0)*1000:.0f}ms")
-                        clicked = True
-                        _log(f"Employment history: clicked 'Add another' for {company!r}")
-                        break
+                    await page.wait_for_function(
+                        "([n]) => Array.from(document.querySelectorAll("
+                        "  \"input:not([type='hidden']):not([type='submit'])"
+                        "  :not([type='checkbox']):not([type='radio']):not([type='file'])\""
+                        ")).filter(el => { const r = el.getBoundingClientRect();"
+                        "  return r.width > 0 && r.height > 0; }).length > n",
+                        arg=[pre_input_count],
+                        timeout=5000,
+                    )
                 except Exception:
-                    continue
+                    pass
+                _tlog(f"  [timing] add-another wait: {(asyncio.get_event_loop().time()-_t0)*1000:.0f}ms")
 
             if not clicked:
                 _log("Employment history: 'Add another' button not found — stopping")
                 break
 
             new_co = _new_els(pre_co, await page.evaluate(_JS_LIST_INP_POS, [r"company|employer"]))
+            new_co_dd = _new_els(pre_co_dd, await page.evaluate(_JS_LIST_DD_POS, [r"company|employer"]))
             new_ti = _new_els(pre_ti, await page.evaluate(_JS_LIST_INP_POS, [r"title|position"]))
             new_sm = _new_els(pre_sm, await page.evaluate(_JS_LIST_DD_POS,  [r"start\s*(date\s*)?month"]))
             new_em = _new_els(pre_em, await page.evaluate(_JS_LIST_DD_POS,  [r"end\s*(date\s*)?month"]))
+            new_sd = _new_els(pre_sd, await page.evaluate(_JS_LIST_INP_POS, [_START_DATE_RE]))
+            new_ed = _new_els(pre_ed, await page.evaluate(_JS_LIST_INP_POS, [_END_DATE_RE]))
             _log(f"Employment new fields for {company!r}: co={new_co} ti={new_ti} sm={new_sm} em={new_em}")
             co_idx = new_co[0] if new_co else None
+            co_dd_idx = new_co_dd[0] if new_co_dd else None
             ti_idx = new_ti[0] if new_ti else None
             sm_idx = new_sm[0] if new_sm else None
             em_idx = new_em[0] if new_em else None
+            sd_idx = new_sd[0] if new_sd else None
+            ed_idx = new_ed[0] if new_ed else None
 
         filled_company = await _fill_at_idx(co_idx, company) if co_idx is not None and company else False
+        if not filled_company and company:
+            filled_company = await _typeahead_at_idx(co_dd_idx, company)
         filled_title   = await _fill_at_idx(ti_idx, title)   if ti_idx is not None and title   else False
         filled_sm = await _fill_dd_at_idx(sm_idx, from_month) if sm_idx is not None and from_month else False
         filled_em = (await _fill_dd_at_idx(em_idx, to_month)
                      if em_idx is not None and to_month and not is_current else False)
+        filled_sd = await _fill_at_idx(sd_idx, format_history_date(date_from) or date_from) if sd_idx is not None and date_from else False
+        filled_ed = (
+            await _fill_at_idx(ed_idx, format_history_date(date_to) or date_to)
+            if ed_idx is not None and date_to and not is_current else False
+        )
         _pending.append({
             "company": company, "co_idx": co_idx,
             "from_year": from_year, "to_year": to_year, "is_current": is_current,
             "filled_company": filled_company, "filled_title": filled_title,
             "filled_sm": filled_sm, "filled_em": filled_em,
+            "filled_sd": filled_sd, "filled_ed": filled_ed,
         })
 
     # Phase 2 — batch year evaluation and fill.
@@ -1151,7 +1269,117 @@ async def _fill_employment_history(page, profile: Dict[str, Any], log_fn=None, t
             f"company={pend['filled_company']} title={pend['filled_title']} "
             f"start={pend['filled_sm']}/{pend['filled_sy']} "
             f"end={pend['filled_em']}/{pend['filled_ey']} "
+            f"dates={pend.get('filled_sd')}/{pend.get('filled_ed')} "
             f"current={checked_current}"
+        )
+
+
+async def _fill_labeled_last(page, label_re: str, value: str, *, last: bool = False) -> bool:
+    """Fill the first (or last, after Add) control whose label matches *label_re*."""
+    if not value:
+        return False
+    pattern = re.compile(label_re, re.I)
+    loc = page.get_by_label(pattern)
+    if await loc.count() == 0:
+        loc = page.get_by_placeholder(pattern)
+    if await loc.count() == 0:
+        loc = page.get_by_role("combobox", name=pattern)
+    if await loc.count() == 0:
+        return False
+    el = loc.last if last else loc.first
+    try:
+        await el.click(timeout=3000)
+    except Exception:
+        pass
+    try:
+        await el.fill(value)
+        return True
+    except Exception:
+        pass
+    try:
+        await el.press("Control+a")
+        await el.press_sequentially(value, delay=20)
+        return True
+    except Exception:
+        pass
+    try:
+        await el.select_option(label=re.compile(re.escape(value), re.I))
+        return True
+    except Exception:
+        try:
+            opt = page.locator("[role='option']").filter(has_text=pattern).first
+            if value:
+                opt = page.locator("[role='option']").filter(
+                    has_text=re.compile(re.escape(value.split()[0]), re.I)
+                ).first
+            if await opt.count() > 0:
+                await opt.click()
+                return True
+        except Exception:
+            pass
+    return False
+
+
+async def _fill_education_history(page, profile: Dict[str, Any], log_fn=None, timing: bool = False) -> None:
+    """Fill repeating education groups from profile education / resume summary."""
+    def _log(msg: str) -> None:
+        if log_fn:
+            try:
+                log_fn(msg)
+            except Exception:
+                pass
+
+    entries = education_entries(profile)
+    if not entries:
+        _log("Education history: no education in profile — skipping")
+        return
+
+    for i, entry in enumerate(entries):
+        school = str(entry.get("school") or "").strip()
+        degree = str(entry.get("degree") or "").strip()
+        field = str(entry.get("field") or "").strip()
+        date_from = str(entry.get("from") or "").strip()
+        date_to = str(entry.get("to") or "").strip()
+        use_last = False
+
+        if i == 0:
+            probe = page.get_by_label(re.compile(r"school|university|college|institution", re.I))
+            if await probe.count() == 0:
+                if await _click_history_add(page, "education", _log):
+                    await page.wait_for_timeout(600)
+                    use_last = True
+        else:
+            if not await _click_history_add(page, "education", _log):
+                _log("Education history: Add button not found — stopping")
+                break
+            await page.wait_for_timeout(600)
+            use_last = True
+
+        filled_school = await _fill_labeled_last(
+            page, r"school|university|college|institution", school, last=use_last
+        )
+        filled_degree = await _fill_labeled_last(
+            page, r"degree", degree, last=use_last
+        )
+        filled_field = await _fill_labeled_last(
+            page, r"field of study|major|discipline|^field$", field, last=use_last
+        )
+        filled_from = await _fill_labeled_last(
+            page,
+            r"start\s*date|from|attended from",
+            format_history_date(date_from) or date_from,
+            last=use_last,
+        )
+        filled_to = await _fill_labeled_last(
+            page,
+            r"end\s*date|graduation|graduat|to year|end year",
+            format_history_date(date_to) or date_to,
+            last=use_last,
+        )
+        _log(
+            f"Education history: filled {school!r} — "
+            f"school={filled_school} degree={filled_degree} field={filled_field} "
+            f"from={filled_from} to={filled_to}"
         )
 
 
@@ -1331,6 +1559,11 @@ async def _do_fill(page, profile: Dict[str, Any], job: Dict[str, Any], result: D
         await _fill_employment_history(fill_target, profile, _log, timing=_timing_arg)
     except Exception as exc:
         _log(f"Employment history fill error: {exc}")
+
+    try:
+        await _fill_education_history(fill_target, profile, _log, timing=_timing_arg)
+    except Exception as exc:
+        _log(f"Education history fill error: {exc}")
 
     # Fall back to "Enter manually" only when the PDF file upload didn't succeed.
     if not cl_file_uploaded:

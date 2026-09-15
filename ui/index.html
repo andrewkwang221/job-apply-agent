@@ -595,6 +595,9 @@ a.card-company:hover{text-decoration:underline;}
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
           Shortlist
         </button>
+        <button class="btn-triage-action btn-archive" id="btnArchiveQueue" onclick="archiveCurrentJob()" style="display:none">
+          Archive
+        </button>
         <div class="action-sep"></div>
         <button class="btn-open-apply" onclick="openApply()">
           Open &amp; Apply
@@ -895,7 +898,9 @@ function renderCard(i, direction) {
     job._bodyHydrated = true;
     api(`/api/jobs/${job.id}`).then(full => {
       if (!full || !jobs[i] || jobs[i].id !== full.id) return;
+      const keptCover = jobs[i].cover_letter;
       jobs[i] = Object.assign(jobs[i], full, {_bodyHydrated: true});
+      if (keptCover && !jobs[i].cover_letter) jobs[i].cover_letter = keptCover;
       if (idx === i) renderCard(i);
     }).catch(() => {});
   }
@@ -1053,6 +1058,8 @@ function renderCard(i, direction) {
   document.getElementById('actionBar').style.display = (readOnly || rejected || archived) ? 'none' : 'flex';
   document.getElementById('actionBarRejected').style.display = rejected ? 'flex' : 'none';
   document.getElementById('actionBarArchived').style.display = archived ? 'flex' : 'none';
+  const archiveQueue = document.getElementById('btnArchiveQueue');
+  if (archiveQueue) archiveQueue.style.display = job.status === 'shortlisted' ? '' : 'none';
 
   if (rejected || archived) switchTabById('analysis');
   else switchTabById('overview');
@@ -1228,6 +1235,8 @@ function renderList(jobList) {
       header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span><span style="width:26px"></span>`;
     } else if (currentStatus === 'review') {
       header.innerHTML = `${scoreHead}<span style="width:148px;text-align:center">Actions</span><span style="width:26px"></span>`;
+    } else if (currentStatus === 'shortlisted') {
+      header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center">Actions</span><span style="width:26px"></span>`;
     } else {
       header.innerHTML = `${scoreHead}<span style="width:26px"></span>`;
     }
@@ -1244,6 +1253,8 @@ function renderList(jobList) {
           <button class="list-archive" type="button" title="Archive" onclick="setJobStatusAt(${original}, 'archived', event)">Archive</button>
           <button class="list-shortlist" type="button" title="Shortlist" onclick="setJobStatusAt(${original}, 'shortlisted', event)">Shortlist</button>
         </div>`
+      : currentStatus === 'shortlisted'
+      ? `<button class="list-archive" type="button" title="Archive" style="width:78px" onclick="archiveJobAt(${original}, event)">Archive</button>`
       : '';
     const criterion = _isEvalList() && listSortBy !== 'sum';
     const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
@@ -1916,6 +1927,31 @@ function _checkPrefillComplete(logs) {
   if (title) { title.textContent = `Form filled — ${summary}. Review and submit.`; title.className = 'filled'; }
 }
 
+function _applyPrefillCoverLetter(text, jobId) {
+  if (!text) return;
+  let i = idx;
+  if (jobId != null) {
+    const found = jobs.findIndex(j => j.id === jobId);
+    if (found < 0) return;
+    i = found;
+  }
+  const job = jobs[i];
+  if (!job) return;
+  const textarea = document.getElementById('coverText');
+  const previous = job.cover_letter || '';
+  job.cover_letter = text;
+  if (idx === i && textarea && (!textarea.value.trim() || textarea.value === previous)) {
+    textarea.value = text;
+    textarea.placeholder = 'No cover letter yet. Click Generate to create one.';
+  }
+  if (idx === i) {
+    const btnGen = document.getElementById('btnGenerate');
+    if (btnGen && !btnGen.disabled) {
+      btnGen.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> Regenerate`;
+    }
+  }
+}
+
 function _updatePrefillLog(lines) {
   const el = document.getElementById('prefillLog');
   if (!el) return;
@@ -1945,6 +1981,7 @@ function _startPrefillPoll() {
       const s = await api('/api/prefill/status');
       _updatePrefillLog(s.log || []);
       _checkPrefillComplete(s.log || []);
+      if (s.cover_letter) _applyPrefillCoverLetter(s.cover_letter, s.job_id);
       const running = s.status === 'running';
       if (!running) {
         if (!_prefillFormFilled) _showPrefillStatus(false);

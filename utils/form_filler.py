@@ -23,6 +23,13 @@ from typing import Any
 
 from playwright.async_api import Page
 
+from utils.profile_history import (
+    current_company,
+    current_title,
+    education_entries,
+    history_date_for_label,
+)
+
 
 # ---------------------------------------------------------------------------
 # Label → profile field mapping for plain text / textarea inputs
@@ -32,14 +39,11 @@ from playwright.async_api import Page
 _TEXT_RULES: list[tuple[list[str], Any]] = [
     # Company / employer name rules MUST come before the generic "name" rule
     # so "company name" label hits the right rule first.
-    (["current company"], lambda p, j: p.get(
-        "personal", {}).get("current_company", "")),
-    (["current employer"], lambda p, j: p.get(
-        "personal", {}).get("current_company", "")),
-    (["company name"], lambda p, j: p.get(
-        "personal", {}).get("current_company", "")),
-    (["organization"], lambda p, j: p.get(
-        "personal", {}).get("current_company", "")),
+    (["current company"], lambda p, j: current_company(p)),
+    (["current employer"], lambda p, j: current_company(p)),
+    (["company name"], lambda p, j: current_company(p)),
+    (["employer"], lambda p, j: current_company(p)),
+    (["organization"], lambda p, j: current_company(p)),
     # "Preferred First Name" is a nickname/alias field — leave empty unless profile
     # has a preferred_name set (prevents legal first name bleeding into this slot).
     (["preferred first name"], lambda p, j: p.get("personal", {}).get("preferred_name", "")),
@@ -180,16 +184,13 @@ _TEXT_RULES: list[tuple[list[str], Any]] = [
     (["preferred pronouns"], lambda p, j: p.get(
         "personal", {}).get("pronouns", "")),
     # Current job title / role
-    (["current title"], lambda p, j: p.get(
-        "personal", {}).get("current_title", "")),
-    (["current job title"], lambda p, j: p.get(
-        "personal", {}).get("current_title", "")),
-    (["current position"], lambda p, j: p.get(
-        "personal", {}).get("current_title", "")),
-    (["current role"], lambda p, j: p.get("personal", {}).get("current_title", "")),
-    (["job title"], lambda p, j: p.get("personal", {}).get("current_title", "")),
+    (["current title"], lambda p, j: current_title(p)),
+    (["current job title"], lambda p, j: current_title(p)),
+    (["current position"], lambda p, j: current_title(p)),
+    (["current role"], lambda p, j: current_title(p)),
+    (["job title"], lambda p, j: current_title(p)),
     # "org" is Lever's name attribute for the current company field.
-    (["org"], lambda p, j: p.get("personal", {}).get("current_company", "")),
+    (["org"], lambda p, j: current_company(p)),
     # Cover letter field — use the pre-generated cover letter.
     # Other freeform/motivational textareas get LLM-generated answers at fill-time.
     (["cover letter"], lambda p, j: j.get("cover_letter", "")),
@@ -237,19 +238,19 @@ _TEXT_RULES: list[tuple[list[str], Any]] = [
     (["languages do you speak"], lambda p, j: ", ".join(p.get("languages", []))),
     (["spoken language"], lambda p, j: ", ".join(p.get("languages", []))),
     # Education — school / degree from the first education entry in the profile.
-    (["school"], lambda p, j: (p.get("education") or [{}])[0].get("school", "")),
-    (["university"], lambda p, j: (p.get("education") or [{}])[0].get("school", "")),
-    (["college"], lambda p, j: (p.get("education") or [{}])[0].get("school", "")),
-    (["institution"], lambda p, j: (p.get("education") or [{}])[0].get("school", "")),
-    (["degree"], lambda p, j: (p.get("education") or [{}])[0].get("degree", "")),
+    (["school"], lambda p, j: (education_entries(p) or [{}])[0].get("school", "")),
+    (["university"], lambda p, j: (education_entries(p) or [{}])[0].get("school", "")),
+    (["college"], lambda p, j: (education_entries(p) or [{}])[0].get("school", "")),
+    (["institution"], lambda p, j: (education_entries(p) or [{}])[0].get("school", "")),
+    (["degree"], lambda p, j: (education_entries(p) or [{}])[0].get("degree", "")),
     (["highest degree"], lambda p, j: (
-        p.get("education") or [{}])[0].get("degree", "")),
+        education_entries(p) or [{}])[0].get("degree", "")),
     (["highest level", "education"], lambda p, j: (
-        p.get("education") or [{}])[0].get("degree", "")),
+        education_entries(p) or [{}])[0].get("degree", "")),
     (["field of study"], lambda p, j: (
-        p.get("education") or [{}])[0].get("field", "")),
-    (["major"], lambda p, j: (p.get("education") or [{}])[0].get("field", "")),
-    (["discipline"], lambda p, j: (p.get("education") or [{}])[0].get("field", "")),
+        education_entries(p) or [{}])[0].get("field", "")),
+    (["major"], lambda p, j: (education_entries(p) or [{}])[0].get("field", "")),
+    (["discipline"], lambda p, j: (education_entries(p) or [{}])[0].get("field", "")),
 ]
 
 # Timezone label keyword → profile timezone values that match (lowercase)
@@ -1386,12 +1387,40 @@ def _resolve_text_value(label_lower: str, profile: dict, job: dict) -> str:
         and "last" not in label_words_set
         and ("company" in label_words_set or _clean_words <= {"name"})
     ):
-        return profile.get("personal", {}).get("current_company", "") or ""
+        return current_company(profile) or ""
 
-    # Pre-pass: "start date year" / "start date month" are employment date
-    # sub-fields — do not match the generic "start date" availability rule.
+    if (
+        ("company" in label_words_set or "employer" in label_words_set)
+        and not ({"website", "url", "email", "site"} & label_words_set)
+        and "first" not in label_words_set
+        and "last" not in label_words_set
+        and (
+            _emp_ctx
+            or label_words_set <= {"company", "employer", "name", "current", "the", "your"}
+        )
+    ):
+        return current_company(profile) or ""
+
+    # Split month/year employment fields are filled by the repeating-group helper.
+    # Combined "Start Date" / "End Date" in a history section must NOT get
+    # the availability default ("Immediately").
+    _edu_ctx = any(
+        word in label_lower
+        for word in (
+            "education", "school", "university", "college", "academic",
+            "graduation", "degree",
+        )
+    )
     if "start" in label_words_set and ("year" in label_words_set or "month" in label_words_set):
         return ""
+    if (_emp_ctx or _edu_ctx) and "date" in label_words_set and (
+        "start" in label_words_set
+        or "end" in label_words_set
+        or "from" in label_words_set
+        or "to" in label_words_set
+        or "graduat" in label_lower
+    ):
+        return history_date_for_label(profile, label_lower)
 
     # Pre-pass: if the label is a work-auth question that names a specific country,
     # check authorization for THAT country rather than the job's location.

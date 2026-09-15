@@ -190,6 +190,21 @@ def test_prefill_status_done(client):
     assert data["result"]["ats"] == "ashby"
 
 
+def test_prefill_status_includes_cover_letter(client):
+    tc, _ = client
+    letter = "Dear Hiring Team,\n\nI am excited to apply."
+    _app_module._prefill = {
+        "status": "running",
+        "job_id": 7,
+        "result": None,
+        "cover_letter": letter,
+    }
+
+    r = tc.get("/api/prefill/status")
+    data = r.json()
+    assert data["cover_letter"] == letter
+
+
 # ---------------------------------------------------------------------------
 # _run_prefill_thread
 # ---------------------------------------------------------------------------
@@ -214,3 +229,27 @@ def test_run_prefill_thread_sets_done_on_exception():
     assert _app_module._prefill["status"] == "done"
     assert _app_module._prefill["result"]["status"] == "failed"
     assert "crash" in _app_module._prefill["result"]["error"]
+
+
+def test_persist_prefill_cover_letter_writes_job_row():
+    job = MagicMock()
+    job.id = 7
+    session = MagicMock()
+    session.query.return_value.filter.return_value.first.return_value = job
+    with patch.object(_app_module, "_Session", return_value=session):
+        assert _app_module._persist_prefill_cover_letter(7, "Dear Hiring Team,\n\nHello.") is True
+    assert job.cover_letter == "Dear Hiring Team,\n\nHello."
+    session.commit.assert_called_once()
+
+
+def test_persist_prefill_cover_letter_skips_missing_job():
+    session = MagicMock()
+    session.query.return_value.filter.return_value.first.return_value = None
+    with patch.object(_app_module, "_Session", return_value=session):
+        assert _app_module._persist_prefill_cover_letter(99, "Dear Hiring Team,") is False
+    session.commit.assert_not_called()
+
+
+def test_persist_prefill_cover_letter_skips_blank():
+    assert _app_module._persist_prefill_cover_letter(1, "   ") is False
+    assert _app_module._persist_prefill_cover_letter(None, "Dear Hiring Team,") is False
