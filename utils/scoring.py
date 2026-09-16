@@ -449,10 +449,4 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
             score=score,
         )
 
-    # Sources without a direct apply path are capped at review so they never
-    # reach the shortlist (no point surfacing jobs we can't act on).
-    source = str(job.get("source", "")).lower()
-    if source in _NO_DIRECT_APPLY_SOURCES and result["recommended_status"] == "shortlisted":
-        result["recommended_status"] = "review"
-
     return result
