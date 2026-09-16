@@ -129,6 +129,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `TopSalariesConnector` | [TopSalaries](https://topsalaries.tech/) | Guest homepage SSR (all cards); engineering title filter; newest-first first-stale-card stop; listing skip before detail; JobPosting JSON-LD; employer ATS href |
 | `LevelsFyiConnector` | [Levels.fyi](https://www.levels.fyi/jobs?locationSlug=united-states&sortBy=date_published&workArrangements=remote) | Guest Playwright Chrome (AWS WAF); skip Promoted; engineering title filter; newest-first stale-page stop; listing skip before detail; employer ATS `applicationUrl`; LinkedIn-only apply dropped |
 | `WorkewConnector` | [Workew](https://workew.com/remote-jobs/) | Guest `GET /wp-json/wp/v2/job-listings`; engineering title filter; newest-first first-stale-job stop; listing skip before persist; employer ATS `meta._application`; Workew/LinkedIn apply dropped |
+| `LaddersConnector` | [Ladders](https://www.theladders.com/jobs/searchresults-jobs?keywords=Software%20Engineer&sortBy=PUBLICATION_DATE&daysPublished=7&remoteFlags=Remote) | Guest Playwright Chrome (Cloudflare); no `/api/*`; unique `target_roles` + `software engineer`; engineering title filter; newest-first first-stale-job stop; listing skip before detail; apply review-capped |
 
 **Direct ATS connectors:**
 

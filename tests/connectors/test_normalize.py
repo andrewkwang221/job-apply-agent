@@ -972,3 +972,29 @@ class TestWorkewNormalize:
         assert n["location"] == "Remote US"
         assert isinstance(n["location"], str)
         assert n["ats_type"] == "ashby"
+
+
+class TestLaddersNormalize:
+    def _raw(self):
+        return {
+            "id": "85955780",
+            "listing_url": "https://www.theladders.com/job/senior-software-engineer-viasat-virtual-travel_85955780",
+            "url": "https://www.theladders.com/job/senior-software-engineer-viasat-virtual-travel_85955780",
+            "title": "Senior Software Engineer - Full-Stack",
+            "company": "Viasat",
+            "location": "US-Anywhere · Remote",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 15, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.ladders import LaddersConnector
+        n = LaddersConnector().normalize(self._raw())
+        _assert_shape(n, "ladders")
+
+    def test_keeps_ladders_url(self):
+        from connectors.ladders import LaddersConnector
+        n = LaddersConnector().normalize(self._raw())
+        assert n["url"].startswith("https://www.theladders.com/job/")
+        assert n["location"] == "US-Anywhere · Remote"
+        assert isinstance(n["location"], str)

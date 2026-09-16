@@ -90,6 +90,7 @@ _LISTING_DOMAINS = [
     "postjobfree.com",
     "topsalaries.tech",
     "workew.com",
+    "theladders.com",
 ]
 
 
