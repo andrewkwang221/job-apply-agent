@@ -254,3 +254,22 @@ class TestScoreComponents:
         assert parsed["keywords"] == 0
         assert parse_score_breakdown(None)["skills"] == 0
         assert parse_score_breakdown("not-json")["role"] == 0
+
+
+class TestNoDirectApplyCap:
+    def test_postjobfree_high_score_stays_review(self):
+        from utils.scoring import SHORTLIST_MIN_SCORE
+
+        result = score_job(
+            _job(
+                title="Senior Backend Engineer",
+                description="Python SQL Docker backend api senior engineer",
+                remote_eligibility="accept",
+                source="postjobfree",
+            ),
+            PROFILE,
+        )
+        assert result["reject_code"] is None
+        if result["fit_score"] >= SHORTLIST_MIN_SCORE:
+            assert result["recommended_status"] == "review"
+

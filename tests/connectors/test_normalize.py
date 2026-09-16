@@ -892,3 +892,29 @@ class TestJobgetherNormalize:
         assert n["url"].startswith("https://jobgether.com/offer/")
         assert n["location"] == "Anywhere"
         assert isinstance(n["location"], str)
+
+
+class TestPostJobFreeNormalize:
+    def _raw(self):
+        return {
+            "id": "c88wio",
+            "listing_url": "https://www.postjobfree.com/job/c88wio/front-end-software-san-francisco-ca",
+            "url": "https://www.postjobfree.com/job/c88wio/front-end-software-san-francisco-ca",
+            "title": "Front End Software Engineer",
+            "company": "Stealth AI Startup",
+            "location": "San Francisco, CA",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 8, 29, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.postjobfree import PostJobFreeConnector
+        n = PostJobFreeConnector().normalize(self._raw())
+        _assert_shape(n, "postjobfree")
+
+    def test_keeps_postjobfree_url(self):
+        from connectors.postjobfree import PostJobFreeConnector
+        n = PostJobFreeConnector().normalize(self._raw())
+        assert n["url"].startswith("https://www.postjobfree.com/job/")
+        assert n["location"] == "San Francisco, CA"
+        assert isinstance(n["location"], str)

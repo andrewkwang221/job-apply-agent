@@ -87,6 +87,7 @@ _LISTING_DOMAINS = [
     "justjoin.it",
     "brenxor.com",
     "jobgether.com",
+    "postjobfree.com",
 ]
 
 

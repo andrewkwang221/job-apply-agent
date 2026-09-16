@@ -61,6 +61,7 @@ from connectors.aijobsai import AIJobsAIConnector
 from connectors.justjoin import JustJoinConnector
 from connectors.brenxor import BrenxorConnector
 from connectors.jobgether import JobgetherConnector
+from connectors.postjobfree import PostJobFreeConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
@@ -120,6 +121,7 @@ CONNECTORS = {
     "justjoin": JustJoinConnector,
     "brenxor": BrenxorConnector,
     "jobgether": JobgetherConnector,
+    "postjobfree": PostJobFreeConnector,
     # Slowest board — last so a full-run still finishes the others first.
     "wearedevelopers": WeAreDevelopersConnector,
 }
@@ -966,7 +968,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

@@ -38,6 +38,7 @@ def test_public_board_connectors_are_registered():
     assert "justjoin" in CONNECTORS
     assert "brenxor" in CONNECTORS
     assert "jobgether" in CONNECTORS
+    assert "postjobfree" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -82,3 +83,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "justjoin" not in _NO_DIRECT_APPLY_SOURCES
     assert "brenxor" not in _NO_DIRECT_APPLY_SOURCES
     assert "jobgether" in _NO_DIRECT_APPLY_SOURCES
+    assert "postjobfree" in _NO_DIRECT_APPLY_SOURCES

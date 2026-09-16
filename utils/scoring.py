@@ -23,6 +23,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "remoteco",        # Remote.co guest apply/company often empty (FlexJobs-powered)
     "dice",            # apply is on Dice (account / Easy Apply)
     "jobgether",       # apply is on Jobgether (account / premium auto-apply)
+    "postjobfree",     # apply is on PostJobFree (email / resume form)
 })
 
 TITLE_REJECT_KEYWORDS = [
@@ -448,5 +449,11 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
             _overlap_detail(score, result["matched_skills"], result["matched_keywords"]),
             score=score,
         )
+
+    # Sources without a direct apply path are capped at review so they never
+    # reach the shortlist (no point surfacing jobs we can't act on).
+    source = str(job.get("source", "")).lower()
+    if source in _NO_DIRECT_APPLY_SOURCES and result["recommended_status"] == "shortlisted":
+        result["recommended_status"] = "review"
 
     return result
