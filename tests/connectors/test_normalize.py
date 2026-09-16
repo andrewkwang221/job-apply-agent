@@ -918,3 +918,30 @@ class TestPostJobFreeNormalize:
         assert n["url"].startswith("https://www.postjobfree.com/job/")
         assert n["location"] == "San Francisco, CA"
         assert isinstance(n["location"], str)
+
+
+class TestTopSalariesNormalize:
+    def _raw(self):
+        return {
+            "id": "senior-backend-engineer-revenuecat-189526",
+            "listing_url": "https://topsalaries.tech/job-details/senior-backend-engineer-revenuecat-189526",
+            "url": "https://jobs.ashbyhq.com/revenuecat/c6d43e21-b75b-485b-b7c2-bd7df5909ef3",
+            "title": "Senior Backend Engineer",
+            "company": "RevenueCat",
+            "location": "Americas; EMEA",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 11, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.topsalaries import TopSalariesConnector
+        n = TopSalariesConnector().normalize(self._raw())
+        _assert_shape(n, "topsalaries")
+
+    def test_keeps_ats_url(self):
+        from connectors.topsalaries import TopSalariesConnector
+        n = TopSalariesConnector().normalize(self._raw())
+        assert n["url"].startswith("https://jobs.ashbyhq.com/")
+        assert n["location"] == "Americas; EMEA"
+        assert isinstance(n["location"], str)
+        assert n["ats_type"] == "ashby"

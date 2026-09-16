@@ -88,6 +88,7 @@ _LISTING_DOMAINS = [
     "brenxor.com",
     "jobgether.com",
     "postjobfree.com",
+    "topsalaries.tech",
 ]
 
 

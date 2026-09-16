@@ -39,6 +39,7 @@ def test_public_board_connectors_are_registered():
     assert "brenxor" in CONNECTORS
     assert "jobgether" in CONNECTORS
     assert "postjobfree" in CONNECTORS
+    assert "topsalaries" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -84,3 +85,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "brenxor" not in _NO_DIRECT_APPLY_SOURCES
     assert "jobgether" in _NO_DIRECT_APPLY_SOURCES
     assert "postjobfree" in _NO_DIRECT_APPLY_SOURCES
+    assert "topsalaries" not in _NO_DIRECT_APPLY_SOURCES

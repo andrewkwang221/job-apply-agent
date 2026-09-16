@@ -126,6 +126,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `BrenxorConnector` | [Brenxor](https://brenxor.com/remote-software-development-jobs) | Guest mid/senior/lead × Anywhere/USA HTML lists; engineering title filter; newest-first stale-page stop; 500 retry then skip combo; JobPosting JSON-LD; apply 302 to employer ATS |
 | `JobgetherConnector` | [Jobgether](https://jobgether.com/search-offers?sort=date&location=anywhere) | Guest `GET /api/v1/jobs`; `sort=date` + `locations=anywhere`; engineering keyword walks; page cap 10×25; newest-first stale-page stop; JobPosting JSON-LD; apply review-capped |
 | `PostJobFreeConnector` | [PostJobFree](https://www.postjobfree.com/jobs?t=software+engineer&l=United+States&r=100) | Guest HTML `t=` title walks + `l=United States` + `r=100`; mixed-date `p=` walk (empty/repeat stop); listing skip before detail; apply review-capped |
+| `TopSalariesConnector` | [TopSalaries](https://topsalaries.tech/) | Guest homepage SSR (all cards); engineering title filter; newest-first first-stale-card stop; listing skip before detail; JobPosting JSON-LD; employer ATS href |
 
 **Direct ATS connectors:**
 
