@@ -365,6 +365,7 @@ def _job_to_dict(
         "url": job.url or "",
         "posted_date": job.posted_date.isoformat() if job.posted_date else None,
         "created_at": job.created_at.isoformat() if job.created_at else None,
+        "updated_at": job.updated_at.isoformat() if job.updated_at else None,
         "avatar_color": _avatar_color(job.company),
         "avatar_text": _avatar_text(job.company),
         "reject_code": reject_code,
@@ -548,11 +549,17 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
         )
         if status == "shortlisted":
             query = query.order_by(Job.created_at.desc().nullslast(), Job.id.desc())
+        elif status == "applied":
+            query = query.order_by(
+                Job.updated_at.desc().nullslast(),
+                Job.created_at.desc().nullslast(),
+                Job.id.desc(),
+            )
         else:
             query = query.order_by(Job.fit_score.desc().nullslast(), Job.id.desc())
         cap = limit
         if cap is None:
-            cap = 0 if status in _LIST_STATUSES or status == "shortlisted" else 200
+            cap = 0 if status in _LIST_STATUSES or status in ("shortlisted", "applied") else 200
         if cap and cap > 0:
             query = query.limit(cap)
         jobs = query.all()

@@ -819,7 +819,7 @@ let listSortBy = 'sum';
 let viewingListCard = false;
 let queueView = 'card';
 const _LIST_STATUSES = new Set(['rejected', 'expired', 'archived']);
-const _QUEUE_LIST_STATUSES = new Set(['review', 'shortlisted']);
+const _QUEUE_LIST_STATUSES = new Set(['review', 'shortlisted', 'applied']);
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -997,19 +997,20 @@ async function loadJobs(status, opts) {
   const asList = !!(opts && opts.asList);
   _queueListComplete = false;
   try {
-    const unlimited = _LIST_STATUSES.has(status) || status === 'shortlisted' || asList;
+    const unlimited = _LIST_STATUSES.has(status) || status === 'shortlisted' || status === 'applied' || asList;
     const qs = [];
     if (unlimited) qs.push('limit=0');
     const suffix = qs.length ? `&${qs.join('&')}` : '';
     const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${suffix}`);
     jobs = data.jobs || [];
     if (status === 'shortlisted') jobs = _sortShortlisted(jobs);
+    if (status === 'applied') jobs = _sortApplied(jobs);
     rejectCounts = data.reject_counts || [];
     listFilter = 'all';
     listSortBy = 'sum';
     viewingListCard = false;
     idx = 0;
-    _queueListComplete = asList || status === 'shortlisted';
+    _queueListComplete = asList || status === 'shortlisted' || status === 'applied';
     if (_LIST_STATUSES.has(status) || asList) queueView = 'list';
     else queueView = 'card';
     if (jobs.length === 0) {
@@ -1266,7 +1267,7 @@ function renderCard(i, opts) {
 }
 
 function _isEvalList() {
-  return _QUEUE_LIST_STATUSES.has(currentStatus);
+  return currentStatus === 'review' || currentStatus === 'shortlisted';
 }
 
 const _GATED_SOURCES = new Set([
@@ -1377,10 +1378,26 @@ function _sortShortlisted(jobList) {
   });
 }
 
+function _appliedTime(job) {
+  const t = Date.parse(job && (job.updated_at || job.created_at) || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+function _sortApplied(jobList) {
+  return jobList.slice().sort((a, b) => {
+    const dt = _appliedTime(b) - _appliedTime(a);
+    if (dt) return dt;
+    return (b.id || 0) - (a.id || 0);
+  });
+}
+
 function _sortedListJobs(jobList) {
   const visible = _visibleListJobs(jobList);
   if (currentStatus === 'shortlisted') {
     return _sortShortlisted(visible);
+  }
+  if (currentStatus === 'applied') {
+    return _sortApplied(visible);
   }
   if (!_isEvalList()) return visible;
   return visible.slice().sort((a, b) => {
@@ -1453,6 +1470,8 @@ function renderList(jobList) {
       header.innerHTML = `${scoreHead}<span style="width:222px;text-align:center">Actions</span><span style="width:26px"></span>`;
     } else if (currentStatus === 'shortlisted') {
       header.innerHTML = `${scoreHead}<span style="width:156px;text-align:center">Actions</span><span style="width:26px"></span>`;
+    } else if (currentStatus === 'applied') {
+      header.innerHTML = `<span>Job</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Applied</span><span style="width:26px"></span>`;
     } else {
       header.innerHTML = `${scoreHead}<span style="width:26px"></span>`;
     }
@@ -1478,6 +1497,8 @@ function renderList(jobList) {
       : '';
     const criterion = _isEvalList() && listSortBy !== 'sum';
     const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
+    const dateVal = currentStatus === 'applied' ? (j.updated_at || j.created_at) : j.created_at;
+    const reasonCell = currentStatus === 'applied' ? '' : `<div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(tip)}">${esc(label)}</div>`;
     return `
     <div class="list-row" onclick="openListJob(${original})">
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
@@ -1485,9 +1506,9 @@ function renderList(jobList) {
         <div class="list-title">${esc(j.title)}</div>
         <div class="list-company">${esc(j.company)}${companyAppliedStar(j)}</div>
       </div>
-      <div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(tip)}">${esc(label)}</div>
+      ${reasonCell}
       <div class="list-score" style="${shownScore != null ? scoreColor(shownScore, criterion) : 'color:var(--text-muted)'}">${shownScore != null ? shownScore : '—'}</div>
-      <div class="list-date">${j.created_at ? relativeDate(j.created_at) : '—'}</div>
+      <div class="list-date">${dateVal ? relativeDate(dateVal) : '—'}</div>
       ${rowActions}
       <a class="list-link" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open job posting" onclick="event.stopPropagation()">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
