@@ -127,6 +127,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `JobgetherConnector` | [Jobgether](https://jobgether.com/search-offers?sort=date&location=anywhere) | Guest `GET /api/v1/jobs`; `sort=date` + `locations=anywhere`; engineering keyword walks; page cap 10×25; newest-first stale-page stop; JobPosting JSON-LD; apply review-capped |
 | `PostJobFreeConnector` | [PostJobFree](https://www.postjobfree.com/jobs?t=software+engineer&l=United+States&r=100) | Guest HTML `t=` title walks + `l=United States` + `r=100`; mixed-date `p=` walk (empty/repeat stop); listing skip before detail; apply review-capped |
 | `TopSalariesConnector` | [TopSalaries](https://topsalaries.tech/) | Guest homepage SSR (all cards); engineering title filter; newest-first first-stale-card stop; listing skip before detail; JobPosting JSON-LD; employer ATS href |
+| `LevelsFyiConnector` | [Levels.fyi](https://www.levels.fyi/jobs?locationSlug=united-states&sortBy=date_published&workArrangements=remote) | Guest Playwright Chrome (AWS WAF); skip Promoted; engineering title filter; newest-first stale-page stop; listing skip before detail; employer ATS `applicationUrl`; LinkedIn-only apply dropped |
 
 **Direct ATS connectors:**
 

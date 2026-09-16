@@ -125,6 +125,7 @@ _ALREADY_SOURCED_HOSTS = frozenset({
     "jobgether.com",
     "postjobfree.com",
     "topsalaries.tech",
+    "levels.fyi",
 })
 
 
