@@ -945,3 +945,30 @@ class TestTopSalariesNormalize:
         assert n["location"] == "Americas; EMEA"
         assert isinstance(n["location"], str)
         assert n["ats_type"] == "ashby"
+
+
+class TestWorkewNormalize:
+    def _raw(self):
+        return {
+            "id": "52787",
+            "listing_url": "https://workew.com/job/senior-backend-software-engineer-acme/",
+            "url": "https://jobs.ashbyhq.com/acme/9d3b99f8-8b01-4bd9-99e0-a037aadc0b2e",
+            "title": "Senior Backend Software Engineer",
+            "company": "Acme",
+            "location": "Remote US",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 14, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.workew import WorkewConnector
+        n = WorkewConnector().normalize(self._raw())
+        _assert_shape(n, "workew")
+
+    def test_keeps_ats_url(self):
+        from connectors.workew import WorkewConnector
+        n = WorkewConnector().normalize(self._raw())
+        assert n["url"].startswith("https://jobs.ashbyhq.com/")
+        assert n["location"] == "Remote US"
+        assert isinstance(n["location"], str)
+        assert n["ats_type"] == "ashby"

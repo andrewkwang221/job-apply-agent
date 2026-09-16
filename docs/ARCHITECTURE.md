@@ -128,6 +128,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `PostJobFreeConnector` | [PostJobFree](https://www.postjobfree.com/jobs?t=software+engineer&l=United+States&r=100) | Guest HTML `t=` title walks + `l=United States` + `r=100`; mixed-date `p=` walk (empty/repeat stop); listing skip before detail; apply review-capped |
 | `TopSalariesConnector` | [TopSalaries](https://topsalaries.tech/) | Guest homepage SSR (all cards); engineering title filter; newest-first first-stale-card stop; listing skip before detail; JobPosting JSON-LD; employer ATS href |
 | `LevelsFyiConnector` | [Levels.fyi](https://www.levels.fyi/jobs?locationSlug=united-states&sortBy=date_published&workArrangements=remote) | Guest Playwright Chrome (AWS WAF); skip Promoted; engineering title filter; newest-first stale-page stop; listing skip before detail; employer ATS `applicationUrl`; LinkedIn-only apply dropped |
+| `WorkewConnector` | [Workew](https://workew.com/remote-jobs/) | Guest `GET /wp-json/wp/v2/job-listings`; engineering title filter; newest-first first-stale-job stop; listing skip before persist; employer ATS `meta._application`; Workew/LinkedIn apply dropped |
 
 **Direct ATS connectors:**
 
