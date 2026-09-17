@@ -25,6 +25,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "jobgether",       # apply is on Jobgether (account / premium auto-apply)
     "postjobfree",     # apply is on PostJobFree (email / resume form)
     "ladders",         # apply is on TheLadders (Apply4Me / login)
+    "startupjobs",     # apply is on Startup.jobs (/apply/ is robots-disallowed)
 })
 
 TITLE_REJECT_KEYWORDS = [

@@ -125,6 +125,7 @@ _ALREADY_SOURCED_HOSTS = frozenset({
     "levels.fyi",
     "workew.com",
     "theladders.com",
+    "startup.jobs",
 })
 
 

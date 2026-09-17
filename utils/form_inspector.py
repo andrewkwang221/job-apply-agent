@@ -91,6 +91,7 @@ _LISTING_DOMAINS = [
     "topsalaries.tech",
     "workew.com",
     "theladders.com",
+    "startup.jobs",
 ]
 
 

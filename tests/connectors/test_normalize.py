@@ -998,3 +998,29 @@ class TestLaddersNormalize:
         assert n["url"].startswith("https://www.theladders.com/job/")
         assert n["location"] == "US-Anywhere · Remote"
         assert isinstance(n["location"], str)
+
+
+class TestStartupJobsNormalize:
+    def _raw(self):
+        return {
+            "id": "10074188",
+            "listing_url": "https://startup.jobs/senior-backend-software-engineer-acme-10074188",
+            "url": "https://startup.jobs/senior-backend-software-engineer-acme-10074188",
+            "title": "Senior Backend Software Engineer",
+            "company": "Acme",
+            "location": "Remote · United States",
+            "description": "<p>Python role</p>",
+            "posted_date": datetime(2026, 9, 15, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.startupjobs import StartupJobsConnector
+        n = StartupJobsConnector().normalize(self._raw())
+        _assert_shape(n, "startupjobs")
+
+    def test_keeps_startupjobs_url(self):
+        from connectors.startupjobs import StartupJobsConnector
+        n = StartupJobsConnector().normalize(self._raw())
+        assert n["url"].startswith("https://startup.jobs/")
+        assert n["location"] == "Remote · United States"
+        assert isinstance(n["location"], str)

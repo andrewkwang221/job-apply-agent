@@ -130,6 +130,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `LevelsFyiConnector` | [Levels.fyi](https://www.levels.fyi/jobs?locationSlug=united-states&sortBy=date_published&workArrangements=remote) | Guest Playwright Chrome (AWS WAF); skip Promoted; engineering title filter; newest-first stale-page stop; listing skip before detail; employer ATS `applicationUrl`; LinkedIn-only apply dropped |
 | `WorkewConnector` | [Workew](https://workew.com/remote-jobs/) | Guest `GET /wp-json/wp/v2/job-listings`; engineering title filter; newest-first first-stale-job stop; listing skip before persist; employer ATS `meta._application`; Workew/LinkedIn apply dropped |
 | `LaddersConnector` | [Ladders](https://www.theladders.com/jobs/searchresults-jobs?keywords=Software%20Engineer&sortBy=PUBLICATION_DATE&daysPublished=7&remoteFlags=Remote) | Guest Playwright Chrome (Cloudflare); no `/api/*`; unique `target_roles` + `software engineer`; engineering title filter; newest-first first-stale-job stop; listing skip before detail; apply review-capped |
+| `StartupJobsConnector` | [Startup.jobs](https://startup.jobs/remote-jobs?w=remote&c=full-time%2Cpart-time%2Ccontractor&since=7d&page=1) | Guest Playwright Chrome (Cloudflare listing); no `q=`; `since` from `max_job_age_days`; engineering title filter; newest-first first-stale-job stop; listing skip before persist; JobPosting JSON-LD over HTTP; never `/apply/`; apply review-capped |
 
 **Direct ATS connectors:**
 
