@@ -1,55 +1,60 @@
 """
 Mocked tests for StartupJobsConnector.
 
-Covers: guest remote listing URL (no q=, since from age, no /apply/),
-card HTML parse, engineering title filter, newest-first first-stale-job
-stop, skip ineligible before detail, location as a string, JSON-LD
-hydrate, and normalize() shape. No live HTTP / Playwright.
+Covers: Algolia guest search (no q=, remote + FT/PT/contractor,
+published_at filter), hit parse, engineering title filter, mixed-date
+page walk (no first-stale stop), skip ineligible before detail, location
+as a string, JSON-LD hydrate, and normalize() shape. No live HTTP.
 """
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from connectors.startupjobs import (
     StartupJobsConnector,
-    _extract_cards,
-    _has_job_cards,
-    _is_engineering_title,
-    _location_from_jsonld,
-    _parse_relative_date,
+    algolia_payload,
+    algolia_query_url,
+    extract_algolia_config,
     listing_url,
     since_bucket,
+    _is_engineering_title,
+    _location_from_jsonld,
+    _parse_hit,
 )
 
 
 _NOW = datetime(2026, 9, 16, 12, 0, tzinfo=timezone.utc)
 _CUTOFF = _NOW - timedelta(days=10)
 _PROFILE = {"personal": {"location": "San Francisco, CA"}}
-
-
-def _card(
-    slug="senior-backend-software-engineer-acme",
-    job_id="10074188",
-    title="Senior Backend Software Engineer",
-    company="Acme",
-    location="United States",
-    posted="Posted today",
-) -> str:
-    return f"""
-<a data-post-template-target="title" href="/{slug}-{job_id}">
-  <div class="sm:truncate">{title}</div>
-</a>
-<a href="/company/acme">{company}</a>
-<a href="/locations/united-states">{location}</a>
-<span>Remote</span>
-<div>{posted}</div>
+_HOME_HTML = """
+<html><head>
+<meta name="current-algolia-application-id" content="APPID">
+<meta name="current-algolia-api-key-search" content="SEARCHKEY">
+<meta name="current-algolia-index-post" content="Post_production">
+</head></html>
 """
 
 
-def _listing_html(*cards: str) -> str:
-    return "<html><body>" + "".join(cards) + "</body></html>"
+def _hit(
+    object_id="10074188",
+    title="Senior Backend Software Engineer",
+    company="Acme",
+    location="United States",
+    path="/senior-backend-software-engineer-acme-10074188",
+    published="2026-09-15T11:31:11Z",
+    workplace="remote",
+):
+    return {
+        "objectID": object_id,
+        "title": title,
+        "company_name": company,
+        "location": location,
+        "path": path,
+        "published_at_iso8601": published,
+        "workplace_type_id": workplace,
+        "employment_type": "full-time",
+    }
 
 
 def _detail_html(
@@ -90,62 +95,46 @@ def _detail_html(
     )
 
 
-@contextmanager
-def _fake_browser():
-    yield MagicMock()
-
-
-def test_has_job_cards():
-    assert _has_job_cards(_listing_html(_card()))
-    assert not _has_job_cards("<html><title>Just a moment...</title></html>")
-
-
 def test_listing_url_guest_remote_no_query():
     url = listing_url(7, 1)
     assert "startup.jobs/remote-jobs" in url
     assert "w=remote" in url
     assert "full-time" in url
-    assert "part-time" in url
-    assert "contractor" in url
-    assert "since=7d" in url
     assert "q=" not in url
     assert "/apply" not in url
     assert since_bucket(1) == "24h"
     assert since_bucket(2) == "7d"
     assert since_bucket(10) == "30d"
-    page2 = listing_url(2, 2)
-    assert "page=2" in page2
-    assert "since=7d" in page2
 
 
-def test_parse_card_and_skip_non_engineering():
-    html = _listing_html(
-        _card(),
-        _card(
-            slug="account-executive-nabla",
-            job_id="84673265",
-            title="Account Executive",
-            company="Nabla",
-            posted="Posted today",
-        ),
+def test_extract_algolia_config_and_payload():
+    cfg = extract_algolia_config(_HOME_HTML)
+    assert cfg["application_id"] == "APPID"
+    assert cfg["index"] == "Post_production"
+    assert algolia_query_url(cfg["application_id"], cfg["index"]).endswith(
+        "/1/indexes/Post_production/query"
     )
-    jobs = _extract_cards(html, now=_NOW)
-    assert [j["id"] for j in jobs] == ["10074188", "84673265"]
-    eng = jobs[0]
-    assert eng["title"] == "Senior Backend Software Engineer"
-    assert eng["company"] == "Acme"
-    assert "Remote" in eng["location"]
-    assert "United States" in eng["location"]
-    assert isinstance(eng["location"], str)
-    assert eng["listing_url"].endswith("/senior-backend-software-engineer-acme-10074188")
-    assert eng["posted_date"] == _NOW
-    assert _is_engineering_title(eng["title"])
-    assert not _is_engineering_title(jobs[1]["title"])
+    payload = algolia_payload(_CUTOFF, 0)
+    assert payload["query"] == ""
+    assert payload["page"] == 0
+    assert ["workplace_type_id:remote"] in payload["facetFilters"]
+    assert "published_at_i >=" in payload["filters"]
+    assert "seniority" not in str(payload).lower()
 
 
-def test_parse_relative_date():
-    assert _parse_relative_date("Posted today", now=_NOW) == _NOW
-    assert _parse_relative_date("2 days ago", now=_NOW) == _NOW - timedelta(days=2)
+def test_parse_hit_location_is_string():
+    job = _parse_hit(_hit())
+    assert job is not None
+    assert job["id"] == "10074188"
+    assert job["title"] == "Senior Backend Software Engineer"
+    assert job["company"] == "Acme"
+    assert "Remote" in job["location"]
+    assert "United States" in job["location"]
+    assert isinstance(job["location"], str)
+    assert job["listing_url"].endswith("/senior-backend-software-engineer-acme-10074188")
+    assert job["posted_date"] == datetime(2026, 9, 15, 11, 31, 11, tzinfo=timezone.utc)
+    assert _is_engineering_title(job["title"])
+    assert not _is_engineering_title("Account Executive")
 
 
 def test_jsonld_location_is_string():
@@ -165,60 +154,75 @@ def test_jsonld_location_is_string():
 
 @patch("connectors.startupjobs.remember_listing_urls")
 @patch("connectors.startupjobs.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.startupjobs.time.sleep")
 @patch("connectors.startupjobs.exclusion_reason", return_value=None)
 @patch("connectors.startupjobs.load_candidate_profile", return_value=_PROFILE)
 @patch("connectors.startupjobs.job_age_cutoff", return_value=_CUTOFF)
 @patch("connectors.startupjobs.max_job_age_days", return_value=10)
 @patch("connectors.startupjobs._fetch_detail_html", return_value=_detail_html())
-@patch("connectors.startupjobs._open_listing")
-@patch("connectors.startupjobs._browser_session", _fake_browser)
-def test_fetch_keeps_engineering_stops_at_first_stale(mock_open, mock_detail, *_patches):
-    listing = _listing_html(
-        _card(),
-        _card(
-            slug="account-executive-nabla",
-            job_id="84673265",
+@patch("connectors.startupjobs._algolia_config")
+@patch("connectors.startupjobs._algolia_query")
+def test_fetch_keeps_engineering_walks_mixed_dates(mock_query, mock_cfg, mock_detail, *_patches):
+    mock_cfg.return_value = {
+        "application_id": "APPID",
+        "api_key": "SEARCHKEY",
+        "index": "Post_production",
+    }
+    page0 = [
+        _hit(),
+        _hit(
+            object_id="84673265",
             title="Account Executive",
-            company="Nabla",
-            posted="Posted today",
+            path="/account-executive-nabla-84673265",
+            published="2026-09-15T12:00:00Z",
         ),
-        _card(
-            slug="old-staff-engineer-acme",
-            job_id="1",
+        _hit(
+            object_id="1",
             title="Staff Engineer",
-            company="Acme",
-            posted="Posted 40 days ago",
+            path="/old-staff-engineer-acme-1",
+            published="2026-08-01T12:00:00Z",
         ),
-        _card(
-            slug="platform-engineer-acme",
-            job_id="2",
+        _hit(
+            object_id="2",
             title="Platform Engineer",
-            company="Acme",
-            posted="Posted today",
+            path="/platform-engineer-acme-2",
+            published="2026-09-14T12:00:00Z",
         ),
-    )
+    ]
+    page1 = [
+        _hit(
+            object_id="3",
+            title="ML Engineer",
+            path="/ml-engineer-acme-3",
+            published="2026-09-13T12:00:00Z",
+        ),
+    ]
 
-    def _open(_page, url):
-        if "page=2" in url:
-            return ""
-        return listing
+    def _query(config, payload):
+        assert payload["query"] == ""
+        assert "seniority" not in str(payload).lower()
+        page = payload["page"]
+        if page == 0:
+            return {"hits": page0, "nbHits": 5, "nbPages": 2}
+        if page == 1:
+            return {"hits": page1, "nbHits": 5, "nbPages": 2}
+        raise AssertionError(f"unexpected page {page}")
 
-    mock_open.side_effect = _open
+    mock_query.side_effect = _query
     jobs = StartupJobsConnector().fetch_jobs()
     ids = [j["id"] for j in jobs]
-    assert ids == ["10074188"]
+    assert ids == ["10074188", "2", "3"]
     assert jobs[0]["url"].startswith("https://startup.jobs/")
     assert "/apply" not in jobs[0]["url"]
     assert "Python Kubernetes role" in jobs[0]["description"]
-    listing_urls = [c.args[1] for c in mock_open.call_args_list]
-    assert all("q=" not in u for u in listing_urls)
-    assert all("/apply" not in u for u in listing_urls)
-    assert mock_detail.call_count == 1
-    assert "/apply" not in mock_detail.call_args.args[0]
+    assert mock_query.call_count == 2
+    assert mock_detail.call_count == 3
+    assert all("/apply" not in c.args[0] for c in mock_detail.call_args_list)
 
 
 @patch("connectors.startupjobs.remember_listing_urls")
 @patch("connectors.startupjobs.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.startupjobs.time.sleep")
 @patch(
     "connectors.startupjobs.exclusion_reason",
     return_value=("remote", "Location not eligible: Remote Europe"),
@@ -227,14 +231,20 @@ def test_fetch_keeps_engineering_stops_at_first_stale(mock_open, mock_detail, *_
 @patch("connectors.startupjobs.job_age_cutoff", return_value=_CUTOFF)
 @patch("connectors.startupjobs.max_job_age_days", return_value=10)
 @patch("connectors.startupjobs._fetch_detail_html")
-@patch(
-    "connectors.startupjobs._open_listing",
-    return_value=_listing_html(_card(location="Remote Europe")),
-)
-@patch("connectors.startupjobs._browser_session", _fake_browser)
-def test_skips_ineligible_before_detail(mock_open, mock_detail, *_patches):
-    jobs = StartupJobsConnector().fetch_jobs()
-    assert jobs == []
+@patch("connectors.startupjobs._algolia_config")
+@patch("connectors.startupjobs._algolia_query")
+def test_skips_ineligible_before_detail(mock_query, mock_cfg, mock_detail, *_patches):
+    mock_cfg.return_value = {
+        "application_id": "APPID",
+        "api_key": "SEARCHKEY",
+        "index": "Post_production",
+    }
+    mock_query.return_value = {
+        "hits": [_hit(location="Remote Europe")],
+        "nbHits": 1,
+        "nbPages": 1,
+    }
+    assert StartupJobsConnector().fetch_jobs() == []
     assert mock_detail.call_count == 0
 
 

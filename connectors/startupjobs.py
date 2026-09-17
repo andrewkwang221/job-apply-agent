@@ -1,19 +1,20 @@
 """
 Startup.jobs connector.
 
-Guest remote listing at
-https://startup.jobs/remote-jobs?w=remote&c=full-time,part-time,contractor&since=Nd&page=1
+Guest Algolia search (public search-only key from homepage meta):
+POST https://{appId}-dsn.algolia.net/1/indexes/Post_production/query
 
-``robots.txt`` allows listing and job pages; ``*/apply$`` and ``/apply/*``
-are disallowed. Cloudflare 403s ``requests`` / ``curl_cffi`` on the
-filtered list. Playwright + installed Chrome is the default listing
-fetch. Job-page JSON-LD is HTTP (never ``/apply/``).
+The filtered ``/remote-jobs?...`` HTML list is Cloudflare-blocked.
+Playwright does not clear that challenge. Homepage Chrome-TLS HTML is
+200 and exposes ``current-algolia-application-id`` /
+``current-algolia-api-key-search`` / ``current-algolia-index-post``.
+``requests`` can query Algolia; job pages return JSON-LD over HTTP.
 
-No ``q=`` — keyword search leaks non-eng titles. ``since`` comes from
-``max_job_age_days``. Seniority is not sent. Keep engineering titles.
-Stop at the first stale job when listing dates are present; otherwise
-walk until empty and drop stale on ``datePosted``. Skip detail when
-listing location/title already fails ``job_inclusion``.
+Filters: remote, FT/PT/contractor, ``published_at_i`` from
+``max_job_age_days``. No ``q=`` (keyword search leaks non-eng titles).
+No seniority facet. Dates are mixed — walk pages until empty / nbPages
+(runaway cap). Engineering title filter. Skip detail when listing
+location/title already fails ``job_inclusion``. Never ``/apply/``.
 
 ``location`` is a string (never JSON-LD). Apply stays on startup.jobs
 (review-capped).
@@ -23,12 +24,13 @@ from __future__ import annotations
 import html as html_lib
 import json
 import re
+import time
 import traceback
-from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urljoin
 
+import requests
 from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
@@ -43,10 +45,11 @@ logger = setup_logger("startupjobs_connector")
 
 BASE_URL = "https://startup.jobs"
 LISTING_PATH = "/remote-jobs"
-_NAV_TIMEOUT_MS = 90_000
 _DETAIL_TIMEOUT_MS = 30
-# Newest-first date pager when listing dates exist; runaway only.
-_MAX_PAGES = 40
+_HITS_PER_PAGE = 100
+# Mixed-date Algolia window; ~5k remote hits in 7 days. Runaway only.
+_MAX_PAGES = 50
+_FETCH_DELAY = 0.35
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
     "full stack", "full-stack", "fullstack", "devops", "sre", "data engineer",
@@ -54,29 +57,19 @@ _ENGINEERING_KEYWORDS = {
     "python", "typescript", "golang", "rust", "java", "deep learning",
     "llm ", " llm", "artificial intelligence", "agentic", "rag",
 }
-_JOB_HREF_RE = re.compile(
-    r"""href=["']((?:https://startup\.jobs)?(/[a-z0-9-]+-(\d+)))["']""",
+_META_RE = re.compile(
+    r'<meta\b[^>]*name=["\']([^"\']+)["\'][^>]*content=["\']([^"\']*)["\'][^>]*>',
     re.I,
 )
-_COMPANY_RE = re.compile(
-    r"""<a[^>]+href=["'][^"']*/company/[^"']+["'][^>]*>(.*?)</a>""",
-    re.I | re.DOTALL,
-)
-_LOCATION_HREF_RE = re.compile(
-    r"""<a[^>]+href=["'][^"']*/locations/[^"']+["'][^>]*>(.*?)</a>""",
-    re.I | re.DOTALL,
-)
-_RELATIVE_RE = re.compile(
-    r"(?P<just>just now|today)|"
-    r"(?:an?\s+(?P<one>minute|hour|day|week|month)\s+ago)|"
-    r"(?P<n>\d+)\s+(?P<unit>minutes?|hours?|days?|weeks?|months?)\s+ago",
+_META_RE2 = re.compile(
+    r'<meta\b[^>]*content=["\']([^"\']*)["\'][^>]*name=["\']([^"\']+)["\'][^>]*>',
     re.I,
 )
+_PATH_ID_RE = re.compile(r"-(\d+)$")
 _LD_JSON_RE = re.compile(
     r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
     re.DOTALL | re.IGNORECASE,
 )
-_TAG_RE = re.compile(r"<[^>]+>")
 _CURL_VERIFY: bool | None = None
 
 
@@ -87,60 +80,57 @@ class StartupJobsConnector(BaseConnector):
     def fetch_jobs(self) -> list[dict[str, Any]]:
         age_days = max_job_age_days(self.source_name)
         cutoff = job_age_cutoff(self.source_name)
-        since = since_bucket(age_days)
         logger.info(
-            "Fetching jobs from Startup.jobs guest remote list "
-            f"(w=remote, FT/PT/contractor, since={since}, age_days={age_days}; "
-            "stop at first stale job)…"
+            "Fetching jobs from Startup.jobs Algolia "
+            f"(remote, FT/PT/contractor, age_days={age_days}; mixed-date walk)…"
         )
         kept: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
         try:
-            with _browser_session() as page:
-                now = datetime.now(tz=timezone.utc)
-                prev_first = ""
-                for page_n in range(1, _MAX_PAGES + 1):
-                    url = listing_url(age_days, page_n)
-                    html = _open_listing(page, url)
-                    if not html:
-                        break
-                    cards = _extract_cards(html, now=now)
-                    if not cards:
-                        break
-                    first_id = cards[0]["id"]
-                    if page_n > 1 and first_id == prev_first:
-                        break
-                    prev_first = first_id
-                    page_jobs: list[dict[str, Any]] = []
-                    stale_stop = False
-                    dated = 0
-                    for raw in cards:
-                        posted = raw.get("posted_date")
-                        if posted is not None:
-                            dated += 1
-                            if posted < cutoff:
-                                logger.info(
-                                    "startupjobs first stale job — stopping newest-first walk"
-                                )
-                                stale_stop = True
-                                break
-                        if not _is_engineering_title(raw["title"]):
-                            continue
-                        if raw["id"] in seen_ids:
-                            continue
-                        seen_ids.add(raw["id"])
-                        page_jobs.append(raw)
+            config = _algolia_config()
+            total: int | None = None
+            for page in range(_MAX_PAGES):
+                payload = algolia_payload(cutoff, page)
+                data = _algolia_query(config, payload)
+                hits = data.get("hits") if isinstance(data, dict) else None
+                if not isinstance(hits, list):
+                    hits = []
+                if total is None:
+                    total = int(data.get("nbHits") or 0)
+                    nb_pages = int(data.get("nbPages") or 0)
                     logger.info(
-                        f"startupjobs page {page_n}: {len(cards)} cards, "
-                        f"{len(page_jobs)} engineering"
-                        f"{' (stale stop)' if stale_stop else ''}"
+                        f"startupjobs Algolia nbHits={total} nbPages={nb_pages} "
+                        f"hitsPerPage={_HITS_PER_PAGE}"
                     )
-                    self._emit_page(page_jobs, kept, cutoff)
-                    if stale_stop:
-                        break
-                    if dated == 0:
-                        # Listing dates unknown — walk until empty; detail drops stale.
+                    if total > _HITS_PER_PAGE * _MAX_PAGES:
+                        logger.info(
+                            "startupjobs Algolia window exceeds page cap; "
+                            "later hits in the date filter may be missed"
+                        )
+                page_jobs: list[dict[str, Any]] = []
+                for raw in hits:
+                    job = _parse_hit(raw)
+                    if not job:
                         continue
+                    posted = job.get("posted_date")
+                    if posted is not None and posted < cutoff:
+                        continue
+                    if not _is_engineering_title(job["title"]):
+                        continue
+                    if job["id"] in seen_ids:
+                        continue
+                    seen_ids.add(job["id"])
+                    page_jobs.append(job)
+                logger.info(
+                    f"startupjobs page {page}: {len(hits)} hits, "
+                    f"{len(page_jobs)} engineering"
+                )
+                self._emit_page(page_jobs, kept, cutoff)
+                nb_pages = int(data.get("nbPages") or 0) if isinstance(data, dict) else 0
+                if not hits or (nb_pages and page + 1 >= nb_pages):
+                    break
+                if page + 1 < _MAX_PAGES:
+                    time.sleep(_FETCH_DELAY)
         except Exception as e:
             logger.error(f"Error fetching jobs from Startup.jobs: {e}")
             logger.debug(traceback.format_exc())
@@ -218,7 +208,10 @@ def since_bucket(age_days: int) -> str:
 
 
 def listing_url(age_days: int, page: int = 1) -> str:
-    params: list[tuple[str, str]] = [
+    """Guest board URL (docs / tests). Fetch uses Algolia, not this HTML."""
+    from urllib.parse import urlencode
+
+    params = [
         ("w", "remote"),
         ("c", "full-time,part-time,contractor"),
         ("since", since_bucket(age_days)),
@@ -227,52 +220,48 @@ def listing_url(age_days: int, page: int = 1) -> str:
     return f"{BASE_URL}{LISTING_PATH}?{urlencode(params)}"
 
 
+def algolia_query_url(application_id: str, index: str) -> str:
+    return f"https://{application_id}-dsn.algolia.net/1/indexes/{index}/query"
+
+
+def algolia_payload(cutoff: datetime, page: int) -> dict[str, Any]:
+    since = int(cutoff.timestamp())
+    return {
+        "query": "",
+        "hitsPerPage": _HITS_PER_PAGE,
+        "page": int(page),
+        "facetFilters": [
+            ["workplace_type_id:remote"],
+            [
+                "employment_type:full-time",
+                "employment_type:part-time",
+                "employment_type:contractor",
+            ],
+        ],
+        "filters": f"published_at_i >= {since}",
+    }
+
+
+def extract_algolia_config(html: str) -> dict[str, str]:
+    metas: dict[str, str] = {}
+    for match in _META_RE.finditer(html or ""):
+        metas[match.group(1)] = match.group(2)
+    for match in _META_RE2.finditer(html or ""):
+        metas[match.group(2)] = match.group(1)
+    application_id = (metas.get("current-algolia-application-id") or "").strip()
+    api_key = (metas.get("current-algolia-api-key-search") or "").strip()
+    index = (metas.get("current-algolia-index-post") or "").strip()
+    if not application_id or not api_key or not index:
+        raise RuntimeError("homepage missing Algolia search meta")
+    return {
+        "application_id": application_id,
+        "api_key": api_key,
+        "index": index,
+    }
+
+
 def _is_engineering_title(title: str) -> bool:
     return any(kw in title.lower() for kw in _ENGINEERING_KEYWORDS)
-
-
-def _plain(html: str) -> str:
-    text = _TAG_RE.sub(" ", html or "")
-    text = html_lib.unescape(text)
-    return re.sub(r"\s+", " ", text).strip()
-
-
-def _parse_relative_date(text: str, now: datetime | None = None) -> datetime | None:
-    now = now or datetime.now(tz=timezone.utc)
-    match = _RELATIVE_RE.search(text or "")
-    if not match:
-        return None
-    if match.group("just"):
-        return now
-    if match.group("one"):
-        n = 1
-        unit = match.group("one").lower()
-    else:
-        n = int(match.group("n"))
-        unit = match.group("unit").lower().rstrip("s")
-    deltas = {
-        "minute": timedelta(minutes=n),
-        "hour": timedelta(hours=n),
-        "day": timedelta(days=n),
-        "week": timedelta(weeks=n),
-        "month": timedelta(days=30 * n),
-    }
-    delta = deltas.get(unit)
-    if delta is None:
-        return None
-    return now - delta
-
-
-def _location_from_block(block: str) -> str:
-    places = [_plain(m.group(1)) for m in _LOCATION_HREF_RE.finditer(block or "")]
-    places = [p for p in places if p]
-    blob = _plain(block)
-    remote = "remote" in blob.lower()
-    if places and remote:
-        return "Remote · " + " · ".join(places)
-    if places:
-        return "Remote · " + " · ".join(places)
-    return "Remote"
 
 
 def _inclusion_fields(job: dict[str, Any]) -> dict[str, Any]:
@@ -286,46 +275,17 @@ def _inclusion_fields(job: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _extract_cards(html: str, now: datetime | None = None) -> list[dict[str, Any]]:
-    now = now or datetime.now(tz=timezone.utc)
-    jobs: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    matches = list(_JOB_HREF_RE.finditer(html or ""))
-    for i, match in enumerate(matches):
-        job_id = match.group(3)
-        if job_id in seen:
-            continue
-        seen.add(job_id)
-        path = match.group(2)
-        start = match.start()
-        end = matches[i + 1].start() if i + 1 < len(matches) else min(len(html or ""), start + 2500)
-        block = (html or "")[start:end]
-        tail = (html or "")[match.end() : match.end() + 800]
-        title_match = re.match(r"[^>]*>\s*(.*?)\s*</a>", tail, re.I | re.DOTALL)
-        title = _plain(title_match.group(1)) if title_match else ""
-        if not title:
-            title = path.strip("/").rsplit("-", 1)[0].replace("-", " ")
-        company_match = _COMPANY_RE.search(block)
-        company = _plain(company_match.group(1)) if company_match else ""
-        listing = urljoin(BASE_URL, path)
-        jobs.append(
-            {
-                "id": job_id,
-                "listing_url": listing,
-                "url": listing,
-                "title": title,
-                "company": company or "Unknown",
-                "location": _location_from_block(block),
-                "description": "",
-                "posted_date": _parse_relative_date(block, now=now),
-            }
-        )
-    return jobs
-
-
 def _parse_dt(value: Any) -> datetime | None:
     if value in (None, ""):
         return None
+    if isinstance(value, (int, float)):
+        millis = float(value)
+        if millis > 1e12:
+            millis = millis / 1000.0
+        try:
+            return datetime.fromtimestamp(millis, tz=timezone.utc)
+        except (OSError, OverflowError, ValueError):
+            return None
     try:
         dt = dateutil_parser.parse(str(value).strip())
         if dt.tzinfo is None:
@@ -333,6 +293,54 @@ def _parse_dt(value: Any) -> datetime | None:
         return dt
     except Exception:
         return None
+
+
+def _location_from_hit(hit: dict[str, Any]) -> str:
+    place = str(hit.get("location") or "").strip()
+    workplace = str(hit.get("workplace_type_id") or "").replace("-", " ").strip()
+    remote = workplace.lower() == "remote" or "remote" in place.lower()
+    if place and remote and "remote" not in place.lower():
+        return f"Remote · {place}"
+    if place:
+        return place if remote or "remote" in place.lower() else f"Remote · {place}"
+    return "Remote" if remote else "Remote"
+
+
+def _parse_hit(hit: Any) -> dict[str, Any] | None:
+    if not isinstance(hit, dict):
+        return None
+    title = str(hit.get("title") or "").strip()
+    if not title:
+        return None
+    path = str(hit.get("path") or "").strip()
+    if not path:
+        return None
+    if not path.startswith("/"):
+        path = "/" + path
+    job_id = ""
+    match = _PATH_ID_RE.search(path)
+    if match:
+        job_id = match.group(1)
+    job_id = job_id or str(hit.get("objectID") or hit.get("id") or "").strip()
+    if not job_id:
+        return None
+    listing = urljoin(BASE_URL, path)
+    posted = _parse_dt(
+        hit.get("published_at_iso8601")
+        or hit.get("published_at_i")
+        or hit.get("published_at")
+    )
+    company = str(hit.get("company_name") or "").strip()
+    return {
+        "id": job_id,
+        "listing_url": listing,
+        "url": listing,
+        "title": title,
+        "company": company or "Unknown",
+        "location": _location_from_hit(hit),
+        "description": "",
+        "posted_date": posted,
+    }
 
 
 def _as_job_posting(data: Any) -> dict[str, Any]:
@@ -419,7 +427,11 @@ def _merge_detail(job: dict[str, Any], html: str, cutoff: datetime) -> bool:
     detail_loc = _location_from_jsonld(detail.get("jobLocation"))
     if detail_loc and "remote" not in listing_loc.lower():
         job["location"] = f"Remote · {detail_loc}"
-    elif detail_loc and "remote" in listing_loc.lower() and detail_loc.lower() not in listing_loc.lower():
+    elif (
+        detail_loc
+        and "remote" in listing_loc.lower()
+        and detail_loc.lower() not in listing_loc.lower()
+    ):
         job["location"] = f"{listing_loc} · {detail_loc}"
     if not isinstance(job.get("location"), str):
         job["location"] = "Remote"
@@ -433,6 +445,36 @@ def _is_challenge(status: int, text: str) -> bool:
     return "just a moment" in blob or "cf-browser-verification" in blob
 
 
+def _fetch_homepage_html() -> str:
+    html = _curl_get(f"{BASE_URL}/")
+    if html:
+        return html
+    resp = requests.get(f"{BASE_URL}/", timeout=_DETAIL_TIMEOUT_MS)
+    if _is_challenge(resp.status_code, resp.text) or resp.status_code >= 400:
+        raise RuntimeError(f"homepage HTTP {resp.status_code}")
+    return resp.text or ""
+
+
+def _algolia_config() -> dict[str, str]:
+    return extract_algolia_config(_fetch_homepage_html())
+
+
+def _algolia_query(config: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+    url = algolia_query_url(config["application_id"], config["index"])
+    headers = {
+        "content-type": "application/json",
+        "x-algolia-application-id": config["application_id"],
+        "x-algolia-api-key": config["api_key"],
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=_DETAIL_TIMEOUT_MS)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Algolia HTTP {resp.status_code}")
+    data = resp.json()
+    if not isinstance(data, dict):
+        raise RuntimeError("Algolia returned non-object JSON")
+    return data
+
+
 def _fetch_detail_html(url: str) -> str:
     if "/apply" in (url or "").lower():
         return ""
@@ -440,12 +482,8 @@ def _fetch_detail_html(url: str) -> str:
     if text:
         return text
     try:
-        import requests
-
         resp = requests.get(url, timeout=_DETAIL_TIMEOUT_MS)
-        if _is_challenge(resp.status_code, resp.text):
-            return ""
-        if resp.status_code >= 400:
+        if _is_challenge(resp.status_code, resp.text) or resp.status_code >= 400:
             return ""
         return resp.text or ""
     except Exception as e:
@@ -486,103 +524,3 @@ def _curl_get(url: str) -> str:
     if _is_challenge(resp.status_code, resp.text) or resp.status_code >= 400:
         return ""
     return resp.text or ""
-
-
-def _launch_browser(pw: Any) -> Any:
-    args = ["--disable-http2", "--disable-blink-features=AutomationControlled"]
-    try:
-        return pw.chromium.launch(headless=True, channel="chrome", args=args)
-    except Exception:
-        return pw.chromium.launch(headless=True, args=args)
-
-
-@contextmanager
-def _browser_session():
-    from playwright.sync_api import sync_playwright
-
-    with sync_playwright() as pw:
-        browser = _launch_browser(pw)
-        context = None
-        try:
-            context = browser.new_context(locale="en-US")
-            page = context.new_page()
-            yield page
-        finally:
-            if context is not None:
-                context.close()
-            browser.close()
-
-
-def _has_job_cards(html: str) -> bool:
-    return bool(_JOB_HREF_RE.search(html or ""))
-
-
-def _challenge_snapshot(page: Any) -> str:
-    title = ""
-    try:
-        title = page.title() or ""
-    except Exception:
-        pass
-    return f"title={title!r}"
-
-
-def _wait_out_challenge(page: Any, timeout_ms: int) -> None:
-    page.wait_for_function(
-        """() => !/just a moment|attention required/i.test(document.title || '')""",
-        timeout=timeout_ms,
-    )
-
-
-def _wait_for_job_cards(page: Any, timeout_ms: int) -> None:
-    page.wait_for_function(
-        """() => {
-          if (/just a moment|attention required/i.test(document.title || '')) {
-            return false;
-          }
-          return [...document.querySelectorAll('a[href]')].some((a) => {
-            const href = a.getAttribute('href') || '';
-            return /^(https:\\/\\/startup\\.jobs)?\\/[a-z0-9-]+-\\d+\\/?$/i.test(href);
-          });
-        }""",
-        timeout=timeout_ms,
-    )
-
-
-def _warm_homepage(page: Any) -> None:
-    """Pass Cloudflare on ``/`` once so the filtered list inherits cookies."""
-    if getattr(page, "_startupjobs_warmed", False):
-        return
-    try:
-        page.goto(f"{BASE_URL}/", wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-        _wait_out_challenge(page, _NAV_TIMEOUT_MS)
-        logger.info("startupjobs homepage challenge cleared")
-    except Exception as e:
-        logger.info(
-            f"startupjobs homepage wait failed ({type(e).__name__}; "
-            f"{_challenge_snapshot(page)})"
-        )
-    page._startupjobs_warmed = True
-
-
-def _open_listing(page: Any, url: str) -> str:
-    try:
-        _warm_homepage(page)
-        page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-        _wait_for_job_cards(page, _NAV_TIMEOUT_MS)
-    except Exception as e:
-        logger.info(
-            f"startupjobs listing wait failed ({type(e).__name__}) for {url} "
-            f"({_challenge_snapshot(page)})"
-        )
-        try:
-            html = page.content() or ""
-        except Exception:
-            return ""
-        if _has_job_cards(html):
-            return html
-        return ""
-    try:
-        html = page.content() or ""
-    except Exception:
-        return ""
-    return html if _has_job_cards(html) else ""
