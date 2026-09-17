@@ -73,12 +73,11 @@ _ATS_DOMAINS = (
 )
 
 _ENGINEERING_KEYWORDS = {
-    "developer", "engineer", "engineering", "software", "backend", "frontend",
-    "fullstack", "full-stack", "devops", "sre", "platform", "infrastructure",
-    "data-engineer", "data-scientist", "machine-learning", "-ml-", "-ai-",
-    "mlops", "python", "typescript", "golang", "rust", "java", "kotlin",
-    "ios", "android", "mobile", "cloud", "kubernetes", "architect",
-    "firmware", "embedded", "systems", "security", "blockchain", "web3",
+    "engineer", "engineering", "developer", "software", "backend", "frontend",
+    "full stack", "full-stack", "fullstack", "devops", "sre", "data engineer",
+    "data scientist", "machine learning", "ml ", " ml", "ai ", " ai", "mlops",
+    "python", "typescript", "golang", "rust", "java", "deep learning",
+    "llm ", " llm", "artificial intelligence", "agentic", "rag",
 }
 
 
@@ -243,8 +242,9 @@ def _finalize_sitemap_entries(
 
 
 def _is_engineering_url(url: str) -> bool:
-    slug = url.rstrip("/").split("/")[-1].lower()
-    return any(kw in slug for kw in _ENGINEERING_KEYWORDS)
+    slug = url.rstrip("/").split("/")[-1].lower().replace("-", " ")
+    blob = f" {slug} "
+    return any(kw in blob for kw in _ENGINEERING_KEYWORDS)
 
 
 def _fetch_job_page(url: str) -> dict[str, Any] | None:

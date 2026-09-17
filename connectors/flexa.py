@@ -54,12 +54,10 @@ _FETCH_DELAY = 0.4
 # Engineering-relevant keywords matched as substrings of the job title (lowercase).
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
-    "full stack", "full-stack", "devops", "sre", "platform", "infrastructure",
-    "data engineer", "data scientist", "machine learning", "ml ", " ml", "ai ",
-    " ai", "mlops", "python", "typescript", "golang", "rust", "java", "kotlin",
-    "ios", "android", "mobile", "cloud", "kubernetes", "architect", "cto",
-    "firmware", "embedded", "systems", "security", "blockchain", "web3",
-    "computer vision", "deep learning", "llm", "inference",
+    "full stack", "full-stack", "fullstack", "devops", "sre", "data engineer",
+    "data scientist", "machine learning", "ml ", " ml", "ai ", " ai", "mlops",
+    "python", "typescript", "golang", "rust", "java", "deep learning",
+    "llm ", " llm", "artificial intelligence", "agentic", "rag",
 }
 
 _GRAPHQL_QUERY = """

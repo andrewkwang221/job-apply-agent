@@ -78,8 +78,9 @@ def test_extract_listing_jobs():
 
 def test_engineering_title_filter():
     assert _is_engineering_title("Senior Backend Engineer")
-    assert _is_engineering_title("Founding FDE")
+    assert _is_engineering_title("Founding AI Engineer")
     assert not _is_engineering_title("Account Executive")
+    assert not _is_engineering_title("Founding FDE")
 
 
 def test_parse_skips_non_engineering():
