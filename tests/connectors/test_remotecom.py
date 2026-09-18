@@ -74,10 +74,15 @@ def _detail_html(
     title="Staff Security Engineer",
     company="Aledade",
     description="<p>Python role</p>",
-    date_posted="2026-09-09T21:32:52Z",
-    valid_through="2026-10-10",
+    date_posted=None,
+    valid_through=None,
     location=None,
 ) -> str:
+    now = datetime.now(tz=timezone.utc)
+    if date_posted is None:
+        date_posted = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+    if valid_through is None:
+        valid_through = (now + timedelta(days=30)).strftime("%Y-%m-%d")
     payload = {
         "@context": "http://schema.org/",
         "@type": "JobPosting",

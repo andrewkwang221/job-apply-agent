@@ -36,7 +36,7 @@ def _item(
     title="Senior Backend Engineer",
     job_id=_UUID,
     company="Acme",
-    created="2026-09-10T12:00:00.000Z",
+    created=None,
     job_url="https://jobs.lever.co/acme/abc",
     job_type="remote",
     level="Senior (5+ years)",
@@ -44,6 +44,10 @@ def _item(
     rate_min=80,
     rate_max=120,
 ):
+    if created is None:
+        created = (datetime.now(tz=timezone.utc) - timedelta(hours=12)).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
     return {
         "uuid": job_id,
         "title": title,

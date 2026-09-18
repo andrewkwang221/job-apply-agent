@@ -32,9 +32,13 @@ def _item(
     slug="acme-senior-backend-engineer-remote-123",
     company="Acme",
     location="United States (Remote)",
-    published="2026-09-10T12:00:00+00:00",
+    published=None,
     salary="$150k - $180k",
 ):
+    if published is None:
+        published = (datetime.now(tz=timezone.utc) - timedelta(hours=12)).strftime(
+            "%Y-%m-%dT%H:%M:%S+00:00"
+        )
     return {
         "id": job_id,
         "title": title,

@@ -31,7 +31,7 @@ def _item(
     title="Senior Backend Engineer",
     job_id="df0f8cc8-7864-4090-9f1a-e3fbec1125ba",
     company="Acme",
-    created="2026-09-10T12:00:00.000Z",
+    created=None,
     url=None,
     workplace="remote",
     location=None,
@@ -39,6 +39,10 @@ def _item(
     state="published",
     description="Backend role building Python APIs.",
 ):
+    if created is None:
+        created = (datetime.now(tz=timezone.utc) - timedelta(hours=12)).strftime(
+            "%Y-%m-%dT%H:%M:%S.000Z"
+        )
     loc = location if location is not None else {
         "city": "San Francisco",
         "subregion": "California",

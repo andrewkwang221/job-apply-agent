@@ -68,10 +68,15 @@ def _detail_html(
     title="Senior PL/SQL Developer",
     company="ROI Solutions, Inc",
     description="<p>Oracle role</p>",
-    date_posted="2026-09-10",
-    valid_through="2026-10-10",
+    date_posted=None,
+    valid_through=None,
     location=None,
 ) -> str:
+    now = datetime.now(tz=timezone.utc)
+    if date_posted is None:
+        date_posted = now.strftime("%Y-%m-%d")
+    if valid_through is None:
+        valid_through = (now + timedelta(days=30)).strftime("%Y-%m-%d")
     location = location or [
         {
             "@type": "Place",

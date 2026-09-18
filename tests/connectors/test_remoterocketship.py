@@ -37,13 +37,17 @@ def _item(
     company_name="Acme",
     company_slug="acme",
     location="Worldwide",
-    created_at="2026-09-10T12:00:00+00:00",
+    created_at=None,
     url="https://jobs.lever.co/acme/abc",
     salary_text="$111,000 - $130,000 per year",
     summary="Backend role building APIs.",
     date_deleted=None,
     location_countries=None,
 ):
+    if created_at is None:
+        created_at = (datetime.now(tz=timezone.utc) - timedelta(hours=12)).strftime(
+            "%Y-%m-%dT%H:%M:%S+00:00"
+        )
     return {
         "id": job_id,
         "slug": slug,
