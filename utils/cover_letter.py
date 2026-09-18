@@ -12,6 +12,7 @@ import requests
 
 import config
 from utils.llm_analysis import _candidate_summary, _job_description
+from utils.ollama_client import request_headers
 
 
 COVER_LETTER_SYSTEM_PROMPT = (
@@ -131,7 +132,12 @@ def generate_cover_letter(
     }
 
     try:
-        response = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+        response = requests.post(
+            config.OLLAMA_URL,
+            json=payload,
+            headers=request_headers(),
+            timeout=config.LLM_TIMEOUT,
+        )
         response.raise_for_status()
         data = response.json()
         content = str(data.get("message", {}).get("content") or "").strip()

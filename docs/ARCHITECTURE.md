@@ -43,7 +43,7 @@ python run_pipeline.py full-run
         |
         v
 [ANALYZE]
-  -> send review-status jobs to local Ollama LLM
+  -> send review-status jobs to Ollama (local or cloud)
   -> structured JSON reasoning (fit score, strengths, gaps)
   -> conservative promotion/demotion
   -> persist LLM fields
@@ -197,7 +197,7 @@ Evaluates job relevance:
 
 ### LLM Job Analysis (`utils/llm_analysis.py`)
 
-Uses local LLM models through **Ollama** (`/api/chat`):
+Uses **Ollama** (`/api/chat`) on the host selected by `config.OLLAMA_MODE` (`local` → `localhost:11434`, `cloud` → `https://ollama.com` with `OLLAMA_API_KEY` in `.env`):
 
 - structured JSON output with fit score, strengths, gaps, recommendation
 - conservative status updates: only promotes review→shortlist or review→rejected

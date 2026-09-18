@@ -1,5 +1,11 @@
 # Environment-based config with safety controls
 
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 DATABASE_URL = "sqlite:///job_apply_agent.db"
 
 # Safety settings
@@ -21,8 +27,16 @@ REMOTIVE_API_URL = "https://remotive.com/api/remote-jobs"
 REMOTEOK_API_URL = "https://remoteok.com/api"
 
 # Ollama / LLM analysis
-OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:3b"
+# "local" → http://localhost:11434 (no key)
+# "cloud" → https://ollama.com/api/chat (OLLAMA_API_KEY in .env)
+OLLAMA_MODE = "cloud"
+OLLAMA_API_KEY = (os.getenv("OLLAMA_API_KEY") or "").strip()
+OLLAMA_LOCAL_URL = "http://localhost:11434/api/chat"
+OLLAMA_CLOUD_URL = "https://ollama.com/api/chat"
+OLLAMA_URL = OLLAMA_CLOUD_URL if OLLAMA_MODE == "cloud" else OLLAMA_LOCAL_URL
+OLLAMA_LOCAL_MODEL = "qwen2.5:3b"
+OLLAMA_CLOUD_MODEL = "gpt-oss:120b-cloud"
+OLLAMA_MODEL = OLLAMA_CLOUD_MODEL if OLLAMA_MODE == "cloud" else OLLAMA_LOCAL_MODEL
 LLM_TIMEOUT = 120
 LLM_MAX_JOBS_PER_RUN = 2000
 MAX_JOB_AGE_DAYS = 2  # Incremental fetch window after a source has been ingested

@@ -18,6 +18,7 @@ import requests
 
 import config
 from models.database import CompanyProfile, Job
+from utils.ollama_client import request_headers
 from utils.llm_analysis import _candidate_summary
 from utils.text_cleaning import clean_description
 
@@ -546,7 +547,10 @@ def _call_ollama(prompt: str) -> dict:
     for attempt in range(config.MAX_RETRIES):
         try:
             response = requests.post(
-                config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT
+                config.OLLAMA_URL,
+                json=payload,
+                headers=request_headers(),
+                timeout=config.LLM_TIMEOUT,
             )
             response.raise_for_status()
             data = response.json()

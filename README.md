@@ -52,7 +52,7 @@ Each job passes through ingestion, deterministic scoring, LLM semantic evaluatio
 - Job deduplication and normalization across all sources
 - Remote eligibility classification with geographic pattern detection
 - Rule-based fit scoring (skill overlap, seniority, title relevance)
-- Local LLM reasoning via Ollama — structured outputs, fit explanation, skill gaps
+- LLM reasoning via Ollama — local or cloud (`OLLAMA_MODE` in `config.py`), structured outputs, fit explanation, skill gaps
 - Persistent job lifecycle tracking (new → review → shortlisted → applied)
 - Web UI for job triage, cover letter generation, and pipeline control
 - Natural language assistant with live database access and tool calling
@@ -81,7 +81,7 @@ Layer 1 — Deterministic filters
   seniority alignment   persist skip when title/level is outside profile preferred + acceptable
   skill overlap         matched skills and domain keywords from job description
         ↓
-Layer 2 — LLM semantic evaluation  (local Ollama, no data leaves the machine)
+Layer 2 — LLM semantic evaluation  (Ollama: local or cloud, from config.OLLAMA_MODE)
   semantic fit          job description evaluated against full candidate profile
   structured output     JSON: fit score, strengths, skill gaps, recommendation
   conservative updates  only promotes or rejects from review; never overwrites manual decisions
@@ -167,13 +167,22 @@ Available tools:
 
 ---
 
-## Local AI Reasoning
+## Ollama (local or cloud)
 
-Job Apply Agent uses [Ollama](https://ollama.com) for fully local inference — no API costs, no data leaving your machine.
+Job Apply Agent uses [Ollama](https://ollama.com) for LLM analysis. Switch hosts in `config.py`:
 
-Tested models:
+```python
+OLLAMA_MODE = "cloud"          # or "local"
+OLLAMA_LOCAL_MODEL = "qwen2.5:3b"
+OLLAMA_CLOUD_MODEL = "gpt-oss:20b"
+```
 
-- `qwen3.5:4b` (default — good tool calling support)
+`local` calls `http://localhost:11434/api/chat` with no key. `cloud` calls `https://ollama.com/api/chat` with `Authorization: Bearer $OLLAMA_API_KEY`. Put only the key in `.env`. Create one at [ollama.com/settings/keys](https://ollama.com/settings/keys). Cloud mode sends job text and profile snippets to Ollama's servers.
+
+Tested local models:
+
+- `qwen3.5:4b` (good tool calling support)
+- `qwen2.5:3b`
 - `llama3.1`
 - `mistral`
 
@@ -336,7 +345,9 @@ resumes:         # multiple resumes with tags — best match selected per job
 
 ### 3. Set up Ollama
 
-Install [Ollama](https://ollama.com) and pull a model:
+**Cloud:** set `OLLAMA_MODE = "cloud"` in `config.py` and `OLLAMA_API_KEY` in `.env`. Create a key at [ollama.com/settings/keys](https://ollama.com/settings/keys). Change `OLLAMA_CLOUD_MODEL` in `config.py` if you want a different cloud model (default `gpt-oss:20b`).
+
+**Local:** install [Ollama](https://ollama.com) and pull a model:
 
 ```powershell
 ollama pull qwen3.5:4b
@@ -357,7 +368,8 @@ If the model is missing or Ollama isn't responding, common fixes:
 | `connection refused` on port 11434 | Run `ollama serve` in a separate terminal, or check the Ollama tray icon |
 | `model not found` | Run `ollama pull qwen3.5:4b` again |
 | Slow or no response | The model is loading — wait ~30 seconds on first run |
-| Want a faster/smaller model | `ollama pull qwen3.5:4b` and update `OLLAMA_MODEL` in `.env` |
+| Want a faster/smaller local model | `ollama pull qwen3.5:4b` and update `OLLAMA_LOCAL_MODEL` in `config.py` |
+| Cloud 401 / unreachable | Set `OLLAMA_MODE = "cloud"` in `config.py` and a valid `OLLAMA_API_KEY` in `.env` |
 
 **Once Ollama is set up, you can use the built-in assistant for any further troubleshooting:**
 
@@ -408,7 +420,7 @@ Bot-protected sites (remoteok.com, weworkremotely.com, jobicy.com) open in your 
 
 ## Design Principles
 
-**Privacy First** — All LLM processing runs locally via Ollama. No job data or profile information is sent to external AI services.
+**Privacy First** — Default LLM processing can run locally via Ollama. Set `OLLAMA_MODE = "cloud"` in `config.py` only when you want analysis to run on ollama.com.
 
 **Human in the Loop** — No application is submitted automatically. Every submission requires your explicit approval.
 
@@ -428,7 +440,7 @@ Bot-protected sites (remoteok.com, weworkremotely.com, jobicy.com) open in your 
 | **JSON API** | An HTTP endpoint that returns structured data in JSON format |
 | **LatAm** | Latin America |
 | **LLM** | Large Language Model — an AI model used here via Ollama to semantically evaluate job fit |
-| **Ollama** | A local LLM runtime that runs models on your own machine — no data sent to external services |
+| **Ollama** | LLM runtime — local (`localhost:11434`) or Ollama Cloud (`https://ollama.com`) depending on `OLLAMA_MODE` in `config.py` |
 | **RSS** | Really Simple Syndication — a feed format used by some job boards to publish listings |
 | **SMTP** | Simple Mail Transfer Protocol — the standard used to send email reports |
 | **YAML** | A human-readable configuration file format — used for `profile.yaml` |

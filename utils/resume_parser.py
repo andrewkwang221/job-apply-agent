@@ -23,6 +23,7 @@ import requests
 import yaml
 
 import config
+from utils.ollama_client import request_headers
 
 # ---------------------------------------------------------------------------
 # PDF hash
@@ -130,7 +131,12 @@ def _call_ollama(resume_text: str, model: str | None = None) -> Dict[str, Any]:
         "stream": False,
         "keep_alive": "10m",
     }
-    response = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+    response = requests.post(
+        config.OLLAMA_URL,
+        json=payload,
+        headers=request_headers(),
+        timeout=config.LLM_TIMEOUT,
+    )
     response.raise_for_status()
     content = str(response.json().get("message", {}).get("content") or "").strip()
 

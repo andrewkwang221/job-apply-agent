@@ -14,6 +14,7 @@ import requests
 
 import config
 from utils.llm_analysis import _candidate_summary, _job_description
+from utils.ollama_client import request_headers
 
 _SYSTEM_PROMPT = (
     "You are helping a job candidate fill out their application. "
@@ -98,7 +99,12 @@ def _call_ollama(question: str, job: Dict[str, Any], profile: Dict[str, Any]) ->
         "think": False,
     }
     try:
-        r = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+        r = requests.post(
+            config.OLLAMA_URL,
+            json=payload,
+            headers=request_headers(),
+            timeout=config.LLM_TIMEOUT,
+        )
         r.raise_for_status()
         return str(r.json().get("message", {}).get("content") or "").strip()
     except Exception:
@@ -154,7 +160,12 @@ def _call_ollama_pick(
     }
     try:
         import re as _re
-        r = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+        r = requests.post(
+            config.OLLAMA_URL,
+            json=payload,
+            headers=request_headers(),
+            timeout=config.LLM_TIMEOUT,
+        )
         r.raise_for_status()
         content = str(r.json().get("message", {}).get("content") or "").strip()
         m = _re.search(r"\d+", content)

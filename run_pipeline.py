@@ -71,6 +71,7 @@ from utils.form_prefill import _TimingCollector
 from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
 from utils.llm_analysis import analyze_job_with_ollama, ollama_is_reachable
+from utils.ollama_client import request_headers, unreachable_hint
 from utils.scoring import SHORTLIST_MIN_SCORE, _NO_DIRECT_APPLY_SOURCES, dump_score_breakdown, score_job
 from utils.resume_selector import select_resume
 from utils.logger import setup_logger
@@ -491,12 +492,7 @@ def _run_analyze(profile: str, model: str, target_status: str, limit: int, dry_r
         logger.info(f"Found {len(jobs_to_analyze)} jobs to analyze.")
         reachable, ollama_error = ollama_is_reachable()
         if not reachable:
-            logger.error(
-                "Ollama is not running at %s. Start it with `ollama serve` "
-                "(or the Ollama tray app), then re-run analyze. %s",
-                config.OLLAMA_URL,
-                ollama_error,
-            )
+            logger.error("%s", unreachable_hint(ollama_error))
             return
 
         counts = {"promoted": 0, "kept_review": 0, "rejected": 0, "failed": 0, "unchanged": 0}
@@ -971,7 +967,7 @@ def help_command():
         ("", "SETUP & EMAIL", ""),
         ("setup-credentials", "Store email credentials in Windows Credential Manager", ""),
         ("send-test-email", "Send a test email to verify SMTP setup", ""),
-        ("ask", "Chat with local Ollama LLM for troubleshooting help", "--model <model>"),
+        ("ask", "Chat with the configured Ollama model for troubleshooting help", "--model <model>"),
         ("", "", ""),
         ("", "SOURCES", ""),
         ("", "remotive  remoteok  weworkremotely  arbeitnow  jobicy  jobspresso", ""),
@@ -1435,14 +1431,14 @@ You have access to tools that let you query the live jobs database and pipeline 
 Always use the appropriate tool to answer questions about jobs, counts, or pipeline runs — never guess or make up data.
 
 == PROJECT OVERVIEW ==
-Job Apply Agent fetches remote job listings from multiple sources (Remotive, RemoteOK, Adzuna, WeWorkRemotely, Himalayas, Greenhouse, Ashby, Lever, Workable, and others), scores them against a candidate profile, runs a local LLM analysis via Ollama, and assists with application form prefilling using Playwright.
+Job Apply Agent fetches remote job listings from multiple sources (Remotive, RemoteOK, Adzuna, WeWorkRemotely, Himalayas, Greenhouse, Ashby, Lever, Workable, and others), scores them against a candidate profile, runs LLM analysis via Ollama (local or cloud, from OLLAMA_MODE in config.py), and assists with application form prefilling using Playwright.
 
 == KEY FILES ==
 - run_pipeline.py       — CLI entrypoint (commands: full-run, fetch, evaluate, analyze, triage, open-job, stats, ask)
 - profile.yaml          — Candidate config: skills, target_roles, seniority, accepted_regions, target_companies, blacklisted_companies, resumes
 - profile.template.yaml — Template to copy when setting up for the first time
-- config.py             — Env-driven settings (DATABASE_URL, OLLAMA_URL, OLLAMA_MODEL, email, etc.)
-- .env                  — Secrets (Adzuna API keys, email credentials); never committed to git
+- config.py             — Settings (DATABASE_URL, OLLAMA_MODE, OLLAMA_URL, OLLAMA_MODEL, email, etc.)
+- .env                  — Secrets (OLLAMA_API_KEY, Adzuna API keys, email credentials); never committed to git
 - connectors/           — One file per job source; all implement BaseConnector (fetch_jobs + normalize)
 - utils/remote_filter.py — classify_remote_eligibility(): accept / review / reject
 - utils/form_filler.py  — Playwright form prefill logic
@@ -1453,8 +1449,8 @@ Job Apply Agent fetches remote job listings from multiple sources (Remotive, Rem
 
 == COMMON ERRORS AND FIXES ==
 - "No module named X"            → Run: pip install -r requirements.txt (in the job-apply-agent conda env)
-- "Ollama connection refused"    → Start Ollama: ollama serve  (or check it's running)
-- "model not found"              → Pull the model: ollama pull qwen3.5:4b
+- "Ollama connection refused"    → Local: ollama serve. Cloud: OLLAMA_MODE = "cloud" in config.py and OLLAMA_API_KEY in .env
+- "model not found"              → Local: ollama pull qwen3.5:4b. Cloud: set OLLAMA_CLOUD_MODEL in config.py
 - "profile.yaml not found"      → Copy profile.template.yaml to profile.yaml and fill in your details
 - "DATABASE_URL not set"         → Check .env file exists and has the right values; copy .env.example if missing
 - "NoneType has no attribute"    → Usually a missing field in profile.yaml or a job with null data — check logs
@@ -1476,7 +1472,8 @@ python run_pipeline.py stats                               # Job counts by statu
 python run_pipeline.py ask                                 # This assistant
 
 == CONFIGURATION TIPS ==
-- OLLAMA_MODEL in config.py (default: qwen3.5:4b) — change to any model you have pulled locally
+- OLLAMA_MODE in config.py (local or cloud) — cloud uses https://ollama.com with OLLAMA_API_KEY in .env
+- OLLAMA_LOCAL_MODEL / OLLAMA_CLOUD_MODEL in config.py — local qwen2.5:3b; cloud gpt-oss:20b
 - To add a target company: add a line under target_companies in profile.yaml with name + careers_url
 - To blacklist a company: add its name under blacklisted_companies in profile.yaml
 - accepted_regions controls remote eligibility — add regions you can work from (emea, europe, canada, worldwide…)
@@ -1504,18 +1501,13 @@ def _read_recent_logs(n_lines: int = 60) -> str:
 @cli.command()
 @click.option('--model', default=config.OLLAMA_MODEL, show_default=True, help='Ollama model to use')
 def ask(model: str):
-    """Start an interactive assistant chat powered by your local Ollama LLM (with live DB access)."""
+    """Start an interactive assistant chat powered by the configured Ollama model (with live DB access)."""
     import requests as _requests
     from utils.ask_tools import TOOL_SCHEMAS, dispatch_tool, ACTION_TOOLS, tool_policy_check, confirmation_prompt
 
-    # Verify Ollama is reachable before entering the loop.
-    try:
-        _requests.get("http://localhost:11434", timeout=3)
-    except Exception:
-        click.echo(click.style(
-            "Cannot reach Ollama at http://localhost:11434. "
-            "Start it with: ollama serve", fg="red"
-        ))
+    reachable, ollama_error = ollama_is_reachable()
+    if not reachable:
+        click.echo(click.style(unreachable_hint(ollama_error), fg="red"))
         return
 
     session = SessionLocal()
@@ -1558,7 +1550,12 @@ def ask(model: str):
                 click.echo(click.style("(thinking...)", fg="yellow"), nl=False)
 
                 try:
-                    resp = _requests.post(config.OLLAMA_URL, json=payload, timeout=120)
+                    resp = _requests.post(
+                        config.OLLAMA_URL,
+                        json=payload,
+                        headers=request_headers(),
+                        timeout=120,
+                    )
                     resp.raise_for_status()
                     data = resp.json()
                 except Exception as e:

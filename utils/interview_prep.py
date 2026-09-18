@@ -13,6 +13,7 @@ import requests
 
 import config
 from models.database import InterviewPrepSheet, Job
+from utils.ollama_client import request_headers
 from utils.llm_analysis import _candidate_summary
 from utils.text_cleaning import clean_description
 
@@ -48,7 +49,12 @@ def _call_ollama(prompt: str, schema: dict) -> dict:
     last_exc: Exception = RuntimeError("No attempts made")
     for attempt in range(config.MAX_RETRIES):
         try:
-            response = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+            response = requests.post(
+                config.OLLAMA_URL,
+                json=payload,
+                headers=request_headers(),
+                timeout=config.LLM_TIMEOUT,
+            )
             response.raise_for_status()
             data = response.json()
             content = str(data.get("message", {}).get("content") or "").strip()

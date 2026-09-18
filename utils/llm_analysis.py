@@ -4,6 +4,7 @@ from typing import Any, Dict, Iterable
 import requests
 
 import config
+from utils.ollama_client import is_reachable, request_headers, tags_url
 from utils.resume_selector import select_resume
 from utils.text_cleaning import clean_description
 
@@ -212,20 +213,12 @@ def fallback_analysis(job: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def ollama_tags_url() -> str:
-    base = config.OLLAMA_URL
-    if "/api/" in base:
-        return base.split("/api/", 1)[0] + "/api/tags"
-    return "http://localhost:11434/api/tags"
+    return tags_url()
 
 
 def ollama_is_reachable(timeout: float = 3.0) -> tuple[bool, str]:
-    """True when the local Ollama HTTP server answers. No model load."""
-    try:
-        response = requests.get(ollama_tags_url(), timeout=timeout)
-        response.raise_for_status()
-        return True, ""
-    except requests.RequestException as exc:
-        return False, str(exc)
+    """True when the configured Ollama host answers. No model load."""
+    return is_reachable(timeout=timeout)
 
 def analyze_job_with_ollama(job: Dict[str, Any], profile: Dict[str, Any], model: str) -> Dict[str, Any]:
     prompt = build_analysis_prompt(job, profile)
@@ -250,7 +243,12 @@ def analyze_job_with_ollama(job: Dict[str, Any], profile: Dict[str, Any], model:
     }
 
     try:
-        response = requests.post(config.OLLAMA_URL, json=payload, timeout=config.LLM_TIMEOUT)
+        response = requests.post(
+            config.OLLAMA_URL,
+            json=payload,
+            headers=request_headers(),
+            timeout=config.LLM_TIMEOUT,
+        )
         response.raise_for_status()
         data = response.json()
         content = str(data.get("message", {}).get("content") or "").strip()

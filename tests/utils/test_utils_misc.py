@@ -299,7 +299,8 @@ class TestOllamaReachable:
 
     def test_true_on_200(self):
         from utils.llm_analysis import ollama_is_reachable
-        with patch("utils.llm_analysis.requests.get") as get:
+        with patch("utils.ollama_client.config.OLLAMA_MODE", "local"), \
+             patch("utils.ollama_client.requests.get") as get:
             get.return_value.raise_for_status = MagicMock()
             ok, err = ollama_is_reachable()
         assert ok is True
@@ -308,10 +309,21 @@ class TestOllamaReachable:
     def test_false_on_connection_refused(self):
         from utils.llm_analysis import ollama_is_reachable
         import requests as req
-        with patch(
-            "utils.llm_analysis.requests.get",
-            side_effect=req.ConnectionError("actively refused"),
-        ):
+        with patch("utils.ollama_client.config.OLLAMA_MODE", "local"), \
+             patch(
+                 "utils.ollama_client.requests.get",
+                 side_effect=req.ConnectionError("actively refused"),
+             ):
             ok, err = ollama_is_reachable()
         assert ok is False
         assert "refused" in err
+
+    def test_cloud_without_key_is_unreachable(self):
+        from utils.llm_analysis import ollama_is_reachable
+        with patch("utils.ollama_client.config.OLLAMA_MODE", "cloud"), \
+             patch("utils.ollama_client.config.OLLAMA_API_KEY", ""), \
+             patch("utils.ollama_client.requests.get") as get:
+            ok, err = ollama_is_reachable()
+        assert ok is False
+        assert "OLLAMA_API_KEY" in err
+        get.assert_not_called()
