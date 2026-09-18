@@ -1393,9 +1393,6 @@ function _sortApplied(jobList) {
 
 function _sortedListJobs(jobList) {
   const visible = _visibleListJobs(jobList);
-  if (currentStatus === 'shortlisted') {
-    return _sortShortlisted(visible);
-  }
   if (currentStatus === 'applied') {
     return _sortApplied(visible);
   }
@@ -1413,7 +1410,7 @@ function _sortedListJobs(jobList) {
 function _syncListSort() {
   const wrap = document.getElementById('listSortWrap');
   const sel = document.getElementById('listSortSelect');
-  const show = _isEvalList() && currentStatus !== 'shortlisted';
+  const show = _isEvalList();
   if (wrap) wrap.style.display = show ? 'flex' : 'none';
   if (sel && sel.value !== listSortBy) sel.value = listSortBy;
 }
