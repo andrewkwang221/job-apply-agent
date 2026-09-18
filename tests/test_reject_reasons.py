@@ -382,6 +382,138 @@ def test_shortlisted_lists_newest_fetch_first(memory_client):
     assert r.json()["total"] == 2
 
 
+def test_eval_queues_same_fetch_high_score_first(memory_client):
+    client, _job_id = memory_client
+    session = app_module._Session()
+    fetched = datetime(2026, 9, 14, 12, 0, 0)
+    try:
+        session.add(Job(
+            external_id="sl-low",
+            source="test",
+            company="Acme",
+            title="Same-time low score",
+            location="Remote",
+            url="https://example.com/jobs/sl-low",
+            status="shortlisted",
+            fit_score=60,
+            created_at=fetched,
+        ))
+        session.add(Job(
+            external_id="sl-high",
+            source="test",
+            company="Acme",
+            title="Same-time high score",
+            location="Remote",
+            url="https://example.com/jobs/sl-high",
+            status="shortlisted",
+            fit_score=99,
+            created_at=fetched,
+        ))
+        session.add(Job(
+            external_id="rv-old-high",
+            source="test",
+            company="Acme",
+            title="Older review high",
+            location="Remote",
+            url="https://example.com/jobs/rv-old-high",
+            status="review",
+            fit_score=99,
+            created_at=datetime(2026, 9, 1, 8, 0, 0),
+        ))
+        session.add(Job(
+            external_id="rv-new-low",
+            source="test",
+            company="Acme",
+            title="Newer review low",
+            location="Remote",
+            url="https://example.com/jobs/rv-new-low",
+            status="review",
+            fit_score=40,
+            created_at=datetime(2026, 9, 14, 15, 0, 0),
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    shortlisted = [j["title"] for j in client.get("/api/jobs?status=shortlisted").json()["jobs"]]
+    assert shortlisted[:2] == ["Same-time high score", "Same-time low score"]
+    review = [j["title"] for j in client.get("/api/jobs?status=review").json()["jobs"]]
+    assert review[0] == "Newer review low"
+    assert "Older review high" in review
+
+
+def test_eval_queues_same_day_high_score_before_later_low(memory_client):
+    client, _job_id = memory_client
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="sl-late-low",
+            source="test",
+            company="Acme",
+            title="Later low score",
+            location="Remote",
+            url="https://example.com/jobs/sl-late-low",
+            status="shortlisted",
+            fit_score=40,
+            created_at=datetime(2026, 9, 14, 18, 0, 0),
+        ))
+        session.add(Job(
+            external_id="sl-early-high",
+            source="test",
+            company="Acme",
+            title="Earlier high score",
+            location="Remote",
+            url="https://example.com/jobs/sl-early-high",
+            status="shortlisted",
+            fit_score=90,
+            created_at=datetime(2026, 9, 14, 8, 0, 0),
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    titles = [j["title"] for j in client.get("/api/jobs?status=shortlisted").json()["jobs"]]
+    assert titles[:2] == ["Earlier high score", "Later low score"]
+
+
+def test_eval_queues_use_displayed_llm_score(memory_client):
+    client, _job_id = memory_client
+    session = app_module._Session()
+    day = datetime(2026, 9, 14, 12, 0, 0)
+    try:
+        session.add(Job(
+            external_id="sl-rule-high",
+            source="test",
+            company="Acme",
+            title="Rule 99 llm 40",
+            location="Remote",
+            url="https://example.com/jobs/sl-rule-high",
+            status="shortlisted",
+            fit_score=99,
+            llm_fit_score=40,
+            created_at=day,
+        ))
+        session.add(Job(
+            external_id="sl-llm-high",
+            source="test",
+            company="Acme",
+            title="Rule 50 llm 90",
+            location="Remote",
+            url="https://example.com/jobs/sl-llm-high",
+            status="shortlisted",
+            fit_score=50,
+            llm_fit_score=90,
+            created_at=day,
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    rows = client.get("/api/jobs?status=shortlisted").json()["jobs"]
+    assert [j["title"] for j in rows[:2]] == ["Rule 50 llm 90", "Rule 99 llm 40"]
+    assert [j["fit_score"] for j in rows[:2]] == [90, 40]
+
+
 def test_shortlisted_lists_all_jobs_newest_fetch_first(memory_client):
     client, _job_id = memory_client
     session = app_module._Session()

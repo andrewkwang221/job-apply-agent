@@ -547,8 +547,13 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
             .filter(Job.status == status)
             .options(*(defer(col) for col in _LIST_DEFER_COLS))
         )
-        if status == "shortlisted":
-            query = query.order_by(Job.created_at.desc().nullslast(), Job.id.desc())
+        if status in ("shortlisted", "review"):
+            display_score = func.coalesce(Job.llm_fit_score, Job.fit_score)
+            query = query.order_by(
+                func.date(Job.created_at).desc().nullslast(),
+                display_score.desc().nullslast(),
+                Job.id.desc(),
+            )
         elif status == "applied":
             query = query.order_by(
                 Job.updated_at.desc().nullslast(),

@@ -1003,11 +1003,11 @@ async function loadJobs(status, opts) {
     const suffix = qs.length ? `&${qs.join('&')}` : '';
     const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${suffix}`);
     jobs = data.jobs || [];
-    if (status === 'shortlisted') jobs = _sortShortlisted(jobs);
-    if (status === 'applied') jobs = _sortApplied(jobs);
-    rejectCounts = data.reject_counts || [];
     listFilter = 'all';
     listSortBy = 'sum';
+    if (status === 'shortlisted' || status === 'review') jobs = _sortLatestHighScore(jobs);
+    if (status === 'applied') jobs = _sortApplied(jobs);
+    rejectCounts = data.reject_counts || [];
     viewingListCard = false;
     idx = 0;
     _queueListComplete = asList || status === 'shortlisted' || status === 'applied';
@@ -1370,12 +1370,29 @@ function _fetchTime(job) {
   return Number.isFinite(t) ? t : 0;
 }
 
-function _sortShortlisted(jobList) {
+function _fetchDay(job) {
+  const raw = String(job && job.created_at || '');
+  return raw.length >= 10 ? raw.slice(0, 10) : '';
+}
+
+function _sortLatestHighScore(jobList) {
   return jobList.slice().sort((a, b) => {
+    const da = _fetchDay(a);
+    const db = _fetchDay(b);
+    if (db !== da) return db > da ? 1 : db < da ? -1 : 0;
+    const av = _listScoreValue(a);
+    const bv = _listScoreValue(b);
+    const an = av == null ? Number.NEGATIVE_INFINITY : av;
+    const bn = bv == null ? Number.NEGATIVE_INFINITY : bv;
+    if (bn !== an) return bn - an;
     const dt = _fetchTime(b) - _fetchTime(a);
     if (dt) return dt;
     return (b.id || 0) - (a.id || 0);
   });
+}
+
+function _sortShortlisted(jobList) {
+  return _sortLatestHighScore(jobList);
 }
 
 function _appliedTime(job) {
@@ -1397,14 +1414,7 @@ function _sortedListJobs(jobList) {
     return _sortApplied(visible);
   }
   if (!_isEvalList()) return visible;
-  return visible.slice().sort((a, b) => {
-    const av = _listScoreValue(a);
-    const bv = _listScoreValue(b);
-    const an = av == null ? Number.NEGATIVE_INFINITY : av;
-    const bn = bv == null ? Number.NEGATIVE_INFINITY : bv;
-    if (bn !== an) return bn - an;
-    return (b.id || 0) - (a.id || 0);
-  });
+  return _sortLatestHighScore(visible);
 }
 
 function _syncListSort() {
