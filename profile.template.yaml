@@ -67,9 +67,13 @@ seniority:  # persist skip + scoring; titles with no level word are kept
 # Curated company list. careers_url is the ground truth — ATS is auto-detected from the host.
 # Supported hosts: jobs.ashbyhq.com, boards.greenhouse.io, job-boards.greenhouse.io,
 #                  jobs.lever.co, apply.workable.com
-target_companies:
-  - { name: "Example Corp", careers_url: "https://boards.greenhouse.io/examplecorp" }
-  - { name: "Another Co",   careers_url: "https://jobs.ashbyhq.com/anotherco" }
+# Leave empty until you add real boards. Fixture slugs (examplecorp, anotherco, acme, …)
+# are skipped and never probed.
+target_companies: []
+# Example:
+# target_companies:
+#   - { name: "OpenAI", careers_url: "https://jobs.ashbyhq.com/openai" }
+#   - { name: "Stripe", careers_url: "https://boards.greenhouse.io/stripe" }
 
 blacklisted_companies:
   - Example Blacklisted Co

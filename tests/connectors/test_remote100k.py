@@ -295,22 +295,32 @@ class TestRemote100kFetch:
     @patch("connectors.remote100k.time.sleep")
     @patch("connectors.remote100k.requests.get")
     def test_sitemap_error_returns_empty(self, mock_get, mock_sleep):
-        mock_get.side_effect = Exception("network error")
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        from connectors.remote100k import _RETRIES
+
+        mock_get.side_effect = RequestsTimeout("read timeout=40")
         jobs = Remote100kConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES
 
     @patch("connectors.remote100k.time.sleep")
     @patch("connectors.remote100k.requests.get")
     def test_page_error_skips_job(self, mock_get, mock_sleep):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        from connectors.remote100k import _RETRIES
+
         xml = _sitemap_xml("acme-senior-engineer", "stripe-backend-developer")
         mock_get.side_effect = [
             _mock_response(xml),
-            Exception("timeout"),
+            *([RequestsTimeout("timeout")] * _RETRIES),
             _mock_response(_job_html("Backend Developer", "Stripe")),
         ]
         jobs = Remote100kConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["company"] == "Stripe"
+        assert mock_get.call_count == 1 + _RETRIES + 1
 
     @patch("connectors.remote100k.time.sleep")
     @patch("connectors.remote100k.requests.get")

@@ -19,12 +19,13 @@ from utils.logger import setup_logger
 
 logger = setup_logger("ats_slugs")
 
-_JUNK_SLUGS = frozenset({
+# Path segments and fixture / mock board names that must not be probed live.
+JUNK_BOARD_SLUGS = frozenset({
     "embed", "jobs", "boards", "job-boards", "job-board", "job_board",
     "posting-api", "api", "v0", "v1", "apply", "job", "for",
-    # Fixture / mock board names that must not be probed live.
     "acme", "slow-co", "bad-slug", "bad", "no-such-co", "examplecorp", "anotherco",
 })
+_JUNK_SLUGS = JUNK_BOARD_SLUGS  # backward-compatible alias
 
 
 def _cutoff_for_db(cutoff: datetime) -> datetime:

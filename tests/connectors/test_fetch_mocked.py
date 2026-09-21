@@ -111,17 +111,30 @@ class TestRWFAFetch:
             jobs = RealWorkFromAnywhereConnector().fetch_jobs()
         assert len(jobs) == 1
 
-    def test_http_error_returns_empty_list(self):
-        with patch(self._TARGET, return_value=_mock_response(b"", 503)):
+    def test_skips_non_engineering_titles(self):
+        xml = _rss_envelope(_rwfa_item(title="Senior Recruiter at Acme"))
+        with patch(self._TARGET, return_value=_mock_response(xml)):
             from connectors.realworkfromanywhere import RealWorkFromAnywhereConnector
             jobs = RealWorkFromAnywhereConnector().fetch_jobs()
         assert jobs == []
 
-    def test_network_exception_returns_empty_list(self):
-        with patch(self._TARGET, side_effect=Exception("timeout")):
-            from connectors.realworkfromanywhere import RealWorkFromAnywhereConnector
+    def test_http_error_retries_then_returns_empty(self):
+        with patch("connectors.realworkfromanywhere.time.sleep"), \
+             patch(self._TARGET, return_value=_mock_response(b"", 503)) as mock_get:
+            from connectors.realworkfromanywhere import RealWorkFromAnywhereConnector, _RETRIES
             jobs = RealWorkFromAnywhereConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES
+
+    def test_network_exception_retries_then_returns_empty(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.realworkfromanywhere.time.sleep"), \
+             patch(self._TARGET, side_effect=RequestsTimeout("timeout")) as mock_get:
+            from connectors.realworkfromanywhere import RealWorkFromAnywhereConnector, _RETRIES
+            jobs = RealWorkFromAnywhereConnector().fetch_jobs()
+        assert jobs == []
+        assert mock_get.call_count == _RETRIES
 
     def test_empty_feed_returns_empty_list(self):
         xml = _rss_envelope("")

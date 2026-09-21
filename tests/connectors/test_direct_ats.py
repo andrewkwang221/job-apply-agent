@@ -159,29 +159,32 @@ class TestFetchAshby:
     def test_returns_remote_jobs(self):
         with patch(self._T, return_value=_mock_resp({"jobs": [self._job()]})):
             from connectors.direct_ats import _fetch_ashby
-            jobs = _fetch_ashby("acme", "Acme Corp", [])
+            jobs = _fetch_ashby("openai", "OpenAI", [])
         assert len(jobs) == 1
         assert jobs[0]["_ats"] == "ashby"
 
     def test_skips_non_remote_jobs(self):
         with patch(self._T, return_value=_mock_resp({"jobs": [self._job(is_remote=False, workplace="onsite")]})):
             from connectors.direct_ats import _fetch_ashby
-            assert _fetch_ashby("acme", "Acme", []) == []
+            assert _fetch_ashby("openai", "OpenAI", []) == []
 
     def test_404_returns_empty(self):
-        with patch(self._T, return_value=_mock_resp({}, 404)):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, return_value=_mock_resp({}, 404)):
             from connectors.direct_ats import _fetch_ashby
-            assert _fetch_ashby("bad-slug", "Co", []) == []
+            assert _fetch_ashby("missing-board", "Co", []) == []
 
-    def test_timeout_returns_empty(self):
-        with patch(self._T, side_effect=RequestsTimeout("read timeout=40")):
-            from connectors.direct_ats import _fetch_ashby
+    def test_timeout_retries_then_returns_empty(self):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("read timeout=40")) as mock_get:
+            from connectors.direct_ats import _RETRIES, _fetch_ashby
             assert _fetch_ashby("openai", "OpenAI", []) == []
+        assert mock_get.call_count == _RETRIES
 
     def test_title_filter_applied(self):
         with patch(self._T, return_value=_mock_resp({"jobs": [self._job(title="Sales Manager")]})):
             from connectors.direct_ats import _fetch_ashby
-            jobs = _fetch_ashby("acme", "Acme", ["backend engineer"])
+            jobs = _fetch_ashby("openai", "OpenAI", ["backend engineer"])
         assert jobs == []
 
 
@@ -211,14 +214,17 @@ class TestFetchGreenhouse:
             assert len(_fetch_greenhouse("deepco", "DeepCo", [])) == 1
 
     def test_404_returns_empty(self):
-        with patch(self._T, return_value=_mock_resp({}, 404)):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, return_value=_mock_resp({}, 404)):
             from connectors.direct_ats import _fetch_greenhouse
-            assert _fetch_greenhouse("bad", "Co", []) == []
+            assert _fetch_greenhouse("missing-board", "Co", []) == []
 
-    def test_timeout_returns_empty(self):
-        with patch(self._T, side_effect=RequestsTimeout("read timeout=40")):
-            from connectors.direct_ats import _fetch_greenhouse
+    def test_timeout_retries_then_returns_empty(self):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("read timeout=40")) as mock_get:
+            from connectors.direct_ats import _RETRIES, _fetch_greenhouse
             assert _fetch_greenhouse("calendly", "Calendly", []) == []
+        assert mock_get.call_count == _RETRIES
 
 
 class TestFetchLever:
@@ -249,14 +255,17 @@ class TestFetchLever:
         assert len(jobs) == 1
 
     def test_404_returns_empty(self):
-        with patch(self._T, return_value=_mock_resp({}, 404)):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, return_value=_mock_resp({}, 404)):
             from connectors.direct_ats import _fetch_lever
-            assert _fetch_lever("bad", "Co", []) == []
+            assert _fetch_lever("missing-board", "Co", []) == []
 
-    def test_timeout_returns_empty(self):
-        with patch(self._T, side_effect=RequestsTimeout("read timeout=40")):
-            from connectors.direct_ats import _fetch_lever
+    def test_timeout_retries_then_returns_empty(self):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("read timeout=40")) as mock_get:
+            from connectors.direct_ats import _RETRIES, _fetch_lever
             assert _fetch_lever("startup", "Startup", []) == []
+        assert mock_get.call_count == _RETRIES
 
 
 class TestFetchWorkable:
@@ -285,9 +294,17 @@ class TestFetchWorkable:
             assert _fetch_workable("co", "Co", []) == []
 
     def test_404_returns_empty(self):
-        with patch(self._T, return_value=_mock_resp({}, 404)):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, return_value=_mock_resp({}, 404)):
             from connectors.direct_ats import _fetch_workable
-            assert _fetch_workable("bad", "Co", []) == []
+            assert _fetch_workable("missing-board", "Co", []) == []
+
+    def test_timeout_retries_then_returns_empty(self):
+        with patch("connectors.direct_ats.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("read timeout=40")) as mock_post:
+            from connectors.direct_ats import _RETRIES, _fetch_workable
+            assert _fetch_workable("co", "Co", []) == []
+        assert mock_post.call_count == _RETRIES
 
 
 # ---------------------------------------------------------------------------

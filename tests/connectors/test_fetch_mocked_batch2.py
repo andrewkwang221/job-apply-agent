@@ -32,6 +32,7 @@ def _mock_json(payload, status=200):
 def _mock_xml(content: bytes, status=200):
     m = MagicMock()
     m.content = content
+    m.status_code = status
     m.raise_for_status = MagicMock()
     if status >= 400:
         from requests.exceptions import HTTPError
@@ -578,21 +579,34 @@ class TestRemoteAIJobsFetch:
             from connectors.remoteaijobs import RemoteAIJobsConnector
             assert RemoteAIJobsConnector().fetch_jobs() == []
 
+    def test_skips_non_engineering_titles(self):
+        with patch(self._T, return_value=_mock_xml(self._feed(
+            self._xml_item(title="Account Executive at DeepCo")
+        ))):
+            from connectors.remoteaijobs import RemoteAIJobsConnector
+            assert RemoteAIJobsConnector().fetch_jobs() == []
+
     def test_no_channel_returns_empty(self):
         xml = b'<?xml version="1.0"?><rss version="2.0"></rss>'
         with patch(self._T, return_value=_mock_xml(xml)):
             from connectors.remoteaijobs import RemoteAIJobsConnector
             assert RemoteAIJobsConnector().fetch_jobs() == []
 
-    def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_xml(b"", 503)):
-            from connectors.remoteaijobs import RemoteAIJobsConnector
+    def test_http_error_retries_then_returns_empty(self):
+        with patch("connectors.remoteaijobs.time.sleep"), \
+             patch(self._T, return_value=_mock_xml(b"", 503)) as mock_get:
+            from connectors.remoteaijobs import RemoteAIJobsConnector, _RETRIES
             assert RemoteAIJobsConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
-    def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.remoteaijobs import RemoteAIJobsConnector
+    def test_exception_retries_then_returns_empty(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.remoteaijobs.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("err")) as mock_get:
+            from connectors.remoteaijobs import RemoteAIJobsConnector, _RETRIES
             assert RemoteAIJobsConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
     def test_title_without_at_company_is_unknown(self):
         item = self._xml_item(title="ML Engineer")

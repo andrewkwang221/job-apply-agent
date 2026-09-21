@@ -32,7 +32,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
@@ -40,7 +40,13 @@ from utils.logger import setup_logger
 logger = setup_logger("remote100k_connector")
 
 _SITEMAP_URL = "https://remote100k.com/sitemap.xml"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/xml,text/xml,*/*",
+}
 
 # Live sitemap has no lastmod; datePosted walk on 2026-09-14 was newest-first.
 _SITEMAP_NEWEST_FIRST = True
@@ -48,6 +54,9 @@ _SITEMAP_NEWEST_FIRST = True
 _MAX_NEW = 400
 _MAX_UNSEEN_FETCHES = 300
 _FETCH_DELAY = 0.4
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _LD_SCRIPT_RE = re.compile(
     r"<script([^>]*)>(.*?)</script>",
@@ -86,13 +95,17 @@ class Remote100kConnector(BaseConnector):
         self.source_name = "remote100k"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from remote100k.com sitemap…")
+        age_days = max_job_age_days(self.source_name)
+        logger.info(
+            f"Fetching jobs from remote100k.com sitemap (age_days={age_days})…"
+        )
+        content = _fetch_bytes(_SITEMAP_URL, "sitemap")
+        if content is None:
+            return []
         try:
-            resp = requests.get(_SITEMAP_URL, headers=_HEADERS, timeout=15)
-            resp.raise_for_status()
-            urls, has_lastmod = _parse_sitemap(resp.content)
+            urls, has_lastmod = _parse_sitemap(content)
         except Exception as e:
-            logger.error(f"Failed to fetch remote100k sitemap: {e}")
+            logger.info(f"remote100k sitemap parse failed ({type(e).__name__})")
             logger.debug(traceback.format_exc())
             return []
 
@@ -197,9 +210,10 @@ def _parse_sitemap(content: bytes) -> tuple[list[str], bool]:
             if not child_loc:
                 continue
             try:
-                r = requests.get(child_loc, headers=_HEADERS, timeout=15)
-                r.raise_for_status()
-                child_entries, child_lastmod = _urlset_entries(ET.fromstring(r.content))
+                child = _fetch_bytes(child_loc, "child sitemap")
+                if child is None:
+                    continue
+                child_entries, child_lastmod = _urlset_entries(ET.fromstring(child))
                 entries.extend(child_entries)
                 has_lastmod = has_lastmod or child_lastmod
                 time.sleep(0.2)
@@ -247,10 +261,62 @@ def _is_engineering_url(url: str) -> bool:
     return any(kw in blob for kw in _ENGINEERING_KEYWORDS)
 
 
+def _fetch_bytes(url: str, label: str) -> bytes | None:
+    """GET bytes with retries; None after timeout/connection/HTTP failures."""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"remote100k {label} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"remote100k {label} HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.content
+    logger.info(f"remote100k {label} skipped after {_RETRIES} attempts")
+    return None
+
+
 def _fetch_job_page(url: str) -> dict[str, Any] | None:
-    resp = requests.get(url, headers=_HEADERS, timeout=15)
-    resp.raise_for_status()
-    return _extract_job(resp.text, url)
+    html = _fetch_detail_html(url)
+    if html is None:
+        return None
+    return _extract_job(html, url)
+
+
+def _fetch_detail_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"remote100k detail failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"remote100k detail HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"remote100k detail skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_job(html: str, page_url: str) -> dict[str, Any] | None:

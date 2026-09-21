@@ -5,9 +5,9 @@ Pure helper functions are tested in test_direct_ats.py.
 from unittest.mock import patch, MagicMock
 
 
-def _mock_job(ats="ashby", slug="acme"):
+def _mock_job(ats="ashby", slug="openai"):
     return {"id": "job-1", "title": "Backend Engineer", "_ats": ats,
-            "_slug": slug, "_company_name": "Acme",
+            "_slug": slug, "_company_name": "OpenAI",
             "applyUrl": "https://ashbyhq.com/1", "location": "Remote",
             "descriptionPlain": "role", "publishedAt": "2026-03-24T00:00:00Z"}
 
@@ -26,8 +26,24 @@ class TestDirectATSConnectorFetch:
             jobs = DirectATSConnector().fetch_jobs()
         assert jobs == []
 
+    def test_skips_fixture_slugs_without_http(self):
+        companies = [
+            {"name": "Example Corp", "careers_url": "https://boards.greenhouse.io/examplecorp"},
+            {"name": "Another Co", "careers_url": "https://jobs.ashbyhq.com/anotherco"},
+        ]
+        mock_gh = MagicMock(return_value=[_mock_job("greenhouse", "examplecorp")])
+        mock_ashby = MagicMock(return_value=[_mock_job("ashby", "anotherco")])
+        with patch("connectors.direct_ats._load_target_companies", return_value=companies), \
+             patch("connectors.direct_ats._load_target_roles", return_value=[]), \
+             patch.dict("connectors.direct_ats._FETCHERS", {"greenhouse": mock_gh, "ashby": mock_ashby}):
+            from connectors.direct_ats import DirectATSConnector
+            jobs = DirectATSConnector().fetch_jobs()
+        assert jobs == []
+        mock_gh.assert_not_called()
+        mock_ashby.assert_not_called()
+
     def test_fetches_from_known_ats(self):
-        companies = [{"name": "Acme", "careers_url": "https://jobs.ashbyhq.com/acme"}]
+        companies = [{"name": "OpenAI", "careers_url": "https://jobs.ashbyhq.com/openai"}]
         mock_fetcher = MagicMock(return_value=[_mock_job()])
         with patch("connectors.direct_ats._load_target_companies", return_value=companies), \
              patch("connectors.direct_ats._load_target_roles", return_value=[]), \
@@ -38,10 +54,10 @@ class TestDirectATSConnectorFetch:
 
     def test_deduplicates_across_companies(self):
         companies = [
-            {"name": "Acme", "careers_url": "https://jobs.ashbyhq.com/acme"},
-            {"name": "Acme2", "careers_url": "https://jobs.ashbyhq.com/acme"},
+            {"name": "OpenAI", "careers_url": "https://jobs.ashbyhq.com/openai"},
+            {"name": "OpenAI2", "careers_url": "https://jobs.ashbyhq.com/openai"},
         ]
-        same_job = _mock_job(slug="acme")
+        same_job = _mock_job(slug="openai")
         mock_fetcher = MagicMock(return_value=[same_job])
         with patch("connectors.direct_ats._load_target_companies", return_value=companies), \
              patch("connectors.direct_ats._load_target_roles", return_value=[]), \
@@ -52,7 +68,7 @@ class TestDirectATSConnectorFetch:
 
     def test_fetch_error_continues_to_next(self):
         companies = [
-            {"name": "Bad", "careers_url": "https://jobs.ashbyhq.com/bad"},
+            {"name": "Broken", "careers_url": "https://jobs.ashbyhq.com/broken-co"},
             {"name": "Good", "careers_url": "https://boards.greenhouse.io/good"},
         ]
         mock_ashby = MagicMock(side_effect=Exception("network"))

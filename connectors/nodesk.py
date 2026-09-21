@@ -29,7 +29,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
@@ -37,7 +37,12 @@ from utils.logger import setup_logger
 logger = setup_logger("nodesk_connector")
 
 _SITE = "https://nodesk.co"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+}
 
 # Search-only key shipped in https://nodesk.co/js/search.min.js
 _ALGOLIA_APP = "0586L1SOK8"
@@ -46,6 +51,9 @@ _ALGOLIA_INDEX = "jobPosts"
 _ALGOLIA_FILTER = "searchFilter:remote-jobs"
 _ALGOLIA_HITS_PER_PAGE = 100
 _ALGOLIA_MAX_PAGES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _FETCH_DELAY = 0.4
 _PROGRESS_EVERY = 25
@@ -73,13 +81,14 @@ class NodeskConnector(BaseConnector):
         self.source_name = "nodesk"
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
-        logger.info("Fetching jobs from nodesk.co Algolia index…")
+        age_days = max_job_age_days(self.source_name)
+        logger.info(
+            f"Fetching jobs from nodesk.co Algolia index (age_days={age_days})…"
+        )
         cutoff = job_age_cutoff(self.source_name)
-        try:
-            hits = _algolia_hits()
-        except Exception as e:
-            logger.error(f"Failed to query nodesk Algolia index: {e}")
-            logger.debug(traceback.format_exc())
+        hits = _algolia_hits()
+        if not hits:
+            logger.info("nodesk Algolia returned no hits")
             return []
 
         candidates: list[str] = []
@@ -177,7 +186,7 @@ class NodeskConnector(BaseConnector):
 
 
 def _algolia_hits() -> list[dict[str, Any]]:
-    """Return all live ``jobPosts`` hits for the remote-jobs filter."""
+    """Return live ``jobPosts`` hits; keep prior pages if a later page fails."""
     hits: list[dict[str, Any]] = []
     url = f"https://{_ALGOLIA_APP}-dsn.algolia.net/1/indexes/{_ALGOLIA_INDEX}/query"
     headers = {
@@ -189,25 +198,70 @@ def _algolia_hits() -> list[dict[str, Any]]:
         "Origin": _SITE,
     }
     for page in range(_ALGOLIA_MAX_PAGES):
-        resp = requests.post(
-            url,
-            headers=headers,
-            json={
-                "query": "",
-                "hitsPerPage": _ALGOLIA_HITS_PER_PAGE,
-                "page": page,
-                "filters": _ALGOLIA_FILTER,
-            },
-            timeout=15,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        data = _algolia_page(url, headers, page)
+        if data is None:
+            if hits:
+                logger.info(
+                    f"nodesk Algolia page {page} failed after retries; "
+                    f"keeping {len(hits)} hits from earlier pages"
+                )
+            break
         batch = data.get("hits") or []
-        hits.extend(batch)
+        if not isinstance(batch, list):
+            batch = []
+        hits.extend(h for h in batch if isinstance(h, dict))
         nb_pages = int(data.get("nbPages") or 0)
         if not batch or page + 1 >= nb_pages:
             break
     return hits
+
+
+def _algolia_page(
+    url: str, headers: dict[str, str], page: int
+) -> dict[str, Any] | None:
+    """POST one Algolia page, or None after retries on timeout/connection/HTTP."""
+    payload = {
+        "query": "",
+        "hitsPerPage": _ALGOLIA_HITS_PER_PAGE,
+        "page": page,
+        "filters": _ALGOLIA_FILTER,
+    }
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.post(
+                url, headers=headers, json=payload, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"nodesk Algolia page {page} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"nodesk Algolia page {page} HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"nodesk Algolia page {page} non-JSON "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    logger.info(
+        f"nodesk Algolia page {page} skipped after {_RETRIES} attempts"
+    )
+    return None
 
 
 def _hit_listing_url(hit: dict[str, Any]) -> str:
@@ -244,9 +298,35 @@ def _is_engineering_url(url: str) -> bool:
 
 def _fetch_job_page(url: str) -> Dict[str, Any] | None:
     """Fetch a nodesk job page and return a raw job dict from its JSON-LD."""
-    resp = requests.get(url, headers=_HEADERS, timeout=15)
-    resp.raise_for_status()
-    return _extract_jsonld(resp.text, url)
+    html = _fetch_detail_html(url)
+    if html is None:
+        return None
+    return _extract_jsonld(html, url)
+
+
+def _fetch_detail_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"nodesk detail failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"nodesk detail HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"nodesk detail skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:

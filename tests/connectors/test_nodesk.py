@@ -258,26 +258,57 @@ class TestNodeskFetch:
     @patch("connectors.nodesk.requests.get")
     @patch("connectors.nodesk.requests.post")
     def test_algolia_error_returns_empty(self, mock_post, mock_get, _sleep):
-        mock_post.side_effect = Exception("network error")
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        from connectors.nodesk import _RETRIES
+
+        mock_post.side_effect = RequestsTimeout("read timeout=40")
         jobs = NodeskConnector().fetch_jobs()
         assert jobs == []
+        assert mock_post.call_count == _RETRIES
         mock_get.assert_not_called()
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")
     @patch("connectors.nodesk.requests.post")
+    def test_algolia_page_failure_keeps_prior_hits(self, mock_post, mock_get, _sleep):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        from connectors.nodesk import _RETRIES
+
+        mock_post.side_effect = [
+            _mock_response(_algolia_payload(
+                [_algolia_hit("acme-senior-engineer", _TODAY)], page=0, nb_pages=2
+            )),
+            *([RequestsTimeout("read timeout=40")] * _RETRIES),
+        ]
+        mock_get.return_value = _mock_response(_job_html("Senior Engineer", "Acme"))
+        jobs = NodeskConnector().fetch_jobs()
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Senior Engineer"
+        assert mock_post.call_count == 1 + _RETRIES
+        assert mock_get.call_count == 1
+
+    @patch("connectors.nodesk.time.sleep")
+    @patch("connectors.nodesk.requests.get")
+    @patch("connectors.nodesk.requests.post")
     def test_page_fetch_error_skips_job(self, mock_post, mock_get, _sleep):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        from connectors.nodesk import _RETRIES
+
         mock_post.return_value = _mock_response(_algolia_payload([
             _algolia_hit("acme-senior-engineer", _TODAY),
             _algolia_hit("stripe-backend-developer", _TODAY),
         ]))
         mock_get.side_effect = [
-            Exception("timeout"),
+            *([RequestsTimeout("timeout")] * _RETRIES),
             _mock_response(_job_html("Backend Developer", "Stripe")),
         ]
         jobs = NodeskConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["company"] == "Stripe"
+        assert mock_get.call_count == _RETRIES + 1
 
     @patch("connectors.nodesk.time.sleep")
     @patch("connectors.nodesk.requests.get")

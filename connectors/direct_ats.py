@@ -7,16 +7,20 @@ Custom career domains are skipped with a warning.
 
 This avoids hardcoding company→ATS mappings that go stale when companies migrate.
 """
+from __future__ import annotations
+
+import time
 import traceback
 import yaml
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from typing import Any, Callable, List, Dict
 from urllib.parse import urlparse
 
 import requests
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.ats_slugs import JUNK_BOARD_SLUGS
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -29,6 +33,16 @@ _HOST_ROUTING = {
     "job-boards.greenhouse.io": "greenhouse",
     "jobs.lever.co":            "lever",
     "apply.workable.com":       "workable",
+}
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
 }
 
 
@@ -49,6 +63,9 @@ def _load_target_companies() -> List[Dict[str, str]]:
         entries = profile.get("target_companies", [])
         if isinstance(entries, list):
             return [e for e in entries if isinstance(e, dict) and e.get("careers_url")]
+        return []
+    except FileNotFoundError:
+        logger.info("profile.yaml not found — skipping direct_ats target_companies")
         return []
     except Exception as e:
         logger.warning(f"Could not load target_companies from profile.yaml: {e}")
@@ -75,26 +92,75 @@ def _title_is_relevant(title: str, target_roles: List[str]) -> bool:
     return False
 
 
+def _request_json(
+    label: str,
+    method: str,
+    url: str,
+    *,
+    params: dict | None = None,
+    json_body: dict | None = None,
+) -> Any | None:
+    """GET/POST JSON with retries; None on 404 / exhausted failures."""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            if method == "POST":
+                response = requests.post(
+                    url,
+                    json=json_body if json_body is not None else {},
+                    headers=_HEADERS,
+                    timeout=_API_TIMEOUT,
+                )
+            else:
+                response = requests.get(
+                    url,
+                    params=params,
+                    headers=_HEADERS,
+                    timeout=_API_TIMEOUT,
+                )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"{label} failed ({type(e).__name__}) attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code == 404:
+            logger.info(f"{label} returned 404 — skipping")
+            return None
+        if response.status_code >= 400:
+            logger.info(
+                f"{label} HTTP {response.status_code} attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            return response.json()
+        except ValueError:
+            logger.info(f"{label} non-JSON attempt {attempt}/{_RETRIES}")
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+    logger.info(f"{label} skipped after {_RETRIES} attempts")
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Per-ATS fetchers
 # ---------------------------------------------------------------------------
 
 def _fetch_ashby(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
-    try:
-        r = requests.get(url, timeout=40)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"Ashby slug '{slug}' ({company_name}) skipped ({type(e).__name__})")
+    data = _request_json(f"Ashby slug '{slug}' ({company_name})", "GET", url)
+    if not isinstance(data, dict):
         return []
-    if r.status_code == 404:
-        logger.warning(f"Ashby slug '{slug}' ({company_name}) returned 404")
+    jobs = data.get("jobs", [])
+    if not isinstance(jobs, list):
         return []
-    if r.status_code >= 400:
-        logger.info(f"Ashby slug '{slug}' ({company_name}) HTTP {r.status_code}")
-        return []
-    jobs = r.json().get("jobs", [])
     results = []
     for job in jobs:
+        if not isinstance(job, dict):
+            continue
         if (job.get("workplaceType") or "").lower() not in ("remote", ""):
             continue
         if not job.get("isRemote"):
@@ -110,22 +176,21 @@ def _fetch_ashby(slug: str, company_name: str, target_roles: List[str]) -> List[
 
 def _fetch_greenhouse(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
-    try:
-        r = requests.get(url, params={"content": "true"}, timeout=40)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(
-            f"Greenhouse slug '{slug}' ({company_name}) skipped ({type(e).__name__})"
-        )
+    data = _request_json(
+        f"Greenhouse slug '{slug}' ({company_name})",
+        "GET",
+        url,
+        params={"content": "true"},
+    )
+    if not isinstance(data, dict):
         return []
-    if r.status_code == 404:
-        logger.warning(f"Greenhouse slug '{slug}' ({company_name}) returned 404")
+    jobs = data.get("jobs", [])
+    if not isinstance(jobs, list):
         return []
-    if r.status_code >= 400:
-        logger.info(f"Greenhouse slug '{slug}' ({company_name}) HTTP {r.status_code}")
-        return []
-    jobs = r.json().get("jobs", [])
     results = []
     for job in jobs:
+        if not isinstance(job, dict):
+            continue
         loc = (job.get("location", {}).get("name") or "").lower()
         if not any(kw in loc for kw in ("remote", "anywhere", "worldwide")):
             continue
@@ -140,21 +205,23 @@ def _fetch_greenhouse(slug: str, company_name: str, target_roles: List[str]) -> 
 
 def _fetch_lever(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     url = f"https://api.lever.co/v0/postings/{slug}"
-    try:
-        r = requests.get(url, params={"mode": "json"}, timeout=40)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"Lever slug '{slug}' ({company_name}) skipped ({type(e).__name__})")
+    data = _request_json(
+        f"Lever slug '{slug}' ({company_name})",
+        "GET",
+        url,
+        params={"mode": "json"},
+    )
+    if data is None:
         return []
-    if r.status_code == 404:
-        logger.warning(f"Lever slug '{slug}' ({company_name}) returned 404")
+    jobs = data if isinstance(data, list) else (
+        data.get("data", []) if isinstance(data, dict) else []
+    )
+    if not isinstance(jobs, list):
         return []
-    if r.status_code >= 400:
-        logger.info(f"Lever slug '{slug}' ({company_name}) HTTP {r.status_code}")
-        return []
-    data = r.json()
-    jobs = data if isinstance(data, list) else data.get("data", [])
     results = []
     for job in jobs:
+        if not isinstance(job, dict):
+            continue
         cats = job.get("categories", {})
         loc = (cats.get("location") or "").lower()
         commitment = (cats.get("commitment") or "").lower()
@@ -172,14 +239,18 @@ def _fetch_lever(slug: str, company_name: str, target_roles: List[str]) -> List[
 def _fetch_workable(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     # The public Workable API returns one page only — nextPage token is not accepted.
     endpoint = f"https://apply.workable.com/api/v3/accounts/{slug}/jobs"
-    r = requests.post(endpoint, json={}, timeout=15)
-    if r.status_code == 404:
-        logger.warning(f"Workable slug '{slug}' ({company_name}) returned 404")
+    data = _request_json(
+        f"Workable slug '{slug}' ({company_name})",
+        "POST",
+        endpoint,
+        json_body={},
+    )
+    if not isinstance(data, dict):
         return []
-    r.raise_for_status()
-
     results = []
-    for job in r.json().get("results", []):
+    for job in data.get("results", []):
+        if not isinstance(job, dict):
+            continue
         if not job.get("remote"):
             continue
         if job.get("state") != "published":
@@ -193,7 +264,7 @@ def _fetch_workable(slug: str, company_name: str, target_roles: List[str]) -> Li
     return results
 
 
-_FETCHERS = {
+_FETCHERS: dict[str, Callable[[str, str, List[str]], List[Dict[str, Any]]]] = {
     "ashby":      _fetch_ashby,
     "greenhouse": _fetch_greenhouse,
     "lever":      _fetch_lever,
@@ -358,6 +429,13 @@ class DirectATSConnector(BaseConnector):
 
             if ats == "unknown":
                 logger.warning(f"Unsupported careers URL for '{name}': {careers_url} — skipping")
+                continue
+
+            if (slug or "").lower() in JUNK_BOARD_SLUGS:
+                logger.debug(
+                    f"Skipping fixture slug '{slug}' ({name}) — "
+                    "replace profile.yaml target_companies with real boards"
+                )
                 continue
 
             fetcher = _FETCHERS[ats]
