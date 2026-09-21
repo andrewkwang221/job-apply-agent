@@ -36,15 +36,15 @@ def _load_allowed_lang_codes() -> set:
     except Exception:
         return {"en"}
 
-# Tech-relevant categories only — excludes sales, marketing, HR, customer support, etc.
+# GetOnBoard category slugs from GET https://www.getonbrd.com/api/v0/categories.
+# Not profile target_roles (those are free-text titles; they are not API ids).
+# Subset of the 18 board categories — skip sales, cyber, hardware, HR, etc.
 CATEGORIES = [
     "programming",
     "sysadmin-devops-qa",
     "data-science-analytics",
     "machine-learning-ai",
     "mobile-developer",
-    "cybersecurity",
-    "hardware-electronics",
 ]
 
 BASE_URL = "https://www.getonbrd.com/api/v0"
