@@ -59,6 +59,7 @@ _BLOCKED_HOST_SUFFIXES = (
     "wellfound.com",
     "angel.co",
     "builtin.com",
+    "up2staff.com",
     "otta.com",
     "linkedin.com",
     "indeed.com",

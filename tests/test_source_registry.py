@@ -46,6 +46,7 @@ def test_public_board_connectors_are_registered():
     assert "startupjobs" in CONNECTORS
     assert "4dayweek" in CONNECTORS
     assert "builtin" in CONNECTORS
+    assert "up2staff" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -58,7 +59,8 @@ def test_ats_connectors_run_after_aggregators():
     from run_pipeline import CONNECTORS
 
     keys = list(CONNECTORS)
-    assert keys.index("ashby") > keys.index("remote100k")
+    assert keys.index("up2staff") > keys.index("builtin")
+    assert keys.index("ashby") > keys.index("up2staff")
     assert keys.index("greenhouse") > keys.index("ashby")
     assert keys.index("lever") > keys.index("greenhouse")
     assert keys.index("direct_ats") > keys.index("lever")
@@ -109,3 +111,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "startupjobs" in _NO_DIRECT_APPLY_SOURCES
     assert "4dayweek" in _NO_DIRECT_APPLY_SOURCES
     assert "builtin" in _NO_DIRECT_APPLY_SOURCES
+    assert "up2staff" in _NO_DIRECT_APPLY_SOURCES

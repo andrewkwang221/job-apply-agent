@@ -69,6 +69,7 @@ from connectors.ladders import LaddersConnector
 from connectors.startupjobs import StartupJobsConnector
 from connectors.fourdayweek import FourDayWeekConnector
 from connectors.builtin import BuiltinConnector
+from connectors.up2staff import Up2StaffConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
@@ -133,6 +134,7 @@ CONNECTORS = {
     "startupjobs": StartupJobsConnector,
     "4dayweek": FourDayWeekConnector,
     "builtin": BuiltinConnector,
+    "up2staff": Up2StaffConnector,
     # After aggregators so board slugs come from this run's ATS apply URLs.
     "ashby": AshbyConnector,
     "greenhouse": GreenhouseConnector,
@@ -979,7 +981,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  up2staff  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

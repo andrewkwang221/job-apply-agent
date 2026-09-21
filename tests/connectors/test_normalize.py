@@ -1076,3 +1076,29 @@ class TestBuiltinNormalize:
         assert n["url"].startswith("https://builtin.com/job/")
         assert n["location"] == "Remote or Hybrid, California, USA"
         assert isinstance(n["location"], str)
+
+
+class TestUp2StaffNormalize:
+    def _raw(self):
+        return {
+            "id": "1362364",
+            "listing_url": "https://up2staff.com/staff-engineer-pcb-design-at-acme",
+            "url": "https://up2staff.com/staff-engineer-pcb-design-at-acme",
+            "title": "Senior Software Engineer",
+            "company": "Acme",
+            "location": "Remote, Anywhere in the World",
+            "description": "",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.up2staff import Up2StaffConnector
+        n = Up2StaffConnector().normalize(self._raw())
+        _assert_shape(n, "up2staff")
+
+    def test_keeps_up2staff_url(self):
+        from connectors.up2staff import Up2StaffConnector
+        n = Up2StaffConnector().normalize(self._raw())
+        assert n["url"].startswith("https://up2staff.com/")
+        assert n["location"] == "Remote, Anywhere in the World"
+        assert isinstance(n["location"], str)
