@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Any
@@ -18,6 +19,11 @@ logger = setup_logger("arbeitnow_connector")
 # Live pages mix created_at across page numbers (checked 2026-09-10), so walk
 # the pager and date-filter instead of stopping at page 3 or the first old job.
 _MAX_PAGES = 80  # runaway guard only; stop earlier on empty / no next link
+_PAGE_TIMEOUT = 25
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+# After this many consecutive page failures, stop (network is toast).
+_MAX_CONSECUTIVE_FAILURES = 3
 
 
 def _parse_created_at(value: Any) -> datetime | None:
@@ -37,6 +43,43 @@ def _parse_created_at(value: Any) -> datetime | None:
         return None
 
 
+def _fetch_page(page: int) -> dict[str, Any] | None:
+    """Return one API page, or None after retries on timeout/connection/HTTP."""
+    params = {"page": page}
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(
+                "https://www.arbeitnow.com/api/job-board-api",
+                params=params,
+                timeout=_PAGE_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"arbeitnow page {page} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code >= 400:
+            logger.info(
+                f"arbeitnow page {page} HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(f"arbeitnow page {page} non-JSON attempt {attempt}/{_RETRIES}")
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    return None
+
+
 class ArbeitnowConnector(BaseConnector):
     def __init__(self):
         self.api_url = "https://www.arbeitnow.com/api/job-board-api"
@@ -48,21 +91,32 @@ class ArbeitnowConnector(BaseConnector):
         seen_keys: set[str] = set()
         page = 1
         cutoff = job_age_cutoff(self.source_name)
+        consecutive_failures = 0
 
         try:
             while page <= _MAX_PAGES:
-                response = requests.get(
-                    self.api_url,
-                    params={"page": page},
-                    timeout=15,
-                )
-                response.raise_for_status()
-                data = response.json()
+                data = _fetch_page(page)
+                if data is None:
+                    consecutive_failures += 1
+                    logger.warning(
+                        f"arbeitnow page {page} failed "
+                        f"({consecutive_failures}/{_MAX_CONSECUTIVE_FAILURES}) — "
+                        "keeping prior jobs, continuing"
+                    )
+                    if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                        break
+                    page += 1
+                    time.sleep(_RETRY_DELAY)
+                    continue
+
+                consecutive_failures = 0
                 jobs = data.get("data", [])
-                if not jobs:
+                if not isinstance(jobs, list) or not jobs:
                     break
 
                 for job in jobs:
+                    if not isinstance(job, dict):
+                        continue
                     if not job.get("remote"):
                         continue
                     posted = _parse_created_at(job.get("created_at"))
@@ -80,7 +134,9 @@ class ArbeitnowConnector(BaseConnector):
                     break
                 page += 1
 
-            logger.info(f"Successfully fetched {len(all_jobs)} remote jobs from {self.source_name}")
+            logger.info(
+                f"Successfully fetched {len(all_jobs)} remote jobs from {self.source_name}"
+            )
         except Exception as e:
             logger.error(f"Error fetching jobs from {self.source_name}: {e}")
             logger.debug(traceback.format_exc())

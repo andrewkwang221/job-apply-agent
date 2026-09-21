@@ -21,6 +21,7 @@ _RECENT_PUB_DATE = (
 def _mock_json(payload, status=200):
     m = MagicMock()
     m.json.return_value = payload
+    m.status_code = status
     m.raise_for_status = MagicMock()
     if status >= 400:
         from requests.exceptions import HTTPError
@@ -249,7 +250,9 @@ class TestArbeitnowFetch:
         assert len(jobs) == 1
 
     def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_json({}, 503)):
+        with patch("connectors.arbeitnow.time.sleep"), patch(
+            self._T, return_value=_mock_json({}, 503)
+        ):
             from connectors.arbeitnow import ArbeitnowConnector
             assert ArbeitnowConnector().fetch_jobs() == []
 
@@ -257,6 +260,35 @@ class TestArbeitnowFetch:
         with patch(self._T, side_effect=Exception("err")):
             from connectors.arbeitnow import ArbeitnowConnector
             assert ArbeitnowConnector().fetch_jobs() == []
+
+    def test_timeout_mid_walk_keeps_prior_and_continues(self):
+        import requests
+
+        page1 = _mock_json({
+            "data": [self._job(slug="kept")],
+            "links": {"next": "page2"},
+        })
+        page3 = _mock_json({
+            "data": [self._job(slug="after-timeout")],
+            "links": {},
+        })
+        # page 2: three timeouts then page 3 succeeds
+        effects = [
+            page1,
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            page3,
+        ]
+        with patch("connectors.arbeitnow.time.sleep"), patch(
+            self._T, side_effect=effects
+        ) as mock_get:
+            from connectors.arbeitnow import ArbeitnowConnector
+            jobs = ArbeitnowConnector().fetch_jobs()
+        slugs = [j["slug"] for j in jobs]
+        assert "kept" in slugs
+        assert "after-timeout" in slugs
+        assert mock_get.call_count == 5
 
 
 class TestArbeitnowNormalize:
