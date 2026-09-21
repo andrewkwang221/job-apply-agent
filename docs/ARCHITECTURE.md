@@ -138,6 +138,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RemoteArmyConnector` | [RemoteArmy](https://remotearmy.io/) | Guest eng category SSR; `/search?term=` unbound over HTTP; unique `target_roles` title filter; newest-first first-stale stop; listing skip before persist; apply review-capped |
 | `RemoteYeahConnector` | [RemoteYeah](https://remoteyeah.com/remote-mid-level+principal+senior+staff-jobs-in-united-states+worldwide) | Guest listing-path RSS; mid/senior/staff/principal + US/worldwide; newest-first first-stale stop; engineering title filter; listing skip before persist; apply review-capped |
 | `RemoteSourceConnector` | [RemoteSource](https://www.remotesource.com/jobs?jobCategory=Engineering+%26+Development%2CData+%26+Analytics&remoteFirstOnly=true&postedWithin=7d&search=Software+Engineer) | Guest `/api/jobs` (SSR filters unbound); unique `target_roles` as `search=`; `postedWithin` 7d/30d; newest-first `offset` + first-stale; listing skip before persist; external apply |
+| `RemoteJobsConnector` | [RemoteJobs.org](https://remotejobs.org/remote-jobs?category=programming) | Guest `/api/v1/jobs`; `programming`/`data-science`/`devops`; unique `target_roles` as `q=`; newest-first `offset` + first-stale; listing skip before persist; apply review-capped |
 
 **Direct ATS connectors:**
 

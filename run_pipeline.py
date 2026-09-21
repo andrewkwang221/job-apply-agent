@@ -74,6 +74,7 @@ from connectors.up2staff import Up2StaffConnector
 from connectors.remotearmy import RemoteArmyConnector
 from connectors.remoteyeah import RemoteYeahConnector
 from connectors.remotesource import RemoteSourceConnector
+from connectors.remotejobs import RemoteJobsConnector
 from utils.form_prefill import _TimingCollector
 from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
@@ -143,6 +144,7 @@ CONNECTORS = {
     "remotearmy": RemoteArmyConnector,
     "remoteyeah": RemoteYeahConnector,
     "remotesource": RemoteSourceConnector,
+    "remotejobs": RemoteJobsConnector,
     # After aggregators so board slugs come from this run's ATS apply URLs.
     "ashby": AshbyConnector,
     "greenhouse": GreenhouseConnector,
@@ -989,7 +991,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

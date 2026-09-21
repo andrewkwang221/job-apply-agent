@@ -32,6 +32,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "up2staff",        # apply / employer link is membership-gated
     "remotearmy",      # apply is /register?account_type=worker (directApply false)
     "remoteyeah",      # apply is CSRF POST /jobs/…/apply redirect (directApply false)
+    "remotejobs",      # apply is an on-site button (no external employer URL)
 })
 
 TITLE_REJECT_KEYWORDS = [
