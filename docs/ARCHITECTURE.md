@@ -139,6 +139,8 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RemoteYeahConnector` | [RemoteYeah](https://remoteyeah.com/remote-mid-level+principal+senior+staff-jobs-in-united-states+worldwide) | Guest listing-path RSS; mid/senior/staff/principal + US/worldwide; newest-first first-stale stop; engineering title filter; listing skip before persist; apply review-capped |
 | `RemoteSourceConnector` | [RemoteSource](https://www.remotesource.com/jobs?jobCategory=Engineering+%26+Development%2CData+%26+Analytics&remoteFirstOnly=true&postedWithin=7d&search=Software+Engineer) | Guest `/api/jobs` (SSR filters unbound); unique `target_roles` as `search=`; `postedWithin` 7d/30d; newest-first `offset` + first-stale; listing skip before persist; external apply |
 | `RemoteJobsConnector` | [RemoteJobs.org](https://remotejobs.org/remote-jobs?category=programming) | Guest `/api/v1/jobs`; `programming`/`data-science`/`devops`; unique `target_roles` as `q=`; newest-first `offset` + first-stale; listing skip before persist; apply review-capped |
+| `RemoteFrontJobsConnector` | [RemoteFrontJobs](https://www.remotefrontendjobs.com/) | Guest `/api/jobs?limit=5000` (SSR filters unbound); mixed `isoDate` date-filter; no `seniority=`; engineering title filter; listing skip before persist; external apply link |
+| `HubstaffTalentConnector` | [Hubstaff Talent](https://hubstafftalent.net/search/jobs?search%5Bkeywords%5D=Software+Engineer&search%5Bcountries%5D%5B%5D=US&search%5Bsort_by%5D=date_added) | Guest XHR `/search/jobs`; unique `target_roles` as `search[keywords]`; US + pay $50–100+/hr; newest-first `date_added` + first-stale; location `Remote`; listing skip before persist; apply review-capped |
 
 **Direct ATS connectors:**
 
@@ -247,4 +249,3 @@ All submissions are manual. The pipeline:
 - prompts to mark the job as `applied` after submission
 
 `application_history` is updated on mark-applied.
-| RemoteFrontJobsConnector | [RemoteFrontJobs](https://www.remotefrontendjobs.com/) | Guest /api/jobs?limit=5000 (SSR filters unbound); mixed isoDate date-filter; no seniority=; engineering title filter; listing skip before persist; external apply link |

@@ -1270,3 +1270,29 @@ class TestRemoteFrontJobsNormalize:
         assert n["url"] == "https://boards.greenhouse.io/leidos/jobs/1"
         assert n["location"] == "United States"
         assert isinstance(n["location"], str)
+
+
+class TestHubstaffTalentNormalize:
+    def _raw(self):
+        return {
+            "id": "backend-engineer",
+            "listing_url": "https://hubstafftalent.net/jobs/backend-engineer",
+            "url": "https://hubstafftalent.net/jobs/backend-engineer",
+            "title": "Backend Engineer",
+            "company": "Rolevo",
+            "location": "Remote",
+            "description": "Build the API.",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.hubstafftalent import HubstaffTalentConnector
+        n = HubstaffTalentConnector().normalize(self._raw())
+        _assert_shape(n, "hubstafftalent")
+
+    def test_location_is_remote_string(self):
+        from connectors.hubstafftalent import HubstaffTalentConnector
+        n = HubstaffTalentConnector().normalize(self._raw())
+        assert n["url"] == "https://hubstafftalent.net/jobs/backend-engineer"
+        assert n["location"] == "Remote"
+        assert isinstance(n["raw_location_text"], str)
