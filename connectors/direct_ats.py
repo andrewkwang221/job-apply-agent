@@ -81,11 +81,17 @@ def _title_is_relevant(title: str, target_roles: List[str]) -> bool:
 
 def _fetch_ashby(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     url = f"https://api.ashbyhq.com/posting-api/job-board/{slug}"
-    r = requests.get(url, timeout=15)
+    try:
+        r = requests.get(url, timeout=40)
+    except (requests.Timeout, requests.ConnectionError) as e:
+        logger.info(f"Ashby slug '{slug}' ({company_name}) skipped ({type(e).__name__})")
+        return []
     if r.status_code == 404:
         logger.warning(f"Ashby slug '{slug}' ({company_name}) returned 404")
         return []
-    r.raise_for_status()
+    if r.status_code >= 400:
+        logger.info(f"Ashby slug '{slug}' ({company_name}) HTTP {r.status_code}")
+        return []
     jobs = r.json().get("jobs", [])
     results = []
     for job in jobs:
@@ -104,11 +110,19 @@ def _fetch_ashby(slug: str, company_name: str, target_roles: List[str]) -> List[
 
 def _fetch_greenhouse(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
-    r = requests.get(url, params={"content": "true"}, timeout=15)
+    try:
+        r = requests.get(url, params={"content": "true"}, timeout=40)
+    except (requests.Timeout, requests.ConnectionError) as e:
+        logger.info(
+            f"Greenhouse slug '{slug}' ({company_name}) skipped ({type(e).__name__})"
+        )
+        return []
     if r.status_code == 404:
         logger.warning(f"Greenhouse slug '{slug}' ({company_name}) returned 404")
         return []
-    r.raise_for_status()
+    if r.status_code >= 400:
+        logger.info(f"Greenhouse slug '{slug}' ({company_name}) HTTP {r.status_code}")
+        return []
     jobs = r.json().get("jobs", [])
     results = []
     for job in jobs:
@@ -126,11 +140,17 @@ def _fetch_greenhouse(slug: str, company_name: str, target_roles: List[str]) -> 
 
 def _fetch_lever(slug: str, company_name: str, target_roles: List[str]) -> List[Dict[str, Any]]:
     url = f"https://api.lever.co/v0/postings/{slug}"
-    r = requests.get(url, params={"mode": "json"}, timeout=30)
+    try:
+        r = requests.get(url, params={"mode": "json"}, timeout=40)
+    except (requests.Timeout, requests.ConnectionError) as e:
+        logger.info(f"Lever slug '{slug}' ({company_name}) skipped ({type(e).__name__})")
+        return []
     if r.status_code == 404:
         logger.warning(f"Lever slug '{slug}' ({company_name}) returned 404")
         return []
-    r.raise_for_status()
+    if r.status_code >= 400:
+        logger.info(f"Lever slug '{slug}' ({company_name}) HTTP {r.status_code}")
+        return []
     data = r.json()
     jobs = data if isinstance(data, list) else data.get("data", [])
     results = []

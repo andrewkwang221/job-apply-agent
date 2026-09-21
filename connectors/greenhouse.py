@@ -3,6 +3,7 @@ import traceback
 import yaml
 from datetime import datetime
 from typing import List, Dict, Any, Set
+from urllib.parse import unquote
 
 import requests
 from sqlalchemy import create_engine, text
@@ -17,6 +18,16 @@ logger = setup_logger("greenhouse_connector")
 
 BASE_URL = "https://boards-api.greenhouse.io/v1/boards"
 _SLUG_RE = re.compile(r"greenhouse\.io/(?:boards/)?([^/?#]+)")
+# Guest boards-api with content=true returns full JDs; large boards exceed 15s.
+_API_TIMEOUT = 40
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
+_SLUG_OK_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$")
 
 # Verified Greenhouse boards worth probing directly.  The connector also
 # discovers slugs organically from the DB (any Greenhouse URL ingested by
@@ -26,9 +37,18 @@ _CURATED_SLUGS: set[str] = {
 }
 
 
+def _normalize_slug(raw: str) -> str | None:
+    slug = unquote(raw or "").strip().lower().replace(" ", "-").strip("-")
+    if not slug or "%" in slug:
+        return None
+    if not _SLUG_OK_RE.fullmatch(slug):
+        return None
+    return slug
+
+
 def _extract_slug(url: str) -> str | None:
     m = _SLUG_RE.search(url)
-    return m.group(1).lower() if m else None
+    return _normalize_slug(m.group(1)) if m else None
 
 
 def _load_slugs_from_db() -> Set[str]:
@@ -56,9 +76,9 @@ def _load_excluded_slugs() -> Set[str]:
             profile = yaml.safe_load(f) or {}
         for entry in profile.get("target_companies", []):
             if isinstance(entry, dict):
-                m = _SLUG_RE.search(entry.get("careers_url", ""))
-                if m:
-                    excluded.add(m.group(1).lower())
+                slug = _extract_slug(entry.get("careers_url", ""))
+                if slug:
+                    excluded.add(slug)
         for name in profile.get("blacklisted_companies", []):
             excluded.add(str(name).strip().lower().replace(" ", "-"))
     except Exception:
@@ -126,15 +146,22 @@ class GreenhouseConnector(BaseConnector):
     def _fetch_company(
         self, slug: str, target_roles: List[str], seen_ids: Set[str]
     ) -> List[Dict[str, Any]]:
-        response = requests.get(
-            f"{BASE_URL}/{slug}/jobs",
-            params={"content": "true"},
-            timeout=15,
-        )
+        try:
+            response = requests.get(
+                f"{BASE_URL}/{slug}/jobs",
+                params={"content": "true"},
+                headers=_HEADERS,
+                timeout=_API_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(f"Greenhouse slug '{slug}' skipped ({type(e).__name__})")
+            return []
         if response.status_code == 404:
             logger.debug(f"Greenhouse slug '{slug}' returned 404 — skipping")
             return []
-        response.raise_for_status()
+        if response.status_code >= 400:
+            logger.info(f"Greenhouse slug '{slug}' HTTP {response.status_code}")
+            return []
 
         jobs = response.json().get("jobs", [])
         results = []

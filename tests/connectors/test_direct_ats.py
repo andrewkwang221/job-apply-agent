@@ -6,6 +6,7 @@ All HTTP calls are mocked. profile.yaml loading uses tmp_path + monkeypatch.
 from unittest.mock import patch, MagicMock
 
 import yaml
+from requests.exceptions import Timeout as RequestsTimeout
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +173,11 @@ class TestFetchAshby:
             from connectors.direct_ats import _fetch_ashby
             assert _fetch_ashby("bad-slug", "Co", []) == []
 
+    def test_timeout_returns_empty(self):
+        with patch(self._T, side_effect=RequestsTimeout("read timeout=40")):
+            from connectors.direct_ats import _fetch_ashby
+            assert _fetch_ashby("openai", "OpenAI", []) == []
+
     def test_title_filter_applied(self):
         with patch(self._T, return_value=_mock_resp({"jobs": [self._job(title="Sales Manager")]})):
             from connectors.direct_ats import _fetch_ashby
@@ -209,6 +215,11 @@ class TestFetchGreenhouse:
             from connectors.direct_ats import _fetch_greenhouse
             assert _fetch_greenhouse("bad", "Co", []) == []
 
+    def test_timeout_returns_empty(self):
+        with patch(self._T, side_effect=RequestsTimeout("read timeout=40")):
+            from connectors.direct_ats import _fetch_greenhouse
+            assert _fetch_greenhouse("calendly", "Calendly", []) == []
+
 
 class TestFetchLever:
     _T = "connectors.direct_ats.requests.get"
@@ -241,6 +252,11 @@ class TestFetchLever:
         with patch(self._T, return_value=_mock_resp({}, 404)):
             from connectors.direct_ats import _fetch_lever
             assert _fetch_lever("bad", "Co", []) == []
+
+    def test_timeout_returns_empty(self):
+        with patch(self._T, side_effect=RequestsTimeout("read timeout=40")):
+            from connectors.direct_ats import _fetch_lever
+            assert _fetch_lever("startup", "Startup", []) == []
 
 
 class TestFetchWorkable:

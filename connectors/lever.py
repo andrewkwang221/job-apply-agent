@@ -119,15 +119,21 @@ class LeverConnector(BaseConnector):
     def _fetch_company(
         self, slug: str, target_roles: List[str], seen_ids: Set[str]
     ) -> List[Dict[str, Any]]:
-        response = requests.get(
-            f"{BASE_URL}/{slug}",
-            params={"mode": "json"},
-            timeout=30,
-        )
+        try:
+            response = requests.get(
+                f"{BASE_URL}/{slug}",
+                params={"mode": "json"},
+                timeout=40,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(f"Lever slug '{slug}' skipped ({type(e).__name__})")
+            return []
         if response.status_code == 404:
             logger.debug(f"Lever slug '{slug}' returned 404 — skipping")
             return []
-        response.raise_for_status()
+        if response.status_code >= 400:
+            logger.info(f"Lever slug '{slug}' HTTP {response.status_code}")
+            return []
 
         data = response.json()
         # Lever returns either a list directly or {"data": [...]}

@@ -14,7 +14,11 @@ Covers:
 from datetime import datetime
 from unittest.mock import patch, MagicMock
 
-from requests.exceptions import HTTPError, ConnectionError as RequestsConnectionError
+from requests.exceptions import (
+    HTTPError,
+    ConnectionError as RequestsConnectionError,
+    Timeout as RequestsTimeout,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +39,34 @@ def _json_mock(payload, status_code=200):
 
 def _error_mock(status_code=500):
     return _json_mock({}, status_code)
+
+
+class TestAshbySlug:
+    def test_extract_decodes_percent_encoded_spaces(self):
+        from connectors.ashby import _extract_slug, _normalize_slug
+
+        assert (
+            _extract_slug("https://jobs.ashbyhq.com/solana%20foundation/abc")
+            == "solana-foundation"
+        )
+        assert _extract_slug("https://jobs.ashbyhq.com/openai/posting") == "openai"
+        assert _normalize_slug("solana%20foundation") == "solana-foundation"
+        assert _normalize_slug("Cursor") == "cursor"
+        assert _normalize_slug("%") is None
+        assert _normalize_slug("") is None
+
+
+class TestGreenhouseSlug:
+    def test_extract_decodes_percent_encoded_spaces(self):
+        from connectors.greenhouse import _extract_slug, _normalize_slug
+
+        assert (
+            _extract_slug("https://boards.greenhouse.io/solana%20foundation")
+            == "solana-foundation"
+        )
+        assert _extract_slug("https://boards.greenhouse.io/calendly") == "calendly"
+        assert _normalize_slug("5minsightllc") == "5minsightllc"
+        assert _normalize_slug("%") is None
 
 
 # ---------------------------------------------------------------------------
@@ -208,6 +240,30 @@ class TestAshbyFetch:
             jobs = AshbyConnector().fetch_jobs()
         assert jobs == []
 
+    def test_read_timeout_skips_slug_and_continues(self):
+        from connectors.ashby import (
+            AshbyConnector,
+            _API_TIMEOUT,
+            _CURATED_SLUGS,
+            _HEADERS,
+        )
+
+        payload = {"jobs": [_ashby_job()]}
+
+        def fake_get(url, **kwargs):
+            assert kwargs.get("timeout") == _API_TIMEOUT
+            assert kwargs.get("headers") == _HEADERS
+            if str(url).endswith("/slow-co"):
+                raise RequestsTimeout("Read timed out. (read timeout=40)")
+            return _json_mock(payload)
+
+        with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
+             patch(self._PATCH_EXCL_SLUGS, return_value=_CURATED_SLUGS.copy()), \
+             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
+             patch(self._PATCH_GET, side_effect=fake_get):
+            jobs = AshbyConnector().fetch_jobs()
+        assert len(jobs) == 1
+
     def test_404_returns_empty_list_for_slug(self):
         mock = _json_mock({}, 404)
         # 404 doesn't raise — connector returns [] silently
@@ -373,6 +429,30 @@ class TestGreenhouseFetch:
             from connectors.greenhouse import GreenhouseConnector
             jobs = GreenhouseConnector().fetch_jobs()
         assert jobs == []
+
+    def test_read_timeout_skips_slug_and_continues(self):
+        from connectors.greenhouse import (
+            GreenhouseConnector,
+            _API_TIMEOUT,
+            _CURATED_SLUGS,
+            _HEADERS,
+        )
+
+        payload = {"jobs": [_greenhouse_job()]}
+
+        def fake_get(url, **kwargs):
+            assert kwargs.get("timeout") == _API_TIMEOUT
+            assert kwargs.get("headers") == _HEADERS
+            if "/slow-co/" in str(url):
+                raise RequestsTimeout("Read timed out. (read timeout=40)")
+            return _json_mock(payload)
+
+        with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
+             patch(self._PATCH_EXCL_SLUGS, return_value=_CURATED_SLUGS.copy()), \
+             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
+             patch(self._PATCH_GET, side_effect=fake_get):
+            jobs = GreenhouseConnector().fetch_jobs()
+        assert len(jobs) == 1
 
     def test_404_returns_empty_list_for_slug(self):
         mock = _json_mock({}, 404)
@@ -558,6 +638,23 @@ class TestLeverFetch:
             from connectors.lever import LeverConnector
             jobs = LeverConnector().fetch_jobs()
         assert jobs == []
+
+    def test_read_timeout_skips_slug_and_continues(self):
+        payload = [_lever_job()]
+
+        def fake_get(url, **kwargs):
+            assert kwargs.get("timeout") == 40
+            if str(url).endswith("/slow-co"):
+                raise RequestsTimeout("Read timed out. (read timeout=40)")
+            return _json_mock(payload)
+
+        with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
+             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
+             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
+             patch(self._PATCH_GET, side_effect=fake_get):
+            from connectors.lever import LeverConnector
+            jobs = LeverConnector().fetch_jobs()
+        assert len(jobs) == 1
 
     def test_404_returns_empty_list_for_slug(self):
         mock = _json_mock({}, 404)
