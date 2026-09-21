@@ -26,6 +26,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "postjobfree",     # apply is on PostJobFree (email / resume form)
     "ladders",         # apply is on TheLadders (Apply4Me / login)
     "startupjobs",     # apply is on Startup.jobs (/apply/ is robots-disallowed)
+    "4dayweek",        # apply is Pro / login gated on 4dayweek.io
 })
 
 TITLE_REJECT_KEYWORDS = [

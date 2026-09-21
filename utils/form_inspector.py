@@ -92,6 +92,7 @@ _LISTING_DOMAINS = [
     "workew.com",
     "theladders.com",
     "startup.jobs",
+    "4dayweek.io",
 ]
 
 

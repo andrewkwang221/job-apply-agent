@@ -1024,3 +1024,29 @@ class TestStartupJobsNormalize:
         assert n["url"].startswith("https://startup.jobs/")
         assert n["location"] == "Remote · United States"
         assert isinstance(n["location"], str)
+
+
+class TestFourDayWeekNormalize:
+    def _raw(self):
+        return {
+            "id": "01a0-uuid",
+            "listing_url": "https://4dayweek.io/job/senior-backend-software-engineer-at-acme",
+            "url": "https://4dayweek.io/job/senior-backend-software-engineer-at-acme",
+            "title": "Senior Backend Software Engineer",
+            "company": "Acme",
+            "location": "Remote (United States)",
+            "description": "Python role",
+            "posted_date": datetime(2026, 9, 20, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.fourdayweek import FourDayWeekConnector
+        n = FourDayWeekConnector().normalize(self._raw())
+        _assert_shape(n, "4dayweek")
+
+    def test_keeps_4dayweek_url(self):
+        from connectors.fourdayweek import FourDayWeekConnector
+        n = FourDayWeekConnector().normalize(self._raw())
+        assert n["url"].startswith("https://4dayweek.io/job/")
+        assert n["location"] == "Remote (United States)"
+        assert isinstance(n["location"], str)
