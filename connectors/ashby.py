@@ -1,4 +1,5 @@
 import re
+import time
 import traceback
 import yaml
 from datetime import datetime
@@ -20,6 +21,8 @@ BASE_URL = "https://api.ashbyhq.com/posting-api/job-board"
 _SLUG_RE = re.compile(r"ashbyhq\.com/([^/?#]+)")
 # Guest posting-api returns full JDs; large boards (openai) exceed 15s.
 _API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -95,6 +98,45 @@ def _title_is_relevant(title: str, target_roles: List[str]) -> bool:
     return False
 
 
+def _fetch_board(slug: str) -> dict[str, Any] | None:
+    """GET one board payload, or None after retries on timeout/connection/HTTP."""
+    url = f"{BASE_URL}/{slug}"
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"Ashby slug '{slug}' failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code == 404:
+            logger.debug(f"Ashby slug '{slug}' returned 404 — skipping")
+            return None
+        if response.status_code >= 400:
+            logger.info(
+                f"Ashby slug '{slug}' HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(
+                f"Ashby slug '{slug}' non-JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    logger.info(f"Ashby slug '{slug}' skipped after {_RETRIES} attempts")
+    return None
+
+
 class AshbyConnector(BaseConnector):
     def __init__(self):
         self.source_name = "ashby"
@@ -129,25 +171,17 @@ class AshbyConnector(BaseConnector):
     def _fetch_company(
         self, slug: str, target_roles: List[str], seen_ids: Set[str]
     ) -> List[Dict[str, Any]]:
-        try:
-            response = requests.get(
-                f"{BASE_URL}/{slug}",
-                headers=_HEADERS,
-                timeout=_API_TIMEOUT,
-            )
-        except (requests.Timeout, requests.ConnectionError) as e:
-            logger.info(f"Ashby slug '{slug}' skipped ({type(e).__name__})")
-            return []
-        if response.status_code == 404:
-            logger.debug(f"Ashby slug '{slug}' returned 404 — skipping")
-            return []
-        if response.status_code >= 400:
-            logger.info(f"Ashby slug '{slug}' HTTP {response.status_code}")
+        data = _fetch_board(slug)
+        if data is None:
             return []
 
-        jobs = response.json().get("jobs", [])
+        jobs = data.get("jobs", [])
+        if not isinstance(jobs, list):
+            return []
         results = []
         for job in jobs:
+            if not isinstance(job, dict):
+                continue
             if (job.get("workplaceType") or "").lower() not in ("remote", ""):
                 continue
             if not job.get("isRemote"):

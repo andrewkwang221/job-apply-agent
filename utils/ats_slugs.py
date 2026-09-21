@@ -22,6 +22,8 @@ logger = setup_logger("ats_slugs")
 _JUNK_SLUGS = frozenset({
     "embed", "jobs", "boards", "job-boards", "job-board", "job_board",
     "posting-api", "api", "v0", "v1", "apply", "job", "for",
+    # Fixture / mock board names that must not be probed live.
+    "acme", "slow-co", "bad-slug", "bad", "no-such-co", "examplecorp", "anotherco",
 })
 
 

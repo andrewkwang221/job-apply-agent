@@ -220,7 +220,8 @@ class TestAshbyFetch:
         assert jobs == []
 
     def test_network_exception_returns_empty_list(self):
-        with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
+        with patch("connectors.ashby.time.sleep"), \
+             patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
              patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, side_effect=RequestsConnectionError("timeout")):
@@ -229,23 +230,40 @@ class TestAshbyFetch:
         assert jobs == []
 
     def test_read_timeout_skips_slug_and_continues(self):
-        from connectors.ashby import AshbyConnector, _API_TIMEOUT, _HEADERS
+        from connectors.ashby import AshbyConnector, _API_TIMEOUT, _HEADERS, _RETRIES
 
         payload = {"jobs": [_ashby_job()]}
+        slow_hits = {"n": 0}
 
         def fake_get(url, **kwargs):
             assert kwargs.get("timeout") == _API_TIMEOUT
             assert kwargs.get("headers") == _HEADERS
             if str(url).endswith("/slow-co"):
+                slow_hits["n"] += 1
                 raise RequestsTimeout("Read timed out. (read timeout=40)")
             return _json_mock(payload)
 
-        with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
+        with patch("connectors.ashby.time.sleep"), \
+             patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
              patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, side_effect=fake_get):
             jobs = AshbyConnector().fetch_jobs()
         assert len(jobs) == 1
+        assert slow_hits["n"] == _RETRIES
+
+    def test_http_503_retries_then_skips(self):
+        mock = _json_mock({}, 503)
+        mock.raise_for_status = MagicMock()
+        with patch("connectors.ashby.time.sleep"), \
+             patch(self._PATCH_DB_SLUGS, return_value={"flaky"}), \
+             patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
+             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
+             patch(self._PATCH_GET, return_value=mock) as mock_get:
+            from connectors.ashby import AshbyConnector, _RETRIES
+            jobs = AshbyConnector().fetch_jobs()
+        assert jobs == []
+        assert mock_get.call_count == _RETRIES
 
     def test_404_returns_empty_list_for_slug(self):
         mock = _json_mock({}, 404)

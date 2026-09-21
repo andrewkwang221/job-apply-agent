@@ -67,6 +67,12 @@ def test_keeps_recent_and_drops_stale_and_junk(tmp_path, monkeypatch):
         url="https://jobs.ashbyhq.com/embed/nope",
         posted_date=_NOW_DB,
     )
+    _add_job(
+        session,
+        external_id="fixture",
+        url="https://jobs.ashbyhq.com/acme/fake",
+        posted_date=_NOW_DB,
+    )
     session.commit()
     session.close()
 
