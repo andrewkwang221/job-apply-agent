@@ -136,51 +136,74 @@ class TestEngineeringTitle:
 
 
 class TestFetchJobs:
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.remotejobsio.time.sleep")
     @patch("connectors.remotejobsio.requests.get")
-    def test_returns_parsed_jobs(self, mock_get, _sleep):
+    def test_returns_parsed_jobs(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response(_listing_html([_item()]))
         jobs = RemoteJobsIoConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["title"] == "Senior Backend Engineer"
 
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.remotejobsio.time.sleep")
     @patch("connectors.remotejobsio.requests.get")
-    def test_http_error_returns_empty(self, mock_get, _sleep):
+    def test_http_error_returns_empty(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response("fail", status=500)
         assert RemoteJobsIoConnector().fetch_jobs() == []
 
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.remotejobsio.time.sleep")
     @patch("connectors.remotejobsio.requests.get")
-    def test_stops_when_page_has_no_jobs(self, mock_get, _sleep):
+    def test_connection_error_retries_then_empty(self, mock_get, _sleep, _curl):
+        from connectors.remotejobsio import _RETRIES
+        from requests.exceptions import ConnectionError as ReqConnectionError
+
+        mock_get.side_effect = ReqConnectionError("Failed to resolve 'www.remotejobs.io'")
+        assert RemoteJobsIoConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
+
+    @patch("connectors.remotejobsio.time.sleep")
+    @patch("connectors.remotejobsio.requests.get")
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi")
+    def test_prefers_chrome_tls(self, mock_curl, mock_get, _sleep):
+        mock_curl.return_value = _listing_html([_item()])
+        jobs = RemoteJobsIoConnector().fetch_jobs()
+        assert len(jobs) == 1
+        mock_get.assert_not_called()
+
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
+    @patch("connectors.remotejobsio.time.sleep")
+    @patch("connectors.remotejobsio.requests.get")
+    def test_stops_when_page_has_no_jobs(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response(_listing_html([]))
         assert RemoteJobsIoConnector().fetch_jobs() == []
         assert mock_get.call_count == 1
 
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.remotejobsio.time.sleep")
     @patch("connectors.remotejobsio.requests.get")
-    def test_paginates_beyond_old_six_page_cap(self, mock_get, _sleep):
+    def test_paginates_beyond_old_six_page_cap(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response(_listing_html([_item()], total_pages=8))
         jobs = RemoteJobsIoConnector().fetch_jobs()
         assert len(jobs) == 1
         assert mock_get.call_count == 8
 
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.remotejobsio.time.sleep")
     @patch("connectors.remotejobsio.requests.get")
-    def test_keeps_recent_jobs_on_later_unsorted_pages(self, mock_get, _sleep):
-        def side_effect(*args, **kwargs):
-            params = kwargs.get("params") or {}
-            page = params.get("page", 1)
-            if page == 1:
+    def test_keeps_recent_jobs_on_later_unsorted_pages(self, mock_get, _sleep, _curl):
+        def side_effect(url, *args, **kwargs):
+            if "page=2" in str(url):
                 return _mock_response(
                     _listing_html(
-                        [_item(posted=_OLD, job_id="old", slug="old-backend-engineer")],
+                        [_item(posted=_RECENT, job_id="new", slug="new-backend-engineer")],
                         total_pages=2,
                     )
                 )
             return _mock_response(
                 _listing_html(
-                    [_item(posted=_RECENT, job_id="new", slug="new-backend-engineer")],
+                    [_item(posted=_OLD, job_id="old", slug="old-backend-engineer")],
                     total_pages=2,
                 )
             )
@@ -191,6 +214,24 @@ class TestFetchJobs:
         assert "new" in ids
         assert "old" not in ids
         assert mock_get.call_count == 2
+
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
+    @patch("connectors.remotejobsio.time.sleep")
+    @patch("connectors.remotejobsio.requests.get")
+    def test_keeps_prior_jobs_when_later_page_fails(self, mock_get, _sleep, _curl):
+        from requests.exceptions import ConnectionError as ReqConnectionError
+
+        def side_effect(url, *args, **kwargs):
+            if "page=2" in str(url):
+                raise ReqConnectionError("dns fail")
+            return _mock_response(
+                _listing_html([_item()], total_pages=2)
+            )
+
+        mock_get.side_effect = side_effect
+        jobs = RemoteJobsIoConnector().fetch_jobs()
+        assert len(jobs) == 1
+        assert jobs[0]["title"] == "Senior Backend Engineer"
 
 
 class TestNormalize:

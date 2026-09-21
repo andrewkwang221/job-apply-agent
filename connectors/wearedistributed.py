@@ -6,7 +6,8 @@ and JSON-LD structured data embedded on each individual job page.
 
 Strategy
 --------
-1. Parse sitemap.xml to collect all ``/job/<slug>`` URLs.
+1. Parse sitemap.xml to collect all ``/job/<slug>`` URLs (newest-first by
+   ``lastmod``).
 2. Filter to engineering-relevant slugs (keyword substring match).
 3. For each new URL fetch the page and extract the ``JobPosting`` JSON-LD block.
 4. Skip postings whose ``validThrough`` date has already passed.
@@ -35,14 +36,22 @@ from utils.logger import setup_logger
 logger = setup_logger("wearedistributed_connector")
 
 _SITEMAP_URL = "https://wearedistributed.org/sitemap.xml"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/xml,text/xml,*/*",
+}
 
 # Max new job pages to fetch per pipeline run (avoids hammering the server).
+# Sitemap is sorted newest-first by lastmod, so a prefix cap is OK.
 _MAX_NEW = 120
-# Politeness delay between page fetches (seconds).
 _FETCH_DELAY = 0.5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
-# Engineering-relevant keywords matched as substrings of the URL slug.
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
     "full stack", "full-stack", "fullstack", "devops", "sre", "data engineer",
@@ -51,7 +60,6 @@ _ENGINEERING_KEYWORDS = {
     "llm ", " llm", "artificial intelligence", "agentic", "rag",
 }
 
-# Sitemap XML namespace.
 _NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 
@@ -61,12 +69,13 @@ class WeAreDistributedConnector(BaseConnector):
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         logger.info("Fetching jobs from wearedistributed.org sitemap…")
+        content = _fetch_bytes(_SITEMAP_URL, "sitemap")
+        if content is None:
+            return []
         try:
-            resp = requests.get(_SITEMAP_URL, headers=_HEADERS, timeout=15)
-            resp.raise_for_status()
-            urls = _parse_sitemap(resp.content)
+            urls = _parse_sitemap(content)
         except Exception as e:
-            logger.error(f"Failed to fetch wearedistributed sitemap: {e}")
+            logger.info(f"wearedistributed sitemap parse failed ({type(e).__name__})")
             logger.debug(traceback.format_exc())
             return []
 
@@ -115,12 +124,8 @@ class WeAreDistributedConnector(BaseConnector):
         return self.source_name
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 def _parse_sitemap(content: bytes) -> List[str]:
-    """Return /job/ page URLs from the sitemap, newest first."""
+    """Return /job/ page URLs from the sitemap, newest first by lastmod."""
     try:
         root = ET.fromstring(content)
     except ET.ParseError:
@@ -152,11 +157,61 @@ def _is_engineering_url(url: str) -> bool:
     return any(kw in blob for kw in _ENGINEERING_KEYWORDS)
 
 
+def _fetch_bytes(url: str, label: str) -> bytes | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"wearedistributed {label} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"wearedistributed {label} HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.content
+    logger.info(f"wearedistributed {label} skipped after {_RETRIES} attempts")
+    return None
+
+
 def _fetch_job_page(url: str) -> Dict[str, Any] | None:
-    """Fetch a wearedistributed job page and return a raw job dict from its JSON-LD."""
-    resp = requests.get(url, headers=_HEADERS, timeout=15)
-    resp.raise_for_status()
-    return _extract_jsonld(resp.text, url)
+    html = _fetch_detail_html(url)
+    if html is None:
+        return None
+    return _extract_jsonld(html, url)
+
+
+def _fetch_detail_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"wearedistributed detail failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"wearedistributed detail HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"wearedistributed detail skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
@@ -174,7 +229,6 @@ def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
         if data.get("@type") != "JobPosting":
             continue
 
-        # Skip expired postings.
         valid_through = data.get("validThrough")
         if valid_through:
             try:
@@ -190,7 +244,6 @@ def _extract_jsonld(html: str, page_url: str) -> Dict[str, Any] | None:
         company = ((data.get("hiringOrganization") or {}).get("name") or "Unknown").strip()
         description = (data.get("description") or "").strip()
 
-        # Location: prefer applicantLocationRequirements list.
         location = "Worldwide"
         loc_reqs = data.get("applicantLocationRequirements")
         if isinstance(loc_reqs, list):

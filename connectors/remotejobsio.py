@@ -7,8 +7,10 @@ SSR). Job cards are embedded in ``__NEXT_DATA__`` as
 
 Strategy
 --------
-1. GET every developer category page (``jobsListWithPagination.totalPages``).
-   Pages are not newest-first, so do not stop at a page cap or the first old job.
+1. GET every developer category page (``jobsListWithPagination.totalPages``)
+   via Chrome-TLS (``curl_cffi``) first, then plain ``requests``. Cloudflare
+   blocks stock Python TLS; pages are not newest-first, so do not stop at a
+   page cap or the first old job.
 2. Parse ``__NEXT_DATA__`` for title, summary, location, dates, and slug.
 3. Keep engineering-relevant titles; skip expired and stale postings.
 4. Store the remotejobs.io job URL. Apply links are paywalled, so scoring
@@ -36,8 +38,17 @@ from utils.text_cleaning import clean_description
 logger = setup_logger("remotejobsio_connector")
 
 LISTING_URL = "https://www.remotejobs.io/work-from-home/developer"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 _FETCH_DELAY = 0.4
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _NEXT_DATA_RE = re.compile(
     r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
     re.DOTALL | re.IGNORECASE,
@@ -51,6 +62,8 @@ _ENGINEERING_KEYWORDS = {
     "llm ", " llm", "artificial intelligence", "agentic", "rag",
 }
 
+_CURL_VERIFY: bool | None = None
+
 
 class RemoteJobsIoConnector(BaseConnector):
     def __init__(self):
@@ -62,41 +75,51 @@ class RemoteJobsIoConnector(BaseConnector):
         all_jobs: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
 
-        try:
-            page = 1
-            total_pages = 1
-            while page <= total_pages:
-                html = _fetch_listing_html(page)
-                if not html:
-                    break
-                raw_items, reported_pages = _extract_listing_page(html)
-                if page == 1:
-                    total_pages = max(reported_pages, 1)
-                if not raw_items:
-                    break
-
-                new_on_page = 0
-                for item in raw_items:
-                    parsed = _parse_raw_job(item, cutoff)
-                    if not parsed:
-                        continue
-                    job_id = parsed["id"]
-                    if job_id in seen_ids:
-                        continue
-                    seen_ids.add(job_id)
-                    self._emit(parsed, all_jobs)
-                    new_on_page += 1
-
+        page = 1
+        total_pages = 1
+        while page <= total_pages:
+            html = _fetch_listing_html(page)
+            if html is None:
                 logger.info(
-                    f"Page {page}/{total_pages}: {len(raw_items)} listings, "
-                    f"{new_on_page} kept (total {len(all_jobs)})"
+                    f"remotejobs.io page {page} skipped after retries "
+                    f"(keeping {len(all_jobs)} prior jobs)"
                 )
-                page += 1
-                if page <= total_pages:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching jobs from remotejobs.io: {e}")
-            logger.debug(traceback.format_exc())
+                break
+            if not html:
+                break
+            try:
+                raw_items, reported_pages = _extract_listing_page(html)
+            except Exception as e:
+                logger.info(
+                    f"remotejobs.io page {page} parse failed "
+                    f"({type(e).__name__}); keeping prior jobs"
+                )
+                logger.debug(traceback.format_exc())
+                break
+            if page == 1:
+                total_pages = max(reported_pages, 1)
+            if not raw_items:
+                break
+
+            new_on_page = 0
+            for item in raw_items:
+                parsed = _parse_raw_job(item, cutoff)
+                if not parsed:
+                    continue
+                job_id = parsed["id"]
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+                self._emit(parsed, all_jobs)
+                new_on_page += 1
+
+            logger.info(
+                f"Page {page}/{total_pages}: {len(raw_items)} listings, "
+                f"{new_on_page} kept (total {len(all_jobs)})"
+            )
+            page += 1
+            if page <= total_pages:
+                time.sleep(_FETCH_DELAY)
 
         logger.info(f"Successfully fetched {len(all_jobs)} jobs from remotejobs.io")
         return all_jobs
@@ -125,11 +148,101 @@ class RemoteJobsIoConnector(BaseConnector):
         return self.source_name
 
 
+def _page_url(page: int) -> str:
+    if page <= 1:
+        return LISTING_URL
+    return f"{LISTING_URL}?page={page}"
+
+
+def _has_listing_payload(html: str) -> bool:
+    return bool(_NEXT_DATA_RE.search(html or ""))
+
+
+def _is_blocked(status: int, text: str) -> bool:
+    if status in (401, 403, 429, 503):
+        return True
+    low = (text or "")[:2000].lower()
+    return "just a moment" in low or "cf-browser-verification" in low
+
+
+def _html_from_response(status: int, text: str) -> str | None:
+    if status == 404:
+        return ""
+    if _is_blocked(status, text):
+        return None
+    if status >= 400:
+        return None
+    if not _has_listing_payload(text):
+        return None
+    return text or ""
+
+
+def _fetch_via_curl_cffi(url: str) -> str | None:
+    """Chrome-TLS client. Returns HTML, '' on 404, or None to try the next fetch."""
+    global _CURL_VERIFY
+    try:
+        from curl_cffi import requests as chrome_requests
+    except ImportError:
+        return None
+
+    def _get(*, verify: bool):
+        return chrome_requests.get(
+            url,
+            impersonate="chrome",
+            timeout=_API_TIMEOUT,
+            allow_redirects=True,
+            verify=verify,
+        )
+
+    verify = True if _CURL_VERIFY is None else _CURL_VERIFY
+    try:
+        resp = _get(verify=verify)
+    except Exception as e:
+        if "certificate" not in str(e).lower() and "ssl" not in type(e).__name__.lower():
+            logger.info(f"remotejobs.io chrome-TLS failed ({type(e).__name__})")
+            return None
+        _CURL_VERIFY = False
+        try:
+            resp = _get(verify=False)
+        except Exception as e2:
+            logger.info(f"remotejobs.io chrome-TLS failed ({type(e2).__name__})")
+            return None
+    else:
+        if _CURL_VERIFY is None:
+            _CURL_VERIFY = verify
+    return _html_from_response(resp.status_code, resp.text)
+
+
+def _fetch_via_requests(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"remotejobs.io requests failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        html = _html_from_response(resp.status_code, resp.text)
+        if html is not None:
+            return html
+        logger.info(
+            f"remotejobs.io requests HTTP {resp.status_code} "
+            f"attempt {attempt}/{_RETRIES}"
+        )
+        if attempt < _RETRIES:
+            time.sleep(_RETRY_DELAY * attempt)
+    return None
+
+
 def _fetch_listing_html(page: int) -> str | None:
-    params = {"page": page} if page > 1 else None
-    resp = requests.get(LISTING_URL, headers=_HEADERS, params=params, timeout=20)
-    resp.raise_for_status()
-    return resp.text
+    url = _page_url(page)
+    html = _fetch_via_curl_cffi(url)
+    if html is not None:
+        return html
+    return _fetch_via_requests(url)
 
 
 def _extract_listing_page(html: str) -> tuple[list[dict[str, Any]], int]:
