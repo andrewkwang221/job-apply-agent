@@ -93,6 +93,7 @@ _LISTING_DOMAINS = [
     "theladders.com",
     "startup.jobs",
     "4dayweek.io",
+    "builtin.com",
 ]
 
 

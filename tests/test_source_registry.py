@@ -45,6 +45,7 @@ def test_public_board_connectors_are_registered():
     assert "ladders" in CONNECTORS
     assert "startupjobs" in CONNECTORS
     assert "4dayweek" in CONNECTORS
+    assert "builtin" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -96,3 +97,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "ladders" in _NO_DIRECT_APPLY_SOURCES
     assert "startupjobs" in _NO_DIRECT_APPLY_SOURCES
     assert "4dayweek" in _NO_DIRECT_APPLY_SOURCES
+    assert "builtin" in _NO_DIRECT_APPLY_SOURCES

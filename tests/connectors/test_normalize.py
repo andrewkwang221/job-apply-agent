@@ -1050,3 +1050,29 @@ class TestFourDayWeekNormalize:
         assert n["url"].startswith("https://4dayweek.io/job/")
         assert n["location"] == "Remote (United States)"
         assert isinstance(n["location"], str)
+
+
+class TestBuiltinNormalize:
+    def _raw(self):
+        return {
+            "id": "11268876",
+            "listing_url": "https://builtin.com/job/senior-machine-learning-engineer/11268876",
+            "url": "https://builtin.com/job/senior-machine-learning-engineer/11268876",
+            "title": "Senior Machine Learning Engineer",
+            "company": "Acme",
+            "location": "Remote or Hybrid, California, USA",
+            "description": "Python role",
+            "posted_date": datetime(2026, 9, 19, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.builtin import BuiltinConnector
+        n = BuiltinConnector().normalize(self._raw())
+        _assert_shape(n, "builtin")
+
+    def test_keeps_builtin_url(self):
+        from connectors.builtin import BuiltinConnector
+        n = BuiltinConnector().normalize(self._raw())
+        assert n["url"].startswith("https://builtin.com/job/")
+        assert n["location"] == "Remote or Hybrid, California, USA"
+        assert isinstance(n["location"], str)
