@@ -46,6 +46,7 @@ def test_public_board_connectors_are_registered():
     assert "startupjobs" in CONNECTORS
     assert "4dayweek" in CONNECTORS
     assert "builtin" in CONNECTORS
+    assert "virtualvocations" in CONNECTORS
     assert "up2staff" in CONNECTORS
     assert "remotearmy" in CONNECTORS
     assert "remoteyeah" in CONNECTORS
@@ -117,6 +118,7 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "startupjobs" in _NO_DIRECT_APPLY_SOURCES
     assert "4dayweek" in _NO_DIRECT_APPLY_SOURCES
     assert "builtin" in _NO_DIRECT_APPLY_SOURCES
+    assert "virtualvocations" in _NO_DIRECT_APPLY_SOURCES
     assert "up2staff" in _NO_DIRECT_APPLY_SOURCES
     assert "remotearmy" in _NO_DIRECT_APPLY_SOURCES
     assert "remoteyeah" in _NO_DIRECT_APPLY_SOURCES

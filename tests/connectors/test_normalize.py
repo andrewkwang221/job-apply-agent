@@ -1078,6 +1078,32 @@ class TestBuiltinNormalize:
         assert isinstance(n["location"], str)
 
 
+class TestVirtualVocationsNormalize:
+    def _raw(self):
+        return {
+            "id": "3261774",
+            "listing_url": "https://www.virtualvocations.com/job/senior-machine-learning-engineer-3261774-i.html",
+            "url": "https://www.virtualvocations.com/job/senior-machine-learning-engineer-3261774-i.html",
+            "title": "Senior Machine Learning Engineer",
+            "company": "Unknown",
+            "location": "Remote",
+            "description": "Python role",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.virtualvocations import VirtualVocationsConnector
+        n = VirtualVocationsConnector().normalize(self._raw())
+        _assert_shape(n, "virtualvocations")
+
+    def test_keeps_virtualvocations_url(self):
+        from connectors.virtualvocations import VirtualVocationsConnector
+        n = VirtualVocationsConnector().normalize(self._raw())
+        assert n["url"].startswith("https://www.virtualvocations.com/job/")
+        assert n["location"] == "Remote"
+        assert isinstance(n["location"], str)
+
+
 class TestUp2StaffNormalize:
     def _raw(self):
         return {

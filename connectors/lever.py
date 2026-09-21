@@ -1,4 +1,5 @@
 import re
+import time
 import traceback
 import yaml
 from datetime import datetime, timezone
@@ -17,6 +18,17 @@ logger = setup_logger("lever_connector")
 
 BASE_URL = "https://api.lever.co/v0/postings"
 _SLUG_RE = re.compile(r"lever\.co/([^/?#]+)")
+# Guest postings API can exceed 15–30s on large boards.
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "application/json",
+}
 
 
 def _extract_slug(url: str) -> str | None:
@@ -71,6 +83,56 @@ def _is_remote(job: Dict[str, Any]) -> bool:
     return False
 
 
+def _fetch_board(slug: str) -> list[Any] | None:
+    """GET one board payload, or None after retries on timeout/connection/HTTP."""
+    url = f"{BASE_URL}/{slug}"
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(
+                url,
+                params={"mode": "json"},
+                headers=_HEADERS,
+                timeout=_API_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"Lever slug '{slug}' failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code == 404:
+            logger.debug(f"Lever slug '{slug}' returned 404 — skipping")
+            return None
+        if response.status_code >= 400:
+            logger.info(
+                f"Lever slug '{slug}' HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(
+                f"Lever slug '{slug}' non-JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        # Lever returns either a list directly or {"data": [...]}
+        if isinstance(data, list):
+            return data
+        if isinstance(data, dict):
+            jobs = data.get("data", [])
+            return jobs if isinstance(jobs, list) else []
+        return None
+    logger.info(f"Lever slug '{slug}' skipped after {_RETRIES} attempts")
+    return None
+
+
 class LeverConnector(BaseConnector):
     def __init__(self):
         self.source_name = "lever"
@@ -104,28 +166,14 @@ class LeverConnector(BaseConnector):
     def _fetch_company(
         self, slug: str, target_roles: List[str], seen_ids: Set[str]
     ) -> List[Dict[str, Any]]:
-        try:
-            response = requests.get(
-                f"{BASE_URL}/{slug}",
-                params={"mode": "json"},
-                timeout=40,
-            )
-        except (requests.Timeout, requests.ConnectionError) as e:
-            logger.info(f"Lever slug '{slug}' skipped ({type(e).__name__})")
+        jobs = _fetch_board(slug)
+        if jobs is None:
             return []
-        if response.status_code == 404:
-            logger.debug(f"Lever slug '{slug}' returned 404 — skipping")
-            return []
-        if response.status_code >= 400:
-            logger.info(f"Lever slug '{slug}' HTTP {response.status_code}")
-            return []
-
-        data = response.json()
-        # Lever returns either a list directly or {"data": [...]}
-        jobs = data if isinstance(data, list) else data.get("data", [])
 
         results = []
         for job in jobs:
+            if not isinstance(job, dict):
+                continue
             if not _is_remote(job):
                 continue
             title = job.get("text", "")

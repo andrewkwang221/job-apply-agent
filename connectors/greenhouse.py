@@ -1,4 +1,5 @@
 import re
+import time
 import traceback
 import yaml
 from datetime import datetime
@@ -20,6 +21,8 @@ BASE_URL = "https://boards-api.greenhouse.io/v1/boards"
 _SLUG_RE = re.compile(r"greenhouse\.io/(?:boards/)?([^/?#]+)")
 # Guest boards-api with content=true returns full JDs; large boards exceed 15s.
 _API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -96,6 +99,50 @@ def _is_remote(job: Dict[str, Any]) -> bool:
     return "remote" in location or "anywhere" in location or "worldwide" in location
 
 
+def _fetch_board(slug: str) -> dict[str, Any] | None:
+    """GET one board payload, or None after retries on timeout/connection/HTTP."""
+    url = f"{BASE_URL}/{slug}/jobs"
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(
+                url,
+                params={"content": "true"},
+                headers=_HEADERS,
+                timeout=_API_TIMEOUT,
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"Greenhouse slug '{slug}' failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code == 404:
+            logger.debug(f"Greenhouse slug '{slug}' returned 404 — skipping")
+            return None
+        if response.status_code >= 400:
+            logger.info(
+                f"Greenhouse slug '{slug}' HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(
+                f"Greenhouse slug '{slug}' non-JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    logger.info(f"Greenhouse slug '{slug}' skipped after {_RETRIES} attempts")
+    return None
+
+
 class GreenhouseConnector(BaseConnector):
     def __init__(self):
         self.source_name = "greenhouse"
@@ -130,26 +177,17 @@ class GreenhouseConnector(BaseConnector):
     def _fetch_company(
         self, slug: str, target_roles: List[str], seen_ids: Set[str]
     ) -> List[Dict[str, Any]]:
-        try:
-            response = requests.get(
-                f"{BASE_URL}/{slug}/jobs",
-                params={"content": "true"},
-                headers=_HEADERS,
-                timeout=_API_TIMEOUT,
-            )
-        except (requests.Timeout, requests.ConnectionError) as e:
-            logger.info(f"Greenhouse slug '{slug}' skipped ({type(e).__name__})")
-            return []
-        if response.status_code == 404:
-            logger.debug(f"Greenhouse slug '{slug}' returned 404 — skipping")
-            return []
-        if response.status_code >= 400:
-            logger.info(f"Greenhouse slug '{slug}' HTTP {response.status_code}")
+        data = _fetch_board(slug)
+        if data is None:
             return []
 
-        jobs = response.json().get("jobs", [])
+        jobs = data.get("jobs", [])
+        if not isinstance(jobs, list):
+            return []
         results = []
         for job in jobs:
+            if not isinstance(job, dict):
+                continue
             if not _is_remote(job):
                 continue
             title = job.get("title", "")

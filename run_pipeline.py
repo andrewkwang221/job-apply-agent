@@ -69,6 +69,7 @@ from connectors.ladders import LaddersConnector
 from connectors.startupjobs import StartupJobsConnector
 from connectors.fourdayweek import FourDayWeekConnector
 from connectors.builtin import BuiltinConnector
+from connectors.virtualvocations import VirtualVocationsConnector
 from connectors.up2staff import Up2StaffConnector
 from connectors.remotearmy import RemoteArmyConnector
 from connectors.remoteyeah import RemoteYeahConnector
@@ -137,6 +138,7 @@ CONNECTORS = {
     "startupjobs": StartupJobsConnector,
     "4dayweek": FourDayWeekConnector,
     "builtin": BuiltinConnector,
+    "virtualvocations": VirtualVocationsConnector,
     "up2staff": Up2StaffConnector,
     "remotearmy": RemoteArmyConnector,
     "remoteyeah": RemoteYeahConnector,
@@ -987,7 +989,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  up2staff  remotearmy  remoteyeah  remotesource  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 
