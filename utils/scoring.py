@@ -29,6 +29,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "4dayweek",        # apply is Pro / login gated on 4dayweek.io
     "builtin",         # apply is Join / Easy Apply on builtin.com (/apply/ robots-disallowed)
     "up2staff",        # apply / employer link is membership-gated
+    "remotearmy",      # apply is /register?account_type=worker (directApply false)
 })
 
 TITLE_REJECT_KEYWORDS = [

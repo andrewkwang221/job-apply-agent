@@ -60,6 +60,7 @@ _BLOCKED_HOST_SUFFIXES = (
     "angel.co",
     "builtin.com",
     "up2staff.com",
+    "remotearmy.io",
     "otta.com",
     "linkedin.com",
     "indeed.com",
