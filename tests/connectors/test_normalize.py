@@ -1244,3 +1244,29 @@ class TestRemoteJobsNormalize:
         assert n["url"].startswith("https://remotejobs.org/remote-jobs/")
         assert n["location"] == "Remote - USA"
         assert isinstance(n["location"], str)
+
+
+class TestRemoteFrontJobsNormalize:
+    def _raw(self):
+        return {
+            "id": "cmu8rvimu003c137ecl0e6jvo",
+            "listing_url": "https://www.remotefrontendjobs.com/cmu8rvimu003c137ecl0e6jvo",
+            "url": "https://boards.greenhouse.io/leidos/jobs/1",
+            "title": "Angular Developer",
+            "company": "Leidos",
+            "location": "United States",
+            "description": "Build Angular services.",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remotefrontjobs import RemoteFrontJobsConnector
+        n = RemoteFrontJobsConnector().normalize(self._raw())
+        _assert_shape(n, "remotefrontjobs")
+
+    def test_keeps_external_apply_url(self):
+        from connectors.remotefrontjobs import RemoteFrontJobsConnector
+        n = RemoteFrontJobsConnector().normalize(self._raw())
+        assert n["url"] == "https://boards.greenhouse.io/leidos/jobs/1"
+        assert n["location"] == "United States"
+        assert isinstance(n["location"], str)

@@ -100,6 +100,7 @@ _LISTING_DOMAINS = [
     "remoteyeah.com",
     "remotesource.com",
     "remotejobs.org",
+    "remotefrontendjobs.com",
 ]
 
 

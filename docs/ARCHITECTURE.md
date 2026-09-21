@@ -247,3 +247,4 @@ All submissions are manual. The pipeline:
 - prompts to mark the job as `applied` after submission
 
 `application_history` is updated on mark-applied.
+| RemoteFrontJobsConnector | [RemoteFrontJobs](https://www.remotefrontendjobs.com/) | Guest /api/jobs?limit=5000 (SSR filters unbound); mixed isoDate date-filter; no seniority=; engineering title filter; listing skip before persist; external apply link |
