@@ -5,7 +5,6 @@ All HTTP calls are mocked.
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 
-import pytest
 import yaml
 
 import config
@@ -240,11 +239,38 @@ class TestFetchCategory:
         assert "n2" in ids
         assert mock_get.call_count == 2
 
-    def test_http_error_propagates(self):
+    def test_http_error_returns_empty_without_raising(self):
         connector = self._connector()
-        with patch(self._T, return_value=_mock_resp({}, 500)):
-            with pytest.raises(Exception):
-                connector._fetch_category("programming", set(), {"en"})
+        with patch("connectors.getonboard.time.sleep"), patch(
+            self._T, return_value=_mock_resp({}, 500)
+        ):
+            jobs = connector._fetch_category("programming", set(), {"en"})
+        assert jobs == []
+
+    def test_timeout_mid_walk_keeps_prior_and_continues(self):
+        import requests
+
+        connector = self._connector()
+        new_ts = int(datetime.now(tz=timezone.utc).timestamp())
+        page1 = _mock_resp(_page([_job(job_id="kept", published_at=new_ts)], total_pages=3))
+        page3 = _mock_resp(
+            _page([_job(job_id="after-timeout", published_at=new_ts)], total_pages=3)
+        )
+        effects = [
+            page1,
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            page3,
+        ]
+        with patch("connectors.getonboard.time.sleep"), patch(
+            self._T, side_effect=effects
+        ) as mock_get:
+            jobs = connector._fetch_category("programming", set(), {"en"})
+        ids = {j["id"] for j in jobs}
+        assert "kept" in ids
+        assert "after-timeout" in ids
+        assert mock_get.call_count == 5
 
 
 # ---------------------------------------------------------------------------

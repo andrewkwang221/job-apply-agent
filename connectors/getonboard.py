@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import time
 import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Any
@@ -49,6 +52,52 @@ CATEGORIES = [
 
 BASE_URL = "https://www.getonbrd.com/api/v0"
 MAX_PAGES = 50  # runaway only; live category pages mix dates (checked 2026-09-10)
+_PAGE_TIMEOUT = 25
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+_MAX_CONSECUTIVE_FAILURES = 3
+
+
+def _fetch_page(category: str, page: int) -> dict[str, Any] | None:
+    """Return one category page, or None after retries on timeout/connection/HTTP."""
+    params = {
+        "remote": "true",
+        "per_page": 100,
+        "page": page,
+        "expand[]": "company",
+    }
+    url = f"{BASE_URL}/categories/{category}/jobs"
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(url, params=params, timeout=_PAGE_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"getonboard {category!r} page {page} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code >= 400:
+            logger.info(
+                f"getonboard {category!r} page {page} HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(
+                f"getonboard {category!r} page {page} non-JSON "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    return None
 
 
 class GetOnBoardConnector(BaseConnector):
@@ -66,8 +115,13 @@ class GetOnBoardConnector(BaseConnector):
             try:
                 category_jobs = self._fetch_category(category, seen_ids, allowed_langs)
                 self._emit_many(category_jobs, all_jobs)
+                logger.info(
+                    f"getonboard category {category!r}: {len(category_jobs)} kept"
+                )
             except Exception as e:
-                logger.error(f"Error fetching category '{category}' from {self.source_name}: {e}")
+                logger.error(
+                    f"Error fetching category '{category}' from {self.source_name}: {e}"
+                )
                 logger.debug(traceback.format_exc())
 
         logger.info(
@@ -82,26 +136,31 @@ class GetOnBoardConnector(BaseConnector):
         page = 1
         cutoff = job_age_cutoff(self.source_name)
         profile = load_candidate_profile()
+        consecutive_failures = 0
 
         while page <= MAX_PAGES:
-            response = requests.get(
-                f"{BASE_URL}/categories/{category}/jobs",
-                params={
-                    "remote": "true",
-                    "per_page": 100,
-                    "page": page,
-                    "expand[]": "company",
-                },
-                timeout=15,
-            )
-            response.raise_for_status()
-            data = response.json()
+            data = _fetch_page(category, page)
+            if data is None:
+                consecutive_failures += 1
+                logger.warning(
+                    f"getonboard {category!r} page {page} failed "
+                    f"({consecutive_failures}/{_MAX_CONSECUTIVE_FAILURES}) — "
+                    "keeping prior jobs, continuing"
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    break
+                page += 1
+                time.sleep(_RETRY_DELAY)
+                continue
 
+            consecutive_failures = 0
             page_jobs = data.get("data", [])
-            if not page_jobs:
+            if not isinstance(page_jobs, list) or not page_jobs:
                 break
 
             for job in page_jobs:
+                if not isinstance(job, dict):
+                    continue
                 published_at = job.get("attributes", {}).get("published_at")
                 if published_at:
                     try:
