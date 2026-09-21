@@ -272,6 +272,56 @@ def test_no_detail_http(mock_get, *_patches):
     assert all("/apply/" not in u for u in urls)
 
 
+@patch("connectors.builtin.remember_listing_urls")
+@patch("connectors.builtin.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.builtin.time.sleep")
+@patch("connectors.builtin.exclusion_reason", return_value=None)
+@patch(
+    "connectors.builtin.load_candidate_profile",
+    return_value={"personal": {"location": "San Francisco, CA"}},
+)
+@patch("connectors.builtin.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.builtin.max_job_age_days", return_value=2)
+@patch("connectors.builtin.requests.get")
+def test_timeout_mid_walk_keeps_prior_and_continues(mock_get, *_patches):
+    import requests
+
+    page1 = _page(
+        [_card()],
+        page=1,
+        has_next=True,
+        published=[("11268876", "2026-09-19T22:58:36")],
+    )
+    page3 = _page(
+        [
+            _card(
+                job_id="4",
+                title="Platform Engineer",
+                slug="platform-engineer",
+                description="Kubernetes Python",
+            ),
+        ],
+        page=3,
+        has_next=False,
+        published=[("4", "2026-09-18T12:00:00")],
+    )
+
+    def _get(url, **kwargs):
+        if "page=3" in url:
+            return _Resp(page3)
+        if "page=2" in url:
+            raise requests.ConnectionError("reset")
+        return _Resp(page1)
+
+    mock_get.side_effect = _get
+    jobs = BuiltinConnector().fetch_jobs()
+    ids = [j["id"] for j in jobs]
+    assert "11268876" in ids
+    assert "4" in ids
+    # page1 once + page2 three retries + page3 once
+    assert mock_get.call_count == 5
+
+
 class TestNormalize:
     def _raw(self):
         return {

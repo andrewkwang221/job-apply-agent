@@ -54,6 +54,9 @@ _HEADERS = {
     "Referer": f"{BASE_URL}/jobs/remote",
 }
 _FETCH_DELAY = 0.5
+_RETRY_DELAY = 1.5
+_RETRIES = 3
+_MAX_CONSECUTIVE_FAILURES = 3
 # Mixed-date pager; 3-day window was 8 pages of 10. Runaway only.
 _MAX_PAGES = 40
 _LISTING_TIMEOUT = 40
@@ -139,9 +142,22 @@ class BuiltinConnector(BaseConnector):
         )
         kept: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        consecutive_failures = 0
         try:
             for page in range(1, _MAX_PAGES + 1):
                 html = _fetch_listing(page, window)
+                if html is None:
+                    consecutive_failures += 1
+                    logger.warning(
+                        f"builtin page {page} failed "
+                        f"({consecutive_failures}/{_MAX_CONSECUTIVE_FAILURES}) — "
+                        "keeping prior jobs, continuing"
+                    )
+                    if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                        break
+                    time.sleep(_RETRY_DELAY)
+                    continue
+                consecutive_failures = 0
                 if not html:
                     break
                 published = _published_by_id(html)
@@ -421,17 +437,36 @@ def _parse_card(
 
 
 def _fetch_listing(page: int, window: int) -> str | None:
+    """Return listing HTML, or None after retries on timeout/connection/HTTP."""
     url = listing_url(page, window)
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=_LISTING_TIMEOUT)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"builtin GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code == 429:
-        retry_after = resp.headers.get("Retry-After") or "60"
-        logger.info(f"builtin GET HTTP 429 Retry-After={retry_after}")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"builtin GET HTTP {resp.status_code}")
-        return None
-    return resp.text or ""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_LISTING_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"builtin GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After") or "60"
+            logger.info(f"builtin GET HTTP 429 Retry-After={retry_after}")
+            if attempt < _RETRIES:
+                try:
+                    wait = float(retry_after)
+                except ValueError:
+                    wait = _RETRY_DELAY * attempt
+                time.sleep(min(wait, 60))
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"builtin GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    return None
