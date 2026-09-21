@@ -97,6 +97,7 @@ _LISTING_DOMAINS = [
     "up2staff.com",
     "remotearmy.io",
     "remoteyeah.com",
+    "remotesource.com",
 ]
 
 

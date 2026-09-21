@@ -136,6 +136,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `Up2StaffConnector` | [Up2Staff](https://up2staff.com/) | Guest WPJM `GET /jm-ajax/get_listings/` (`orderby=date`); unfiltered newest-first + engineering title filter; stop at first job older than `max_job_age_days`; listing skip before persist; apply review-capped |
 | `RemoteArmyConnector` | [RemoteArmy](https://remotearmy.io/) | Guest eng category SSR; `/search?term=` unbound over HTTP; unique `target_roles` title filter; newest-first first-stale stop; listing skip before persist; apply review-capped |
 | `RemoteYeahConnector` | [RemoteYeah](https://remoteyeah.com/remote-mid-level+principal+senior+staff-jobs-in-united-states+worldwide) | Guest listing-path RSS; mid/senior/staff/principal + US/worldwide; newest-first first-stale stop; engineering title filter; listing skip before persist; apply review-capped |
+| `RemoteSourceConnector` | [RemoteSource](https://www.remotesource.com/jobs?jobCategory=Engineering+%26+Development%2CData+%26+Analytics&remoteFirstOnly=true&postedWithin=7d&search=Software+Engineer) | Guest `/api/jobs` (SSR filters unbound); unique `target_roles` as `search=`; `postedWithin` 7d/30d; newest-first `offset` + first-stale; listing skip before persist; external apply |
 
 **Direct ATS connectors:**
 

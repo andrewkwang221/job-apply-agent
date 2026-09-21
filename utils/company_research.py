@@ -62,6 +62,7 @@ _BLOCKED_HOST_SUFFIXES = (
     "up2staff.com",
     "remotearmy.io",
     "remoteyeah.com",
+    "remotesource.com",
     "otta.com",
     "linkedin.com",
     "indeed.com",

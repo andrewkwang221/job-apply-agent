@@ -49,6 +49,7 @@ def test_public_board_connectors_are_registered():
     assert "up2staff" in CONNECTORS
     assert "remotearmy" in CONNECTORS
     assert "remoteyeah" in CONNECTORS
+    assert "remotesource" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -64,7 +65,8 @@ def test_ats_connectors_run_after_aggregators():
     assert keys.index("up2staff") > keys.index("builtin")
     assert keys.index("remotearmy") > keys.index("up2staff")
     assert keys.index("remoteyeah") > keys.index("remotearmy")
-    assert keys.index("ashby") > keys.index("remoteyeah")
+    assert keys.index("remotesource") > keys.index("remoteyeah")
+    assert keys.index("ashby") > keys.index("remotesource")
     assert keys.index("greenhouse") > keys.index("ashby")
     assert keys.index("lever") > keys.index("greenhouse")
     assert keys.index("direct_ats") > keys.index("lever")
@@ -118,3 +120,4 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "up2staff" in _NO_DIRECT_APPLY_SOURCES
     assert "remotearmy" in _NO_DIRECT_APPLY_SOURCES
     assert "remoteyeah" in _NO_DIRECT_APPLY_SOURCES
+    assert "remotesource" not in _NO_DIRECT_APPLY_SOURCES
