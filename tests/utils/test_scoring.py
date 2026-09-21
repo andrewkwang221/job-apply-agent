@@ -369,3 +369,19 @@ class TestNoDirectApplyCap:
         if result["fit_score"] >= SHORTLIST_MIN_SCORE:
             assert result["recommended_status"] == "review"
 
+    def test_remoteyeah_high_score_stays_review(self):
+        from utils.scoring import SHORTLIST_MIN_SCORE
+
+        result = score_job(
+            _job(
+                title="Senior Backend Engineer",
+                description="Python SQL Docker backend api senior engineer",
+                remote_eligibility="accept",
+                source="remoteyeah",
+            ),
+            PROFILE,
+        )
+        assert result["reject_code"] is None
+        if result["fit_score"] >= SHORTLIST_MIN_SCORE:
+            assert result["recommended_status"] == "review"
+

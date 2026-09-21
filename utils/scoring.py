@@ -30,6 +30,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "builtin",         # apply is Join / Easy Apply on builtin.com (/apply/ robots-disallowed)
     "up2staff",        # apply / employer link is membership-gated
     "remotearmy",      # apply is /register?account_type=worker (directApply false)
+    "remoteyeah",      # apply is CSRF POST /jobs/…/apply redirect (directApply false)
 })
 
 TITLE_REJECT_KEYWORDS = [

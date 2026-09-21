@@ -1128,3 +1128,29 @@ class TestRemoteArmyNormalize:
         assert n["url"].startswith("https://remotearmy.io/jobs/")
         assert n["location"] == "Latin America"
         assert isinstance(n["location"], str)
+
+
+class TestRemoteYeahNormalize:
+    def _raw(self):
+        return {
+            "id": "remote-senior-software-engineer-acme",
+            "listing_url": "https://remoteyeah.com/jobs/remote-senior-software-engineer-acme",
+            "url": "https://remoteyeah.com/jobs/remote-senior-software-engineer-acme",
+            "title": "Senior Software Engineer",
+            "company": "Acme",
+            "location": "United States (Remote)",
+            "description": "<p>Build systems.</p>",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.remoteyeah import RemoteYeahConnector
+        n = RemoteYeahConnector().normalize(self._raw())
+        _assert_shape(n, "remoteyeah")
+
+    def test_keeps_remoteyeah_url(self):
+        from connectors.remoteyeah import RemoteYeahConnector
+        n = RemoteYeahConnector().normalize(self._raw())
+        assert n["url"].startswith("https://remoteyeah.com/jobs/")
+        assert n["location"] == "United States (Remote)"
+        assert isinstance(n["location"], str)

@@ -135,6 +135,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `BuiltinConnector` | [BuiltIn](https://builtin.com/jobs/remote/ai-machine-learning/ai-engineering/machine-learning-engineering/data-science/ml-ops/generative-artificial-intelligence/computer-vision-ai/nlp/deep-learning?daysSinceUpdated=3&city=&state=&country=USA&allLocations=true) | Guest listing HTML; AI/ML categories; `daysSinceUpdated` from `max_job_age_days`; no `search=`/seniority path; engineering title filter; mixed-date `?page=` walk; listing skip before persist; apply review-capped |
 | `Up2StaffConnector` | [Up2Staff](https://up2staff.com/) | Guest WPJM `GET /jm-ajax/get_listings/` (`orderby=date`); unfiltered newest-first + engineering title filter; stop at first job older than `max_job_age_days`; listing skip before persist; apply review-capped |
 | `RemoteArmyConnector` | [RemoteArmy](https://remotearmy.io/) | Guest eng category SSR; `/search?term=` unbound over HTTP; unique `target_roles` title filter; newest-first first-stale stop; listing skip before persist; apply review-capped |
+| `RemoteYeahConnector` | [RemoteYeah](https://remoteyeah.com/remote-mid-level+principal+senior+staff-jobs-in-united-states+worldwide) | Guest listing-path RSS; mid/senior/staff/principal + US/worldwide; newest-first first-stale stop; engineering title filter; listing skip before persist; apply review-capped |
 
 **Direct ATS connectors:**
 
