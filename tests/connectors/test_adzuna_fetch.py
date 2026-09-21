@@ -82,6 +82,42 @@ class TestAdzunaFetchCountry:
         if jobs:
             assert jobs[0]["_country"] == "de"
 
+    def test_timeout_mid_walk_keeps_prior_and_continues(self):
+        import requests
+
+        connector = self._connector()
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=10)
+        page1 = _mock_resp({"results": [_result("kept", description="remote role")]})
+        page3 = _mock_resp({
+            "results": [_result("after-timeout", description="remote role")],
+        })
+        empty = _mock_resp({"results": []})
+        effects = [
+            page1,
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            page3,
+            empty,
+        ]
+        with patch("connectors.adzuna.time.sleep"), patch(
+            self._T, side_effect=effects
+        ) as mock_get:
+            jobs = connector._fetch_country("gb", set(), cutoff)
+        ids = {j["id"] for j in jobs}
+        assert "kept" in ids
+        assert "after-timeout" in ids
+        assert mock_get.call_count == 6
+
+    def test_http_error_returns_empty_without_raising(self):
+        connector = self._connector()
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=10)
+        with patch("connectors.adzuna.time.sleep"), patch(
+            self._T, return_value=_mock_resp({}, 500)
+        ):
+            jobs = connector._fetch_country("gb", set(), cutoff)
+        assert jobs == []
+
 
 class TestAdzunaFetchJobsWithKey:
     _T = "connectors.adzuna.requests.get"

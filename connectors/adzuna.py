@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import os
+import time
 import traceback
 from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any
@@ -19,10 +22,15 @@ logger = setup_logger("adzuna_connector")
 BASE_URL = "https://api.adzuna.com/v1/api/jobs"
 RESULTS_PER_PAGE = 50
 MAX_PAGES = 5
+_PAGE_TIMEOUT = 30
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+_MAX_CONSECUTIVE_FAILURES = 3
 
 # Countries with active tech job markets that allow remote work.
 # Querying multiple countries maximises worldwide coverage since Adzuna
-# has no single global endpoint.
+# has no single global endpoint. Limited to GB/US/CA (EU/AU dropped —
+# slow endpoints timed out mid-fetch on full-runs).
 COUNTRIES = ["gb", "us", "ca"]
 
 # Tech roles we're searching for — sent as `what_or` so any match qualifies.
@@ -49,6 +57,57 @@ def _is_remote(job: Dict[str, Any]) -> bool:
     return False
 
 
+def _fetch_page(
+    country: str,
+    page: int,
+    app_id: str,
+    app_key: str,
+    age_days: int,
+) -> dict[str, Any] | None:
+    """Return one country search page, or None after retries."""
+    params = {
+        "app_id": app_id,
+        "app_key": app_key,
+        "results_per_page": RESULTS_PER_PAGE,
+        "what_or": WHAT_OR,
+        "sort_by": "date",
+        "max_days_old": age_days,
+        "content-type": "application/json",
+    }
+    url = f"{BASE_URL}/{country}/search/{page}"
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(url, params=params, timeout=_PAGE_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"adzuna {country!r} page {page} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code >= 400:
+            logger.info(
+                f"adzuna {country!r} page {page} HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(
+                f"adzuna {country!r} page {page} non-JSON "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    return None
+
+
 class AdzunaConnector(BaseConnector):
     def __init__(self):
         self.source_name = "adzuna"
@@ -70,6 +129,7 @@ class AdzunaConnector(BaseConnector):
             try:
                 country_jobs = self._fetch_country(country, seen_ids, cutoff, age_days)
                 self._emit_many(country_jobs, all_jobs)
+                logger.info(f"adzuna country {country!r}: {len(country_jobs)} kept")
             except Exception as e:
                 logger.error(f"Error fetching country '{country}': {e}")
                 logger.debug(traceback.format_exc())
@@ -83,29 +143,31 @@ class AdzunaConnector(BaseConnector):
         jobs: List[Dict[str, Any]] = []
         if age_days is None:
             age_days = max_job_age_days(self.source_name)
+        consecutive_failures = 0
 
         for page in range(1, MAX_PAGES + 1):
-            response = requests.get(
-                f"{BASE_URL}/{country}/search/{page}",
-                params={
-                    "app_id": self.app_id,
-                    "app_key": self.app_key,
-                    "results_per_page": RESULTS_PER_PAGE,
-                    "what_or": WHAT_OR,
-                    "sort_by": "date",
-                    "max_days_old": age_days,
-                    "content-type": "application/json",
-                },
-                timeout=20,
-            )
-            response.raise_for_status()
-            data = response.json()
+            data = _fetch_page(country, page, self.app_id, self.app_key, age_days)
+            if data is None:
+                consecutive_failures += 1
+                logger.warning(
+                    f"adzuna {country!r} page {page} failed "
+                    f"({consecutive_failures}/{_MAX_CONSECUTIVE_FAILURES}) — "
+                    "keeping prior jobs, continuing"
+                )
+                if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                    break
+                time.sleep(_RETRY_DELAY)
+                continue
+
+            consecutive_failures = 0
             results = data.get("results", [])
-            if not results:
+            if not isinstance(results, list) or not results:
                 break
 
             stop_early = False
             for job in results:
+                if not isinstance(job, dict):
+                    continue
                 created = job.get("created")
                 if created:
                     try:
