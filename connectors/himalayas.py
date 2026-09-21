@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import time
 import traceback
 from datetime import datetime, timezone
 from typing import List, Dict, Any
@@ -17,6 +20,43 @@ BASE_URL = "https://himalayas.app/jobs/api/search"
 # Runaway only — ~20 jobs/page, ~2000 total worldwide listings.
 MAX_PAGES = 150
 PAGE_SIZE = 20
+_PAGE_TIMEOUT = 25
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+_MAX_CONSECUTIVE_FAILURES = 3
+
+
+def _fetch_page(page: int) -> dict[str, Any] | None:
+    """Return one search page, or None after retries on timeout/connection/HTTP."""
+    params = {"worldwide": "true", "page": page}
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(BASE_URL, params=params, timeout=_PAGE_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"himalayas page {page} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code >= 400:
+            logger.info(
+                f"himalayas page {page} HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = response.json()
+        except ValueError:
+            logger.info(f"himalayas page {page} non-JSON attempt {attempt}/{_RETRIES}")
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    return None
 
 
 class HimalayasConnector(BaseConnector):
@@ -29,21 +69,32 @@ class HimalayasConnector(BaseConnector):
         seen_guids: set = set()
         cutoff = job_age_cutoff(self.source_name)
         page = 1
+        consecutive_failures = 0
 
         try:
             while page <= MAX_PAGES:
-                response = requests.get(
-                    BASE_URL,
-                    params={"worldwide": "true", "page": page},
-                    timeout=15,
-                )
-                response.raise_for_status()
-                data = response.json()
+                data = _fetch_page(page)
+                if data is None:
+                    consecutive_failures += 1
+                    logger.warning(
+                        f"himalayas page {page} failed "
+                        f"({consecutive_failures}/{_MAX_CONSECUTIVE_FAILURES}) — "
+                        "keeping prior jobs, continuing"
+                    )
+                    if consecutive_failures >= _MAX_CONSECUTIVE_FAILURES:
+                        break
+                    page += 1
+                    time.sleep(_RETRY_DELAY)
+                    continue
+
+                consecutive_failures = 0
                 jobs = data.get("jobs", [])
-                if not jobs:
+                if not isinstance(jobs, list) or not jobs:
                     break
 
                 for job in jobs:
+                    if not isinstance(job, dict):
+                        continue
                     pub = job.get("pubDate")
                     if pub:
                         try:
@@ -59,7 +110,11 @@ class HimalayasConnector(BaseConnector):
                         self._emit(job, all_jobs)
 
                 total = data.get("totalCount", 0)
-                if page * PAGE_SIZE >= total:
+                try:
+                    total_n = int(total)
+                except (TypeError, ValueError):
+                    total_n = 0
+                if page * PAGE_SIZE >= total_n:
                     break
                 page += 1
 

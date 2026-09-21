@@ -133,7 +133,9 @@ class TestHimalayasFetch:
         assert mock_get.call_count == 2
 
     def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_json({}, 503)):
+        with patch("connectors.himalayas.time.sleep"), patch(
+            self._T, return_value=_mock_json({}, 503)
+        ):
             from connectors.himalayas import HimalayasConnector
             assert HimalayasConnector().fetch_jobs() == []
 
@@ -141,6 +143,31 @@ class TestHimalayasFetch:
         with patch(self._T, side_effect=Exception("timeout")):
             from connectors.himalayas import HimalayasConnector
             assert HimalayasConnector().fetch_jobs() == []
+
+    def test_timeout_mid_walk_keeps_prior_and_continues(self):
+        import requests
+
+        page1 = _mock_json({"jobs": [self._job(guid="kept")], "totalCount": 60})
+        page3 = _mock_json({
+            "jobs": [self._job(guid="after-timeout")],
+            "totalCount": 60,
+        })
+        effects = [
+            page1,
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            requests.Timeout("read timed out"),
+            page3,
+        ]
+        with patch("connectors.himalayas.time.sleep"), patch(
+            self._T, side_effect=effects
+        ) as mock_get:
+            from connectors.himalayas import HimalayasConnector
+            jobs = HimalayasConnector().fetch_jobs()
+        ids = {j["guid"] for j in jobs}
+        assert "kept" in ids
+        assert "after-timeout" in ids
+        assert mock_get.call_count == 5
 
 
 class TestHimalayasNormalize:
