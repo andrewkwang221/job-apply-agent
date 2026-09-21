@@ -6,11 +6,11 @@ from typing import List, Dict, Any, Set
 from urllib.parse import unquote
 
 import requests
-from sqlalchemy import create_engine, text
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.ats_slugs import load_recent_board_slugs
+from utils.job_age import job_age_cutoff
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -29,13 +29,6 @@ _HEADERS = {
 }
 _SLUG_OK_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$")
 
-# Verified Greenhouse boards worth probing directly.  The connector also
-# discovers slugs organically from the DB (any Greenhouse URL ingested by
-# other sources), so this list only seeds companies not yet in the DB.
-_CURATED_SLUGS: set[str] = {
-    "jetbrains",  # JetBrains — IDEs / developer tools (EU board, standard API)
-}
-
 
 def _normalize_slug(raw: str) -> str | None:
     slug = unquote(raw or "").strip().lower().replace(" ", "-").strip("-")
@@ -52,20 +45,12 @@ def _extract_slug(url: str) -> str | None:
 
 
 def _load_slugs_from_db() -> Set[str]:
-    slugs: Set[str] = set()
-    try:
-        engine = create_engine(config.DATABASE_URL)
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT url FROM jobs WHERE ats_type = 'greenhouse' AND url LIKE '%greenhouse.io%'")
-            )
-            for (url,) in rows:
-                slug = _extract_slug(url or "")
-                if slug:
-                    slugs.add(slug)
-    except Exception as e:
-        logger.warning(f"Could not query DB for Greenhouse slugs: {e}")
-    return slugs
+    """Board slugs from in-window Greenhouse job URLs (not all-time history)."""
+    return load_recent_board_slugs(
+        "%greenhouse.io%",
+        _extract_slug,
+        job_age_cutoff("greenhouse"),
+    )
 
 
 def _load_excluded_slugs() -> Set[str]:
@@ -117,16 +102,15 @@ class GreenhouseConnector(BaseConnector):
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         excluded = _load_excluded_slugs()
-        db_slugs = _load_slugs_from_db() - excluded
-        slugs = db_slugs | (_CURATED_SLUGS - excluded)
+        slugs = _load_slugs_from_db() - excluded
 
         if not slugs:
             logger.info("No Greenhouse slugs found — skipping")
             return []
 
         logger.info(
-            f"Fetching jobs from {self.source_name} for {len(slugs)} companies "
-            f"({len(db_slugs)} from DB, {len(_CURATED_SLUGS - excluded)} curated): {sorted(slugs)}"
+            f"Fetching jobs from {self.source_name} for {len(slugs)} "
+            f"in-window boards: {sorted(slugs)}"
         )
         target_roles = _load_target_roles()
         all_jobs: List[Dict[str, Any]] = []

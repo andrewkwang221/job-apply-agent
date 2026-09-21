@@ -96,10 +96,6 @@ CONNECTORS = {
     "getonboard": GetOnBoardConnector,
     "himalayas": HimalayasConnector,
     "adzuna": AdzunaConnector,
-    "ashby": AshbyConnector,
-    "greenhouse": GreenhouseConnector,
-    "lever": LeverConnector,
-    "direct_ats": DirectATSConnector,
     "realworkfromanywhere": RealWorkFromAnywhereConnector,
     "euremotejobs": EURemoteJobsConnector,
     "remoteaijobs": RemoteAIJobsConnector,
@@ -137,6 +133,11 @@ CONNECTORS = {
     "startupjobs": StartupJobsConnector,
     "4dayweek": FourDayWeekConnector,
     "builtin": BuiltinConnector,
+    # After aggregators so board slugs come from this run's ATS apply URLs.
+    "ashby": AshbyConnector,
+    "greenhouse": GreenhouseConnector,
+    "lever": LeverConnector,
+    "direct_ats": DirectATSConnector,
     # Slowest board — last so a full-run still finishes the others first.
     "wearedevelopers": WeAreDevelopersConnector,
 }

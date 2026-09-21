@@ -243,9 +243,9 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [4DayWeek](https://4dayweek.io/job-search?category=engineering%2Cdata%2Cdevops&work_arrangements=remote&worldwide_only=true) | JSON jobs API v2 | Guest `GET /api/v2/jobs` (no login). `/job-search` is robots-disallowed. `category=engineering,data,devops`, `work_arrangement=remote`, `sort=date`, `posted_after` from `max_job_age_days`. No `level`/`q=`. Engineering title filter. Newest-first; stop at first stale job. Description in the list payload. Apply is Pro/login gated (capped at review). |
 | [BuiltIn](https://builtin.com/jobs/remote/ai-machine-learning/ai-engineering/machine-learning-engineering/data-science/ml-ops/generative-artificial-intelligence/computer-vision-ai/nlp/deep-learning?daysSinceUpdated=3&city=&state=&country=USA&allLocations=true) | Listing HTML | Guest SSR `job-card` search (no login). AI/ML category path; no `search=` / seniority path (`/jobs/*mid-level` and `*?search=` are robots-disallowed). `daysSinceUpdated` from `max_job_age_days` (1/3/7/30). Engineering title filter. Mixed dates — walk `?page=` (no first-stale stop). Skip detail when listing location/title is enough. Apply is Join/Easy Apply (capped at review). |
 | Direct ATS | Multi-API | Curated company list from `profile.yaml` — auto-detects [Ashby](https://ashbyhq.com) / [Greenhouse](https://greenhouse.io) / [Lever](https://lever.co) / [Workable](https://workable.com) |
-| Ashby | JSON API | DB-discovered + curated Ashby boards (seed list of verified remote-hiring companies) |
-| Greenhouse | JSON API | DB-discovered Greenhouse boards not already in Direct ATS |
-| Lever | JSON API | DB-discovered Lever boards not already in Direct ATS |
+| Ashby | JSON API | In-window aggregator Ashby URLs not already in Direct ATS |
+| Greenhouse | JSON API | In-window aggregator Greenhouse URLs not already in Direct ATS |
+| Lever | JSON API | In-window aggregator Lever URLs |
 | [Working Nomads](https://www.workingnomads.com) | JSON API | Remote jobs from the public exposed_jobs API |
 
 Jobs older than 3 days are skipped on sources that already completed a fetch. A newly added source uses a 30-day first-ingest window (`MAX_JOB_AGE_DAYS_INITIAL`) until that source has stored jobs. Override with `fetch --initial` or `fetch --age-days N`. The Y Combinator public guest list does not age-filter (already truncated).

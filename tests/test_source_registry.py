@@ -54,6 +54,17 @@ def test_wearedevelopers_runs_last_on_full_run():
     assert list(CONNECTORS)[-1] == "wearedevelopers"
 
 
+def test_ats_connectors_run_after_aggregators():
+    from run_pipeline import CONNECTORS
+
+    keys = list(CONNECTORS)
+    assert keys.index("ashby") > keys.index("remote100k")
+    assert keys.index("greenhouse") > keys.index("ashby")
+    assert keys.index("lever") > keys.index("greenhouse")
+    assert keys.index("direct_ats") > keys.index("lever")
+    assert keys[-1] == "wearedevelopers"
+
+
 def test_flexjobs_is_opt_in_not_in_all():
     from run_pipeline import CONNECTORS, DISABLED_SOURCES
 

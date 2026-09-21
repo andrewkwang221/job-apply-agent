@@ -139,9 +139,9 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | Connector | Source | Notes |
 |---|---|---|
 | `DirectATSConnector` | Ashby / Greenhouse / Lever / Workable | Curated `target_companies` list from `profile.yaml`; ATS auto-detected from `careers_url` host |
-| `AshbyConnector` | Ashby API | DB-discovered + curated (`_CURATED_SLUGS`) Ashby boards; seed list ensures coverage from day 1 |
-| `GreenhouseConnector` | Greenhouse API | DB-discovered Greenhouse boards not in the Direct ATS list |
-| `LeverConnector` | Lever API | DB-discovered Lever boards not in the Direct ATS list |
+| `AshbyConnector` | Ashby API | In-window aggregator Ashby URLs not in the Direct ATS list; runs after aggregators |
+| `GreenhouseConnector` | Greenhouse API | In-window aggregator Greenhouse URLs not in the Direct ATS list |
+| `LeverConnector` | Lever API | In-window aggregator Lever URLs; runs after aggregators |
 
 **Direct ATS host routing:**
 

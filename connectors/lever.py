@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Set
 
 import requests
-from sqlalchemy import create_engine, text
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.ats_slugs import load_recent_board_slugs
+from utils.job_age import job_age_cutoff
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -25,30 +25,12 @@ def _extract_slug(url: str) -> str | None:
 
 
 def _load_slugs_from_db() -> Set[str]:
-    slugs: Set[str] = set()
-    try:
-        engine = create_engine(config.DATABASE_URL)
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT url FROM jobs WHERE ats_type = 'lever' AND url LIKE '%lever.co%'")
-            )
-            for (url,) in rows:
-                slug = _extract_slug(url or "")
-                if slug:
-                    slugs.add(slug)
-    except Exception as e:
-        logger.warning(f"Could not query DB for Lever slugs: {e}")
-    return slugs
-
-
-def _load_slugs_from_profile() -> Set[str]:
-    try:
-        with open("profile.yaml", encoding="utf-8") as f:
-            profile = yaml.safe_load(f) or {}
-        entries = profile.get("target_companies", {}).get("lever", [])
-        return {str(s).lower() for s in entries}
-    except Exception:
-        return set()
+    """Board slugs from in-window Lever job URLs (not all-time history)."""
+    return load_recent_board_slugs(
+        "%lever.co%",
+        _extract_slug,
+        job_age_cutoff("lever"),
+    )
 
 
 def _load_target_roles() -> List[str]:
@@ -94,13 +76,16 @@ class LeverConnector(BaseConnector):
         self.source_name = "lever"
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
-        slugs = _load_slugs_from_db() | _load_slugs_from_profile()
+        slugs = _load_slugs_from_db()
 
         if not slugs:
             logger.info("No Lever slugs found — skipping")
             return []
 
-        logger.info(f"Fetching jobs from {self.source_name} for {len(slugs)} companies: {sorted(slugs)}")
+        logger.info(
+            f"Fetching jobs from {self.source_name} for {len(slugs)} "
+            f"in-window boards: {sorted(slugs)}"
+        )
         target_roles = _load_target_roles()
         all_jobs: List[Dict[str, Any]] = []
         seen_ids: Set[str] = set()

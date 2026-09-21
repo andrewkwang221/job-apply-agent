@@ -6,11 +6,11 @@ from typing import List, Dict, Any, Set
 from urllib.parse import unquote
 
 import requests
-from sqlalchemy import create_engine, text
 
-import config
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.ats_slugs import load_recent_board_slugs
+from utils.job_age import job_age_cutoff
 from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
 
@@ -29,23 +29,6 @@ _HEADERS = {
 }
 _SLUG_OK_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$")
 
-# Known engineering/AI companies on Ashby whose boards are publicly accessible
-# without authentication.  Verified 2026-04-08 — slugs with 0 remote jobs or
-# 404 are excluded.  The connector also discovers slugs organically from the DB
-# (Ashby URLs ingested by other sources) and from profile.yaml target_companies.
-_CURATED_SLUGS: set[str] = {
-    "cursor",       # Cursor AI — AI coding editor
-    "poolside",     # Poolside — AI coding assistant
-    "linear",       # Linear — dev tools / project management
-    "weaviate",     # Weaviate — vector database
-    "replit",       # Replit — online coding platform
-    "supabase",     # Supabase — open-source Firebase / backend infra
-    "warp",         # Warp — AI terminal
-    "clerk",        # Clerk — auth & identity
-    "ramp",         # Ramp — fintech / spend management
-    "vanta",        # Vanta — security compliance automation
-}
-
 
 def _normalize_slug(raw: str) -> str | None:
     """Decode listing-URL junk (``solana%20foundation``) into an API slug."""
@@ -63,21 +46,12 @@ def _extract_slug(url: str) -> str | None:
 
 
 def _load_slugs_from_db() -> Set[str]:
-    """Extract unique Ashby company slugs from jobs already in the DB."""
-    slugs: Set[str] = set()
-    try:
-        engine = create_engine(config.DATABASE_URL)
-        with engine.connect() as conn:
-            rows = conn.execute(
-                text("SELECT url FROM jobs WHERE ats_type = 'ashby' AND url LIKE '%ashbyhq.com%'")
-            )
-            for (url,) in rows:
-                slug = _extract_slug(url or "")
-                if slug:
-                    slugs.add(slug)
-    except Exception as e:
-        logger.warning(f"Could not query DB for Ashby slugs: {e}")
-    return slugs
+    """Board slugs from in-window Ashby job URLs (not all-time history)."""
+    return load_recent_board_slugs(
+        "%ashbyhq.com%",
+        _extract_slug,
+        job_age_cutoff("ashby"),
+    )
 
 
 def _load_excluded_slugs() -> Set[str]:
@@ -127,16 +101,15 @@ class AshbyConnector(BaseConnector):
 
     def fetch_jobs(self) -> List[Dict[str, Any]]:
         excluded = _load_excluded_slugs()
-        db_slugs = _load_slugs_from_db() - excluded
-        slugs = db_slugs | (_CURATED_SLUGS - excluded)
+        slugs = _load_slugs_from_db() - excluded
 
         if not slugs:
             logger.info("No Ashby company slugs found — skipping")
             return []
 
         logger.info(
-            f"Fetching jobs from {self.source_name} for {len(slugs)} companies "
-            f"({len(db_slugs)} from DB, {len(_CURATED_SLUGS - excluded)} curated): {sorted(slugs)}"
+            f"Fetching jobs from {self.source_name} for {len(slugs)} "
+            f"in-window boards: {sorted(slugs)}"
         )
         target_roles = _load_target_roles()
         all_jobs: List[Dict[str, Any]] = []

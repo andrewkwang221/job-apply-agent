@@ -202,25 +202,13 @@ class TestAshbyFetch:
         assert len(jobs) == 1
 
     def test_empty_slugs_returns_empty_list(self):
-        # Exclude curated slugs too so the connector truly has nothing to query.
-        from connectors.ashby import _CURATED_SLUGS
         with patch(self._PATCH_DB_SLUGS, return_value=set()), \
-             patch(self._PATCH_EXCL_SLUGS, return_value=_CURATED_SLUGS.copy()):
+             patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
+             patch(self._PATCH_GET) as mock_get:
             from connectors.ashby import AshbyConnector
             jobs = AshbyConnector().fetch_jobs()
         assert jobs == []
-
-    def test_curated_slugs_used_when_db_empty(self):
-        """Curated list seeds the connector even with no DB-discovered slugs."""
-        payload = {"jobs": [_ashby_job()]}
-        with patch(self._PATCH_DB_SLUGS, return_value=set()), \
-             patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
-             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
-             patch(self._PATCH_GET, return_value=_json_mock(payload)):
-            from connectors.ashby import AshbyConnector
-            jobs = AshbyConnector().fetch_jobs()
-        # Dedup collapses identical job IDs across all curated slugs → 1 result.
-        assert len(jobs) == 1
+        mock_get.assert_not_called()
 
     def test_http_error_returns_empty_list(self):
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
@@ -241,12 +229,7 @@ class TestAshbyFetch:
         assert jobs == []
 
     def test_read_timeout_skips_slug_and_continues(self):
-        from connectors.ashby import (
-            AshbyConnector,
-            _API_TIMEOUT,
-            _CURATED_SLUGS,
-            _HEADERS,
-        )
+        from connectors.ashby import AshbyConnector, _API_TIMEOUT, _HEADERS
 
         payload = {"jobs": [_ashby_job()]}
 
@@ -258,7 +241,7 @@ class TestAshbyFetch:
             return _json_mock(payload)
 
         with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
-             patch(self._PATCH_EXCL_SLUGS, return_value=_CURATED_SLUGS.copy()), \
+             patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, side_effect=fake_get):
             jobs = AshbyConnector().fetch_jobs()
@@ -277,15 +260,14 @@ class TestAshbyFetch:
         assert jobs == []
 
     def test_excluded_slugs_are_skipped(self):
-        from connectors.ashby import _CURATED_SLUGS
-        # Exclude both the DB slug and all curated slugs so nothing is queried.
-        excluded = {"acme"} | _CURATED_SLUGS
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
-             patch(self._PATCH_EXCL_SLUGS, return_value=excluded), \
-             patch(self._PATCH_TARGET_ROLES, return_value=[]):
+             patch(self._PATCH_EXCL_SLUGS, return_value={"acme"}), \
+             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
+             patch(self._PATCH_GET) as mock_get:
             from connectors.ashby import AshbyConnector
             jobs = AshbyConnector().fetch_jobs()
         assert jobs == []
+        mock_get.assert_not_called()
 
 
 class TestAshbyNormalize:
@@ -405,12 +387,13 @@ class TestGreenhouseFetch:
             assert len(jobs) == 1, f"Expected job with location '{loc}' to pass"
 
     def test_empty_slugs_returns_empty_list(self):
-        from connectors.greenhouse import _CURATED_SLUGS
         with patch(self._PATCH_DB_SLUGS, return_value=set()), \
-             patch(self._PATCH_EXCL_SLUGS, return_value=_CURATED_SLUGS.copy()):
+             patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
+             patch(self._PATCH_GET) as mock_get:
             from connectors.greenhouse import GreenhouseConnector
             jobs = GreenhouseConnector().fetch_jobs()
         assert jobs == []
+        mock_get.assert_not_called()
 
     def test_http_error_returns_empty_list(self):
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
@@ -431,12 +414,7 @@ class TestGreenhouseFetch:
         assert jobs == []
 
     def test_read_timeout_skips_slug_and_continues(self):
-        from connectors.greenhouse import (
-            GreenhouseConnector,
-            _API_TIMEOUT,
-            _CURATED_SLUGS,
-            _HEADERS,
-        )
+        from connectors.greenhouse import GreenhouseConnector, _API_TIMEOUT, _HEADERS
 
         payload = {"jobs": [_greenhouse_job()]}
 
@@ -448,7 +426,7 @@ class TestGreenhouseFetch:
             return _json_mock(payload)
 
         with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
-             patch(self._PATCH_EXCL_SLUGS, return_value=_CURATED_SLUGS.copy()), \
+             patch(self._PATCH_EXCL_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, side_effect=fake_get):
             jobs = GreenhouseConnector().fetch_jobs()
@@ -565,12 +543,10 @@ class TestLeverFetch:
 
     _PATCH_GET = "connectors.lever.requests.get"
     _PATCH_DB_SLUGS = "connectors.lever._load_slugs_from_db"
-    _PATCH_PROFILE_SLUGS = "connectors.lever._load_slugs_from_profile"
     _PATCH_TARGET_ROLES = "connectors.lever._load_target_roles"
 
     def _fetch_with_payload(self, jobs_list):
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, return_value=_json_mock(jobs_list)):
             from connectors.lever import LeverConnector
@@ -587,7 +563,6 @@ class TestLeverFetch:
         job = _lever_job()
         payload = {"data": [job]}
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, return_value=_json_mock(payload)):
             from connectors.lever import LeverConnector
@@ -616,14 +591,14 @@ class TestLeverFetch:
 
     def test_empty_slugs_returns_empty_list(self):
         with patch(self._PATCH_DB_SLUGS, return_value=set()), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()):
+             patch(self._PATCH_GET) as mock_get:
             from connectors.lever import LeverConnector
             jobs = LeverConnector().fetch_jobs()
         assert jobs == []
+        mock_get.assert_not_called()
 
     def test_http_error_returns_empty_list(self):
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, return_value=_error_mock(503)):
             from connectors.lever import LeverConnector
@@ -632,7 +607,6 @@ class TestLeverFetch:
 
     def test_network_exception_returns_empty_list(self):
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, side_effect=RequestsConnectionError("timeout")):
             from connectors.lever import LeverConnector
@@ -649,7 +623,6 @@ class TestLeverFetch:
             return _json_mock(payload)
 
         with patch(self._PATCH_DB_SLUGS, return_value={"slow-co", "acme"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, side_effect=fake_get):
             from connectors.lever import LeverConnector
@@ -660,7 +633,6 @@ class TestLeverFetch:
         mock = _json_mock({}, 404)
         mock.raise_for_status = MagicMock()
         with patch(self._PATCH_DB_SLUGS, return_value={"no-such-co"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, return_value=mock):
             from connectors.lever import LeverConnector
@@ -670,21 +642,8 @@ class TestLeverFetch:
     def test_deduplication_same_id_returned_once(self):
         job = _lever_job(job_id="dup-lever")
         with patch(self._PATCH_DB_SLUGS, return_value={"acme"}), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value=set()), \
              patch(self._PATCH_TARGET_ROLES, return_value=[]), \
              patch(self._PATCH_GET, return_value=_json_mock([job, {**job}])):
-            from connectors.lever import LeverConnector
-            jobs = LeverConnector().fetch_jobs()
-        assert len(jobs) == 1
-
-    def test_profile_slugs_merged_with_db_slugs(self):
-        """Slugs from profile are union-ed with DB slugs."""
-        job = _lever_job(slug="profile-co")
-        job["_slug"] = "profile-co"
-        with patch(self._PATCH_DB_SLUGS, return_value=set()), \
-             patch(self._PATCH_PROFILE_SLUGS, return_value={"profile-co"}), \
-             patch(self._PATCH_TARGET_ROLES, return_value=[]), \
-             patch(self._PATCH_GET, return_value=_json_mock([job])):
             from connectors.lever import LeverConnector
             jobs = LeverConnector().fetch_jobs()
         assert len(jobs) == 1
