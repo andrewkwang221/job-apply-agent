@@ -102,6 +102,7 @@ _LISTING_DOMAINS = [
     "remotejobs.org",
     "remotefrontendjobs.com",
     "hubstafftalent.net",
+    "tryremotely.com",
 ]
 
 

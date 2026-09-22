@@ -1296,3 +1296,29 @@ class TestHubstaffTalentNormalize:
         assert n["url"] == "https://hubstafftalent.net/jobs/backend-engineer"
         assert n["location"] == "Remote"
         assert isinstance(n["raw_location_text"], str)
+
+
+class TestTryRemotelyNormalize:
+    def _raw(self):
+        return {
+            "id": "backend-engineer",
+            "listing_url": "https://tryremotely.com/job/backend-engineer",
+            "url": "https://tryremotely.com/job/backend-engineer",
+            "title": "Backend Engineer",
+            "company": "Upstart",
+            "location": "United States, Worldwide",
+            "description": "<p>Build the marketplace.</p>",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.tryremotely import TryRemotelyConnector
+        n = TryRemotelyConnector().normalize(self._raw())
+        _assert_shape(n, "tryremotely")
+
+    def test_location_stays_a_string(self):
+        from connectors.tryremotely import TryRemotelyConnector
+        n = TryRemotelyConnector().normalize(self._raw())
+        assert n["url"] == "https://tryremotely.com/job/backend-engineer"
+        assert n["location"] == "United States, Worldwide"
+        assert isinstance(n["raw_location_text"], str)

@@ -66,6 +66,7 @@ _BLOCKED_HOST_SUFFIXES = (
     "remotejobs.org",
     "remotefrontendjobs.com",
     "hubstafftalent.net",
+    "tryremotely.com",
     "otta.com",
     "linkedin.com",
     "indeed.com",

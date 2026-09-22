@@ -34,6 +34,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "remoteyeah",      # apply is CSRF POST /jobs/…/apply redirect (directApply false)
     "remotejobs",      # apply is an on-site button (no external employer URL)
     "hubstafftalent",  # apply opens an account dialog (apply_auth.dialog)
+    "tryremotely",     # applicationLink is the TryRemotely job page (/apply/ disallowed)
 })
 
 TITLE_REJECT_KEYWORDS = [

@@ -136,6 +136,7 @@ _ALREADY_SOURCED_HOSTS = frozenset({
     "remotejobs.org",
     "remotefrontendjobs.com",
     "hubstafftalent.net",
+    "tryremotely.com",
 })
 
 
