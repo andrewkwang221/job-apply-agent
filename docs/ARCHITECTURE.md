@@ -142,6 +142,7 @@ How to add a board (pagination caps, inspect, register, when to ask): [CONNECTOR
 | `RemoteFrontJobsConnector` | [RemoteFrontJobs](https://www.remotefrontendjobs.com/) | Guest `/api/jobs?limit=5000` (SSR filters unbound); mixed `isoDate` date-filter; no `seniority=`; engineering title filter; listing skip before persist; external apply link |
 | `HubstaffTalentConnector` | [Hubstaff Talent](https://hubstafftalent.net/search/jobs?search%5Bkeywords%5D=Software+Engineer&search%5Bcountries%5D%5B%5D=US&search%5Bsort_by%5D=date_added) | Guest XHR `/search/jobs`; unique `target_roles` as `search[keywords]`; US + pay $50–100+/hr; newest-first `date_added` + first-stale; location `Remote`; listing skip before persist; apply review-capped |
 | `TryRemotelyConnector` | [TryRemotely](https://tryremotely.com/jobs?keyword=&location%5B%5D=north-america&work_model%5B%5D=remote&sort_by=date) | Guest `/api/v1/job-listings` (`offset`+`limit` only); `workModel=Remote` and engineering title read per row; newest-first `pubDate` + first-stale; listing skip before persist; apply review-capped |
+| `FindMyRemoteConnector` | [Find My Remote](https://findmyremote.ai/jobs?location=us&location=ca&category=engineering) | Guest `/api/jobs`; category + `us`/`ca` + employment type OR; newest-first `createdAt` cursor + first-stale; detail JSON for place text; employer apply URL |
 
 **Direct ATS connectors:**
 

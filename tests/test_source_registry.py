@@ -55,6 +55,7 @@ def test_public_board_connectors_are_registered():
     assert "remotefrontjobs" in CONNECTORS
     assert "hubstafftalent" in CONNECTORS
     assert "tryremotely" in CONNECTORS
+    assert "findmyremote" in CONNECTORS
 
 
 def test_wearedevelopers_runs_last_on_full_run():
@@ -73,9 +74,11 @@ def test_ats_connectors_run_after_aggregators():
     assert keys.index("remotesource") > keys.index("remoteyeah")
     assert keys.index("remotejobs") > keys.index("remotesource")
     assert keys.index("remotefrontjobs") > keys.index("remotejobs")
-    assert keys.index("ashby") > keys.index("tryremotely")
+    assert keys.index("remotefront") > keys.index("remotefrontjobs")
+    assert keys.index("ashby") > keys.index("findmyremote")
+    assert keys.index("findmyremote") > keys.index("tryremotely")
     assert keys.index("tryremotely") > keys.index("hubstafftalent")
-    assert keys.index("hubstafftalent") > keys.index("remotefrontjobs")
+    assert keys.index("hubstafftalent") > keys.index("remotefront")
     assert keys.index("greenhouse") > keys.index("ashby")
     assert keys.index("lever") > keys.index("greenhouse")
     assert keys.index("direct_ats") > keys.index("lever")
@@ -134,5 +137,7 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "remotesource" not in _NO_DIRECT_APPLY_SOURCES
     assert "remotejobs" in _NO_DIRECT_APPLY_SOURCES
     assert "remotefrontjobs" not in _NO_DIRECT_APPLY_SOURCES
+    assert "remotefront" not in _NO_DIRECT_APPLY_SOURCES
     assert "hubstafftalent" in _NO_DIRECT_APPLY_SOURCES
     assert "tryremotely" in _NO_DIRECT_APPLY_SOURCES
+    assert "findmyremote" not in _NO_DIRECT_APPLY_SOURCES

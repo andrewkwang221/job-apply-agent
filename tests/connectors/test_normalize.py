@@ -1322,3 +1322,29 @@ class TestTryRemotelyNormalize:
         assert n["url"] == "https://tryremotely.com/job/backend-engineer"
         assert n["location"] == "United States, Worldwide"
         assert isinstance(n["raw_location_text"], str)
+
+
+class TestFindMyRemoteNormalize:
+    def _raw(self):
+        return {
+            "id": "backend-engineer-30",
+            "listing_url": "https://findmyremote.ai/companies/aledade/jobs/backend-engineer-30",
+            "url": "https://jobs.lever.co/aledade/abc",
+            "title": "Backend Engineer",
+            "company": "Aledade",
+            "location": "Brazil, Austin, United States",
+            "description": "<p>Build the API.</p>",
+            "posted_date": datetime(2026, 9, 21, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.findmyremote import FindMyRemoteConnector
+        n = FindMyRemoteConnector().normalize(self._raw())
+        _assert_shape(n, "findmyremote")
+
+    def test_keeps_employer_url(self):
+        from connectors.findmyremote import FindMyRemoteConnector
+        n = FindMyRemoteConnector().normalize(self._raw())
+        assert n["url"] == "https://jobs.lever.co/aledade/abc"
+        assert n["location"] == "Brazil, Austin, United States"
+        assert isinstance(n["raw_location_text"], str)
