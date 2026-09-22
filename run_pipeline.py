@@ -76,6 +76,8 @@ from connectors.remoteyeah import RemoteYeahConnector
 from connectors.remotesource import RemoteSourceConnector
 from connectors.remotejobs import RemoteJobsConnector
 from connectors.remotefrontjobs import RemoteFrontJobsConnector
+from connectors.remotefront import RemoteFrontConnector
+from connectors.remotewlb import RemoteWlbConnector
 from connectors.hubstafftalent import HubstaffTalentConnector
 from connectors.tryremotely import TryRemotelyConnector
 from connectors.findmyremote import FindMyRemoteConnector
@@ -150,6 +152,8 @@ CONNECTORS = {
     "remotesource": RemoteSourceConnector,
     "remotejobs": RemoteJobsConnector,
     "remotefrontjobs": RemoteFrontJobsConnector,
+    "remotefront": RemoteFrontConnector,
+    "remotewlb": RemoteWlbConnector,
     "hubstafftalent": HubstaffTalentConnector,
     "tryremotely": TryRemotelyConnector,
     "findmyremote": FindMyRemoteConnector,
@@ -1000,7 +1004,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  remotefrontjobs  remotefront  hubstafftalent  tryremotely  findmyremote  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  remotefrontjobs  remotefront  remotewlb  hubstafftalent  tryremotely  findmyremote  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 
