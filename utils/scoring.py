@@ -37,6 +37,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "hubstafftalent",  # apply opens an account dialog (apply_auth.dialog)
     "tryremotely",     # applicationLink is the TryRemotely job page (/apply/ disallowed)
     "remotewlb",       # JobPosting directApply false; no employer apply URL
+    "omnijobs",        # free preview only; full results and extra apply are Pro
 })
 
 TITLE_REJECT_KEYWORDS = [

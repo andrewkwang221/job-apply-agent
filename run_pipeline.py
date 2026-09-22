@@ -78,6 +78,7 @@ from connectors.remotejobs import RemoteJobsConnector
 from connectors.remotefrontjobs import RemoteFrontJobsConnector
 from connectors.remotefront import RemoteFrontConnector
 from connectors.remotewlb import RemoteWlbConnector
+from connectors.omnijobs import OmniJobsConnector
 from connectors.hubstafftalent import HubstaffTalentConnector
 from connectors.tryremotely import TryRemotelyConnector
 from connectors.findmyremote import FindMyRemoteConnector
@@ -154,6 +155,7 @@ CONNECTORS = {
     "remotefrontjobs": RemoteFrontJobsConnector,
     "remotefront": RemoteFrontConnector,
     "remotewlb": RemoteWlbConnector,
+    "omnijobs": OmniJobsConnector,
     "hubstafftalent": HubstaffTalentConnector,
     "tryremotely": TryRemotelyConnector,
     "findmyremote": FindMyRemoteConnector,
@@ -179,6 +181,7 @@ SYSTEM_BROWSER_DOMAINS = {
     "remotejobs.io",
     "remote.co/",
     "remotefront.com",
+    "omnijobs.io",
 }
 
 # Sources skipped when --source all is used. Enable individually with --source <name>.
@@ -1004,7 +1007,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  remotefrontjobs  remotefront  remotewlb  hubstafftalent  tryremotely  findmyremote  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  remotefrontjobs  remotefront  remotewlb  omnijobs  hubstafftalent  tryremotely  findmyremote  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 

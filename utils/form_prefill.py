@@ -33,6 +33,7 @@ SYSTEM_BROWSER_DOMAINS = {
     "remotejobs.io",
     "remote.co/",
     "remotefront.com",
+    "omnijobs.io",
 }
 
 

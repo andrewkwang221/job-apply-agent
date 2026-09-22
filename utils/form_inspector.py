@@ -106,6 +106,7 @@ _LISTING_DOMAINS = [
     "tryremotely.com",
     "findmyremote.ai",
     "remotewlb.com",
+    "omnijobs.io",
 ]
 
 

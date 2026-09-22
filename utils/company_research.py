@@ -70,6 +70,7 @@ _BLOCKED_HOST_SUFFIXES = (
     "tryremotely.com",
     "findmyremote.ai",
     "remotewlb.com",
+    "omnijobs.io",
     "otta.com",
     "linkedin.com",
     "indeed.com",
