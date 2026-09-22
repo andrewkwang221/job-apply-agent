@@ -29,7 +29,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -37,9 +37,6 @@ from utils.text_cleaning import clean_description
 logger = setup_logger("techjobsforgood_connector")
 
 BASE_URL = "https://techjobsforgood.com"
-LISTING_URL = (
-    f"{BASE_URL}/jobs/?q=&remote_jobs=on&page=2&sort_by=date"
-)
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -50,6 +47,9 @@ _HEADERS = {
 _FETCH_DELAY = 0.4
 # Newest-first date pager; runaway only (guest list is two pages).
 _MAX_PAGES = 20
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _LD_JSON_RE = re.compile(
     r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
@@ -95,50 +95,71 @@ class TechJobsForGoodConnector(BaseConnector):
         self.source_name = "techjobsforgood"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from Tech Jobs for Good remote list…")
+        age_days = max_job_age_days(self.source_name)
         cutoff = job_age_cutoff(self.source_name)
+        logger.info(
+            f"Fetching jobs from Tech Jobs for Good remote list "
+            f"(age_days={age_days})…"
+        )
         seen_ids: set[str] = set()
         kept: list[dict[str, Any]] = []
+        total_cards = 0
+        total_stale = 0
+        total_non_eng = 0
 
-        try:
-            for page in range(1, _MAX_PAGES + 1):
-                html = _fetch_html(_listing_page_url(page))
-                if not html:
-                    break
-                cards = _extract_cards(html)
-                if not cards:
-                    break
-                dated: list[datetime] = []
-                page_jobs: list[dict[str, Any]] = []
-                page_kept = 0
-                for card in cards:
-                    raw = _parse_card(card)
-                    if not raw:
-                        continue
-                    posted = raw.get("posted_date")
-                    if posted:
-                        dated.append(posted)
-                        if posted < cutoff:
-                            continue
-                    if raw["id"] in seen_ids:
-                        continue
-                    seen_ids.add(raw["id"])
-                    page_jobs.append(raw)
-                    page_kept += 1
+        for page in range(1, _MAX_PAGES + 1):
+            html = _fetch_html(_listing_page_url(page))
+            if html is None:
                 logger.info(
-                    f"TJFG page {page}: {len(cards)} cards, {page_kept} kept"
+                    f"TJFG page {page} skipped after retries "
+                    f"(keeping {len(kept)} prior jobs)"
                 )
-                self._emit_page(page_jobs, kept, cutoff)
-                if dated and all(dt < cutoff for dt in dated):
-                    logger.info(f"TJFG page {page} is fully stale — stopping")
-                    break
-                if page < _MAX_PAGES:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching Tech Jobs for Good listing: {e}")
-            logger.debug(traceback.format_exc())
-            return kept
+                break
+            if not html:
+                break
+            cards = _extract_cards(html)
+            if not cards:
+                break
+            total_cards += len(cards)
+            dated: list[datetime] = []
+            page_jobs: list[dict[str, Any]] = []
+            stale = 0
+            non_eng = 0
+            for card in cards:
+                raw, reason = _parse_card_result(card)
+                if reason == "non-eng":
+                    non_eng += 1
+                    continue
+                if not raw:
+                    continue
+                posted = raw.get("posted_date")
+                if posted:
+                    dated.append(posted)
+                    if posted < cutoff:
+                        stale += 1
+                        continue
+                if raw["id"] in seen_ids:
+                    continue
+                seen_ids.add(raw["id"])
+                page_jobs.append(raw)
+            total_stale += stale
+            total_non_eng += non_eng
+            logger.info(
+                f"TJFG page {page}: {len(cards)} cards, {len(page_jobs)} in-window "
+                f"(stale={stale}, non-engineering={non_eng})"
+            )
+            self._emit_page(page_jobs, kept, cutoff)
+            if dated and all(dt < cutoff for dt in dated):
+                logger.info(f"TJFG page {page} is fully stale — stopping")
+                break
+            if page < _MAX_PAGES:
+                time.sleep(_FETCH_DELAY)
 
+        logger.info(
+            f"TJFG summary: {total_cards} cards, {len(kept)} emitted "
+            f"(stale={total_stale}, non-engineering={total_non_eng}, "
+            f"age_days={age_days})"
+        )
         logger.info(f"Successfully fetched {len(kept)} jobs from techjobsforgood")
         return kept
 
@@ -154,19 +175,36 @@ class TechJobsForGoodConnector(BaseConnector):
             unseen_listing_urls([job["url"] for job in page_jobs], self.source_name)
         )
         pending = [job for job in page_jobs if job["url"] in unseen]
+        known_skipped = len(page_jobs) - len(pending)
+        if known_skipped:
+            logger.info(
+                f"TJFG skipped {known_skipped} already-seen listings before detail"
+            )
+        if not pending:
+            return
+        detail_dropped = 0
         for i, job in enumerate(pending):
             try:
                 detail_html = _fetch_html(job["url"])
-                if _merge_detail(job, detail_html, cutoff):
+                if detail_html is None:
+                    logger.info(f"TJFG detail skip for {job['url']} — emitting listing")
                     self._emit(job, kept)
+                elif _merge_detail(job, detail_html, cutoff):
+                    self._emit(job, kept)
+                else:
+                    detail_dropped += 1
             except Exception as e:
-                logger.warning(f"Failed to fetch TJFG job {job['url']}: {e}")
+                logger.info(f"TJFG detail skip ({type(e).__name__}) for {job['url']}")
                 logger.debug(traceback.format_exc())
                 self._emit(job, kept)
             if i + 1 < len(pending):
                 time.sleep(_FETCH_DELAY)
-        if pending:
-            remember_listing_urls(self.source_name, [job["url"] for job in pending])
+        if detail_dropped:
+            logger.info(
+                f"TJFG dropped {detail_dropped} after detail "
+                f"(expired/stale JSON-LD)"
+            )
+        remember_listing_urls(self.source_name, [job["url"] for job in pending])
 
     def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         url = raw_job.get("url", "")
@@ -198,12 +236,29 @@ def _listing_page_url(page: int) -> str:
     return f"{BASE_URL}/jobs/?q=&remote_jobs=on&page={page}&sort_by=date"
 
 
-def _fetch_html(url: str) -> str:
-    resp = requests.get(url, headers=_HEADERS, timeout=20)
-    if resp.status_code == 404:
-        return ""
-    resp.raise_for_status()
-    return resp.text
+def _fetch_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"TJFG GET failed ({type(e).__name__}) attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 404:
+            return ""
+        if resp.status_code >= 400:
+            logger.info(
+                f"TJFG GET HTTP {resp.status_code} attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"TJFG GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _extract_cards(html: str) -> list[str]:
@@ -270,14 +325,14 @@ def _parse_dt(value: Any) -> datetime | None:
         return None
 
 
-def _parse_card(html: str) -> dict[str, Any] | None:
+def _parse_card_result(html: str) -> tuple[dict[str, Any] | None, str]:
     id_match = _ID_RE.search(html or "")
     title_match = _TITLE_RE.search(html or "")
     if not id_match or not title_match:
-        return None
+        return None, "parse"
     title = title_match.group(1).strip()
     if not title or not _is_engineering_title(title):
-        return None
+        return None, "non-eng"
     job_id = id_match.group(1)
     company_match = _COMPANY_RE.search(html)
     loc_match = _LOCATION_RE.search(html)
@@ -295,7 +350,12 @@ def _parse_card(html: str) -> dict[str, Any] | None:
         "url": urljoin(BASE_URL, f"/jobs/{job_id}/"),
         "description": snippet,
         "posted_date": _parse_relative_date(posted_match.group(1) if posted_match else ""),
-    }
+    }, "kept"
+
+
+def _parse_card(html: str) -> dict[str, Any] | None:
+    raw, _reason = _parse_card_result(html)
+    return raw
 
 
 def _job_posting(html: str) -> dict[str, Any]:

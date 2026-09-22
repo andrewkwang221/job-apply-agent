@@ -52,6 +52,10 @@ _HEADERS = {
 _FETCH_DELAY = 0.4
 _MAX_PAGES = 30
 _NEWEST_FIRST_FROM_PAGE = 2
+_MAX_FETCH_FAILURES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _RSC_WINDOW = 250_000
 
 _JOB_HREF_RE = re.compile(
@@ -82,43 +86,51 @@ class RemoteComConnector(BaseConnector):
         cutoff = job_age_cutoff(self.source_name)
         seen_ids: set[str] = set()
         kept_jobs: list[dict[str, Any]] = []
+        consecutive_failures = 0
 
-        try:
-            for page in range(1, _MAX_PAGES + 1):
-                html = _fetch_html(_listing_page_url(page))
-                if not html:
-                    break
-                cards, dated = _extract_page(html)
-                if not cards and not dated:
-                    break
-                page_jobs: list[dict[str, Any]] = []
-                kept = 0
-                for raw in cards:
-                    posted = raw.get("posted_date")
-                    if posted and posted < cutoff:
-                        continue
-                    if raw["id"] in seen_ids:
-                        continue
-                    seen_ids.add(raw["id"])
-                    page_jobs.append(raw)
-                    kept += 1
+        for page in range(1, _MAX_PAGES + 1):
+            html = _fetch_html(_listing_page_url(page))
+            if html is None:
+                consecutive_failures += 1
                 logger.info(
-                    f"remote.com page {page}: {len(cards)} eng cards, {kept} kept"
+                    f"remote.com page {page} skipped "
+                    f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
+                    f"keeping {len(kept_jobs)} prior jobs"
                 )
-                self._emit_page(page_jobs, kept_jobs, cutoff)
-                if (
-                    page >= _NEWEST_FIRST_FROM_PAGE
-                    and dated
-                    and all(dt < cutoff for dt in dated)
-                ):
-                    logger.info(f"remote.com page {page} is fully stale — stopping")
+                if consecutive_failures >= _MAX_FETCH_FAILURES:
                     break
-                if page < _MAX_PAGES:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching remote.com listing: {e}")
-            logger.debug(traceback.format_exc())
-            return kept_jobs
+                time.sleep(_FETCH_DELAY)
+                continue
+            if not html:
+                break
+            consecutive_failures = 0
+            cards, dated = _extract_page(html)
+            if not cards and not dated:
+                break
+            page_jobs: list[dict[str, Any]] = []
+            kept = 0
+            for raw in cards:
+                posted = raw.get("posted_date")
+                if posted and posted < cutoff:
+                    continue
+                if raw["id"] in seen_ids:
+                    continue
+                seen_ids.add(raw["id"])
+                page_jobs.append(raw)
+                kept += 1
+            logger.info(
+                f"remote.com page {page}: {len(cards)} eng cards, {kept} kept"
+            )
+            self._emit_page(page_jobs, kept_jobs, cutoff)
+            if (
+                page >= _NEWEST_FIRST_FROM_PAGE
+                and dated
+                and all(dt < cutoff for dt in dated)
+            ):
+                logger.info(f"remote.com page {page} is fully stale — stopping")
+                break
+            if page < _MAX_PAGES:
+                time.sleep(_FETCH_DELAY)
 
         logger.info(f"Successfully fetched {len(kept_jobs)} jobs from remotecom")
         return kept_jobs
@@ -140,11 +152,25 @@ class RemoteComConnector(BaseConnector):
         for i, job in enumerate(pending):
             try:
                 detail_html = _fetch_html(job["listing_url"])
-                if _merge_detail(job, detail_html, cutoff):
-                    job["url"] = _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
+                if detail_html is None:
+                    logger.info(
+                        f"remote.com detail skip for {job['listing_url']} — "
+                        "emitting listing"
+                    )
+                    job["url"] = (
+                        _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
+                    )
+                    self._emit(job, kept_jobs)
+                elif _merge_detail(job, detail_html, cutoff):
+                    job["url"] = (
+                        _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
+                    )
                     self._emit(job, kept_jobs)
             except Exception as e:
-                logger.warning(f"Failed to fetch remote.com job {job['listing_url']}: {e}")
+                logger.info(
+                    f"remote.com detail skip ({type(e).__name__}) "
+                    f"for {job['listing_url']}"
+                )
                 logger.debug(traceback.format_exc())
                 job["url"] = _offsite_apply_url(job.get("apply_url")) or job["listing_url"]
                 self._emit(job, kept_jobs)
@@ -185,12 +211,31 @@ def _listing_page_url(page: int) -> str:
     return f"{LISTING_URL}&page={page}"
 
 
-def _fetch_html(url: str) -> str:
-    resp = requests.get(url, headers=_HEADERS, timeout=25)
-    if resp.status_code == 404:
-        return ""
-    resp.raise_for_status()
-    return resp.text
+def _fetch_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"remote.com GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 404:
+            return ""
+        if resp.status_code >= 400:
+            logger.info(
+                f"remote.com GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"remote.com GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _slug_to_title(slug: str) -> str:

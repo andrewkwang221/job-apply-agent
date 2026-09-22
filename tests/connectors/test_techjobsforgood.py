@@ -9,10 +9,9 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from connectors.techjobsforgood import (
-    LISTING_URL,
     TechJobsForGoodConnector,
     _extract_cards,
     _is_engineering_title,
@@ -108,12 +107,11 @@ def _detail_html(
 
 
 def test_listing_url_is_remote_newest_first():
-    assert LISTING_URL == (
-        "https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=2&sort_by=date"
-    )
-    assert _listing_page_url(2) == LISTING_URL
     assert _listing_page_url(1) == (
         "https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=1&sort_by=date"
+    )
+    assert _listing_page_url(2) == (
+        "https://techjobsforgood.com/jobs/?q=&remote_jobs=on&page=2&sort_by=date"
     )
 
 
@@ -222,6 +220,42 @@ def test_fetch_stops_on_stale_page_and_skips_known(
     detail_idx = fetch_urls.index("https://techjobsforgood.com/jobs/36090/")
     page2_idx = next(i for i, u in enumerate(fetch_urls) if "page=2&sort_by=date" in u)
     assert detail_idx < page2_idx
+
+
+@patch("connectors.techjobsforgood.remember_listing_urls")
+@patch("connectors.techjobsforgood.unseen_listing_urls", return_value=[])
+@patch("connectors.techjobsforgood.time.sleep")
+@patch("connectors.techjobsforgood._fetch_html")
+def test_fetch_emits_zero_when_in_window_already_seen(
+    mock_fetch, _sleep, _unseen, mock_remember
+):
+    recent = _listing_html(_card_html(posted="2 hours ago"))
+    stale = _listing_html(
+        _card_html(job_id="2", title="Senior Backend Engineer", posted="8 weeks ago")
+    )
+    mock_fetch.side_effect = [recent, stale]
+    jobs = TechJobsForGoodConnector().fetch_jobs()
+    assert jobs == []
+    mock_remember.assert_not_called()
+
+
+@patch("connectors.techjobsforgood.time.sleep")
+@patch("connectors.techjobsforgood.requests.get")
+def test_fetch_html_retries_timeout(mock_get, _sleep):
+    from connectors.techjobsforgood import _RETRIES, _fetch_html
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.text = "<html>ok</html>"
+    mock_get.side_effect = [RequestsTimeout("timeout"), ok]
+    assert _fetch_html("https://techjobsforgood.com/jobs/1/") == "<html>ok</html>"
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = RequestsTimeout("timeout")
+    assert _fetch_html("https://techjobsforgood.com/jobs/1/") is None
+    assert mock_get.call_count == _RETRIES
 
 
 class TestTechJobsForGoodNormalize:

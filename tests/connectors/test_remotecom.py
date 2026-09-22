@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import config
 from connectors.remotecom import (
@@ -328,6 +328,83 @@ def test_fetch_page1_mixed_then_stops_on_first_stale_newest_page(
     assert detail_idx < page3_idx
     unseen_arg = mock_unseen.call_args.args[0]
     assert listing_url in unseen_arg
+
+
+@patch("connectors.remotecom.remember_listing_urls")
+@patch("connectors.remotecom.unseen_listing_urls")
+@patch("connectors.remotecom.time.sleep")
+@patch("connectors.remotecom._fetch_html")
+def test_fetch_continues_after_listing_page_failure(
+    mock_fetch, _sleep, mock_unseen, mock_remember
+):
+    now = datetime.now(tz=timezone.utc)
+    page1 = _listing_html(
+        [
+            _rsc_job(
+                slug="backend-engineer-j1aaaaaa",
+                title="Backend Engineer",
+                company="Acme",
+                company_slug="acme-c1aaaaaa",
+                published_at=now,
+            )
+        ]
+    )
+    page3 = _listing_html(
+        [
+            _rsc_job(
+                slug="platform-engineer-j1bbbbbb",
+                title="Platform Engineer",
+                company="Beta",
+                company_slug="beta-c1bbbbbb",
+                published_at=now,
+            )
+        ]
+    )
+    url_a = "https://remote.com/jobs/acme-c1aaaaaa/backend-engineer-j1aaaaaa"
+    url_b = "https://remote.com/jobs/beta-c1bbbbbb/platform-engineer-j1bbbbbb"
+    mock_unseen.side_effect = [[url_a], [url_b]]
+    mock_fetch.side_effect = [
+        page1,
+        _detail_html(title="Backend Engineer", company="Acme"),
+        None,
+        page3,
+        _detail_html(title="Platform Engineer", company="Beta"),
+        _listing_html(
+            [
+                _rsc_job(
+                    slug="old-engineer-j1cccccc",
+                    title="Old Engineer",
+                    company="Old",
+                    company_slug="old-c1cccccc",
+                    published_at=now - timedelta(days=config.MAX_JOB_AGE_DAYS_INITIAL + 10),
+                )
+            ]
+        ),
+    ]
+    jobs = RemoteComConnector().fetch_jobs()
+    assert {j["company"] for j in jobs} == {"Acme", "Beta"}
+
+
+@patch("connectors.remotecom.time.sleep")
+@patch("connectors.remotecom.requests.get")
+def test_fetch_html_retries_connection_abort(mock_get, _sleep):
+    from connectors.remotecom import _RETRIES, _fetch_html
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.text = "<html>ok</html>"
+    mock_get.side_effect = [
+        ReqConnectionError("Connection aborted."),
+        ok,
+    ]
+    assert _fetch_html("https://remote.com/jobs/all") == "<html>ok</html>"
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _fetch_html("https://remote.com/jobs/all") is None
+    assert mock_get.call_count == _RETRIES
 
 
 class TestRemoteComNormalize:
