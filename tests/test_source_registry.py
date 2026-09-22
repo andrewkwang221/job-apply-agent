@@ -124,6 +124,7 @@ def test_gated_apply_sources_stay_capped_at_review():
     assert "workew" not in _NO_DIRECT_APPLY_SOURCES
     assert "ladders" in _NO_DIRECT_APPLY_SOURCES
     assert "startupjobs" in _NO_DIRECT_APPLY_SOURCES
+    assert "remoteok" in _NO_DIRECT_APPLY_SOURCES
     assert "4dayweek" in _NO_DIRECT_APPLY_SOURCES
     assert "builtin" in _NO_DIRECT_APPLY_SOURCES
     assert "virtualvocations" in _NO_DIRECT_APPLY_SOURCES

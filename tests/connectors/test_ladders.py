@@ -202,6 +202,90 @@ def test_skips_ineligible_before_detail(mock_open, mock_detail, *_patches):
     assert mock_detail.call_count == 0
 
 
+def test_open_listing_retries_timeout_then_soft_fallback():
+    from connectors.ladders import _OPEN_RETRIES, _open_listing
+
+    page = MagicMock()
+    page.goto.side_effect = TimeoutError("Timeout 60000ms exceeded")
+    page.content.return_value = _listing_html(_card())
+
+    html = _open_listing(page, "https://www.theladders.com/jobs/searchresults-jobs")
+    assert "85955780" in html
+    assert page.goto.call_count == _OPEN_RETRIES
+    assert page.wait_for_timeout.call_count == _OPEN_RETRIES - 1
+
+
+def test_open_listing_retries_then_succeeds():
+    from connectors.ladders import _open_listing
+
+    page = MagicMock()
+    page.goto.side_effect = [
+        TimeoutError("Timeout 60000ms exceeded"),
+        None,
+    ]
+    page.wait_for_selector.return_value = None
+    page.content.return_value = _listing_html(_card())
+
+    html = _open_listing(page, "https://www.theladders.com/jobs/searchresults-jobs")
+    assert "85955780" in html
+    assert page.goto.call_count == 2
+    assert page.wait_for_selector.call_count == 1
+
+
+def test_open_detail_soft_retries_then_skips():
+    from connectors.ladders import _OPEN_RETRIES, _open_detail
+
+    page = MagicMock()
+    page.goto.side_effect = TimeoutError("Timeout 45000ms exceeded")
+
+    assert _open_detail(page, "https://www.theladders.com/job/x_1") == ""
+    assert page.goto.call_count == _OPEN_RETRIES
+    assert page.wait_for_timeout.call_count == _OPEN_RETRIES - 1
+
+
+def test_open_detail_retries_then_succeeds():
+    from connectors.ladders import _open_detail
+
+    page = MagicMock()
+    page.goto.side_effect = [
+        TimeoutError("Timeout 45000ms exceeded"),
+        None,
+    ]
+    page.content.return_value = _detail_html()
+
+    html = _open_detail(page, "https://www.theladders.com/job/x_1")
+    assert "Python Kubernetes role" in html
+    assert page.goto.call_count == 2
+
+
+@patch("connectors.ladders.remember_listing_urls")
+@patch("connectors.ladders.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.ladders.exclusion_reason", return_value=None)
+@patch("connectors.ladders.load_candidate_profile", return_value=_PROFILE)
+@patch("connectors.ladders.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.ladders.max_job_age_days", return_value=10)
+@patch("connectors.ladders._open_detail", return_value=_detail_html())
+@patch("connectors.ladders._open_listing")
+@patch("connectors.ladders._browser_session")
+def test_fetch_abort_keeps_prior_jobs_at_info(
+    mock_session, mock_open, mock_detail, *_patches
+):
+    listing = _listing_html(_card())
+    mock_open.side_effect = [listing, RuntimeError("browser crashed")]
+
+    @contextmanager
+    def _session():
+        yield MagicMock()
+
+    mock_session.side_effect = _session
+    with patch("connectors.ladders.logger") as mock_logger:
+        jobs = LaddersConnector().fetch_jobs()
+    assert [j["id"] for j in jobs] == ["85955780"]
+    info_msgs = " ".join(str(c.args[0]) for c in mock_logger.info.call_args_list)
+    assert "keeping prior jobs" in info_msgs
+    assert mock_logger.error.call_count == 0
+
+
 class TestNormalize:
     def _raw(self):
         return {

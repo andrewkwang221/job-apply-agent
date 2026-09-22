@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import html as html_lib
 import time
-import traceback
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
@@ -53,7 +52,10 @@ _FETCH_DELAY = 0.4
 _PAGE_SIZE = 100
 # Newest-first REST pager; live board is 3 pages. Runaway only.
 _MAX_PAGES = 10
-_LISTING_TIMEOUT = 30
+_MAX_FETCH_FAILURES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _FIELDS = (
     "id,date_gmt,slug,link,title,content,meta,job_listing_region,job-types"
 )
@@ -78,47 +80,54 @@ class WorkewConnector(BaseConnector):
             f"(age_days={age_days}; newest-first, stop at first stale job)…"
         )
         kept: list[dict[str, Any]] = []
-        try:
-            regions = _fetch_regions()
-            seen_ids: set[str] = set()
-            stale_stop = False
-            for page in range(1, _MAX_PAGES + 1):
-                payload = _fetch_listings_page(page)
-                if payload is None:
-                    break
-                rows = payload
-                if not rows:
-                    break
-                page_jobs: list[dict[str, Any]] = []
-                for row in rows:
-                    raw = _parse_listing(row, regions)
-                    if not raw:
-                        continue
-                    posted = raw.get("posted_date")
-                    if posted and posted < cutoff:
-                        logger.info(
-                            "workew first stale job — stopping newest-first walk"
-                        )
-                        stale_stop = True
-                        break
-                    if not _is_engineering_title(raw["title"]):
-                        continue
-                    if raw["id"] in seen_ids:
-                        continue
-                    seen_ids.add(raw["id"])
-                    page_jobs.append(raw)
+        regions = _fetch_regions()
+        seen_ids: set[str] = set()
+        stale_stop = False
+        consecutive_failures = 0
+        for page in range(1, _MAX_PAGES + 1):
+            payload = _fetch_listings_page(page)
+            if payload is None:
+                consecutive_failures += 1
                 logger.info(
-                    f"workew page {page}: {len(rows)} rows, {len(page_jobs)} engineering"
-                    f"{' (stale stop)' if stale_stop else ''}"
+                    f"workew page {page} skipped "
+                    f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
+                    f"keeping {len(kept)} prior jobs"
                 )
-                self._emit_page(page_jobs, kept)
-                if stale_stop or len(rows) < _PAGE_SIZE:
+                if consecutive_failures >= _MAX_FETCH_FAILURES:
                     break
-                if page < _MAX_PAGES:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching jobs from Workew: {e}")
-            logger.debug(traceback.format_exc())
+                time.sleep(_FETCH_DELAY)
+                continue
+            consecutive_failures = 0
+            rows = payload
+            if not rows:
+                break
+            page_jobs: list[dict[str, Any]] = []
+            for row in rows:
+                raw = _parse_listing(row, regions)
+                if not raw:
+                    continue
+                posted = raw.get("posted_date")
+                if posted and posted < cutoff:
+                    logger.info(
+                        "workew first stale job — stopping newest-first walk"
+                    )
+                    stale_stop = True
+                    break
+                if not _is_engineering_title(raw["title"]):
+                    continue
+                if raw["id"] in seen_ids:
+                    continue
+                seen_ids.add(raw["id"])
+                page_jobs.append(raw)
+            logger.info(
+                f"workew page {page}: {len(rows)} rows, {len(page_jobs)} engineering"
+                f"{' (stale stop)' if stale_stop else ''}"
+            )
+            self._emit_page(page_jobs, kept)
+            if stale_stop or len(rows) < _PAGE_SIZE:
+                break
+            if page < _MAX_PAGES:
+                time.sleep(_FETCH_DELAY)
         logger.info(f"Successfully fetched {len(kept)} jobs from workew")
         return kept
 
@@ -311,21 +320,38 @@ def _parse_listing(row: dict[str, Any], regions: dict[int, str]) -> dict[str, An
 
 
 def _fetch_json(url: str, params: dict[str, Any] | None = None) -> Any:
-    try:
-        resp = requests.get(
-            url, headers=_HEADERS, params=params, timeout=_LISTING_TIMEOUT
-        )
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"workew GET failed ({type(e).__name__}) for {url}")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"workew GET HTTP {resp.status_code} for {url}")
-        return None
-    try:
-        return resp.json()
-    except ValueError:
-        logger.info(f"workew GET non-JSON for {url}")
-        return None
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(
+                url, headers=_HEADERS, params=params, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"workew GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"workew GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            return resp.json()
+        except ValueError:
+            logger.info(
+                f"workew GET non-JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+    logger.info(f"workew GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _fetch_regions() -> dict[int, str]:

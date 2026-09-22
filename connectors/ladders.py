@@ -5,7 +5,9 @@ Guest search HTML at
 https://www.theladders.com/jobs/searchresults-jobs?keywords=…&sortBy=PUBLICATION_DATE&daysPublished=N&remoteFlags=Remote
 
 ``requests`` / ``curl_cffi`` hit Cloudflare 403. Playwright + installed
-Chrome is the default fetch. ``robots.txt`` disallows ``/api/*`` and
+Chrome is the default fetch. Listing/detail ``goto`` waits soft-retry up
+to ``_OPEN_RETRIES`` times (TimeoutError noise); outer abort logs INFO
+and keeps jobs already emitted. ``robots.txt`` disallows ``/api/*`` and
 ``/job/*/apply``, so guest job JSON and apply URLs are unused.
 
 ``sortBy=PUBLICATION_DATE`` is live Newest. Walk unique profile
@@ -48,6 +50,7 @@ _UA = (
 )
 _NAV_TIMEOUT_MS = 60_000
 _DETAIL_TIMEOUT_MS = 45_000
+_OPEN_RETRIES = 3
 # Newest-first date pager; runaway only.
 _MAX_PAGES = 40
 _CATCHALL_QUERY = "software engineer"
@@ -162,7 +165,10 @@ class LaddersConnector(BaseConnector):
                         f"ladders query={query!r}: +{added} (total {len(seen_ids)})"
                     )
         except Exception as e:
-            logger.error(f"Error fetching jobs from Ladders: {e}")
+            logger.info(
+                f"ladders fetch aborted ({type(e).__name__}): {e}; "
+                "keeping prior jobs"
+            )
             logger.debug(traceback.format_exc())
         logger.info(f"Successfully fetched {len(kept)} jobs from ladders")
         return kept
@@ -475,11 +481,30 @@ def _browser_session():
 
 
 def _open_listing(page: Any, url: str) -> str:
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-        page.wait_for_selector('a[href*="/job/"]', timeout=_NAV_TIMEOUT_MS)
-    except Exception as e:
-        logger.info(f"ladders listing wait failed ({type(e).__name__}) for {url}")
+    last_err: Exception | None = None
+    for attempt in range(1, _OPEN_RETRIES + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            page.wait_for_selector('a[href*="/job/"]', timeout=_NAV_TIMEOUT_MS)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            logger.info(
+                f"ladders listing wait failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_OPEN_RETRIES} for {url}"
+            )
+            if attempt < _OPEN_RETRIES:
+                try:
+                    page.wait_for_timeout(1000 * attempt)
+                except Exception:
+                    pass
+                continue
+    if last_err is not None:
+        logger.info(
+            f"ladders listing wait failed ({type(last_err).__name__}); "
+            "trying rendered cards"
+        )
         try:
             html = page.content()
         except Exception:
@@ -496,10 +521,27 @@ def _open_listing(page: Any, url: str) -> str:
 def _open_detail(page: Any, url: str) -> str:
     if "/apply" in (url or "").lower():
         return ""
-    try:
-        page.goto(url, wait_until="domcontentloaded", timeout=_DETAIL_TIMEOUT_MS)
-        page.wait_for_timeout(800)
-        return page.content() or ""
-    except Exception as e:
-        logger.info(f"ladders detail failed ({type(e).__name__}) for {url}")
-        return ""
+    last_err: Exception | None = None
+    for attempt in range(1, _OPEN_RETRIES + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=_DETAIL_TIMEOUT_MS)
+            page.wait_for_timeout(800)
+            return page.content() or ""
+        except Exception as e:
+            last_err = e
+            logger.info(
+                f"ladders detail failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_OPEN_RETRIES} for {url}"
+            )
+            if attempt < _OPEN_RETRIES:
+                try:
+                    page.wait_for_timeout(1000 * attempt)
+                except Exception:
+                    pass
+                continue
+    if last_err is not None:
+        logger.info(
+            f"ladders detail skipped after {_OPEN_RETRIES} attempts "
+            f"({type(last_err).__name__}) for {url}"
+        )
+    return ""

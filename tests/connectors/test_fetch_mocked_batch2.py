@@ -414,21 +414,53 @@ class TestWorkingNomadsNormalize:
 class TestRemoteOKFetch:
     _T = "connectors.remoteok.requests.get"
 
-    def _job(self, job_id="1", has_ats=True):
-        desc = '<a href="https://greenhouse.io/apply/1">Apply</a>' if has_ats else "No ATS link"
-        return {"id": job_id, "position": "Backend Engineer",
-                "company": "Acme", "description": desc, "url": "https://remoteok.com/1",
-                "date": "2026-03-24T00:00:00Z", "location": "Worldwide"}
+    def _job(self, job_id="1", title="Backend Engineer", has_ats=False, days_ago=0):
+        from datetime import datetime, timedelta, timezone
 
-    def test_filters_jobs_without_ats_url(self):
-        data = [self._job("1", has_ats=True), self._job("2", has_ats=False)]
+        posted = (datetime.now(tz=timezone.utc) - timedelta(days=days_ago)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        desc = (
+            '<a href="https://boards.greenhouse.io/acme/jobs/1">Apply</a>'
+            if has_ats
+            else "<p>No ATS link</p>"
+        )
+        return {
+            "id": job_id,
+            "position": title,
+            "company": "Acme",
+            "description": desc,
+            "url": f"https://remoteok.com/remote-jobs/{job_id}",
+            "apply_url": f"https://remoteok.com/remote-jobs/{job_id}",
+            "date": posted,
+            "location": "Worldwide",
+        }
+
+    def test_keeps_jobs_without_ats_url(self):
+        data = [self._job("1", has_ats=False), self._job("2", title="Account Executive")]
         with patch(self._T, return_value=_mock_json(data)):
             from connectors.remoteok import RemoteOKConnector
             jobs = RemoteOKConnector().fetch_jobs()
         assert len(jobs) == 1
+        assert jobs[0]["position"] == "Backend Engineer"
+
+    def test_prefers_ats_href_from_description(self):
+        data = [self._job("1", has_ats=True)]
+        with patch(self._T, return_value=_mock_json(data)):
+            from connectors.remoteok import RemoteOKConnector
+            jobs = RemoteOKConnector().fetch_jobs()
+        assert len(jobs) == 1
+        n = RemoteOKConnector().normalize(jobs[0])
+        assert "greenhouse.io" in n["url"]
+
+    def test_skips_stale_jobs(self):
+        data = [self._job("1", days_ago=40)]
+        with patch(self._T, return_value=_mock_json(data)):
+            from connectors.remoteok import RemoteOKConnector
+            assert RemoteOKConnector().fetch_jobs() == []
 
     def test_skips_non_dict_items(self):
-        data = [{"legal": "notice"}, self._job()]  # first item has no "position"
+        data = [{"legal": "notice"}, self._job()]
         with patch(self._T, return_value=_mock_json(data)):
             from connectors.remoteok import RemoteOKConnector
             jobs = RemoteOKConnector().fetch_jobs()
@@ -439,10 +471,13 @@ class TestRemoteOKFetch:
             from connectors.remoteok import RemoteOKConnector
             assert RemoteOKConnector().fetch_jobs() == []
 
-    def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.remoteok import RemoteOKConnector
-            assert RemoteOKConnector().fetch_jobs() == []
+    def test_timeout_retries_then_empty(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+        from connectors.remoteok import RemoteOKConnector, _RETRIES
+
+        with patch(self._T, side_effect=RequestsTimeout("timeout")):
+            with patch("connectors.remoteok.time.sleep"):
+                assert RemoteOKConnector().fetch_jobs() == []
 
 
 class TestRemoteOKNormalize:

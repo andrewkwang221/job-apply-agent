@@ -25,7 +25,6 @@ import html as html_lib
 import json
 import re
 import time
-import traceback
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
@@ -45,11 +44,14 @@ logger = setup_logger("startupjobs_connector")
 
 BASE_URL = "https://startup.jobs"
 LISTING_PATH = "/remote-jobs"
-_DETAIL_TIMEOUT_MS = 30
+_DETAIL_TIMEOUT_MS = 40
 _HITS_PER_PAGE = 100
 # Mixed-date Algolia window; ~5k remote hits in 7 days. Runaway only.
 _MAX_PAGES = 50
+_MAX_FETCH_FAILURES = 5
 _FETCH_DELAY = 0.35
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
     "full stack", "full-stack", "fullstack", "devops", "sre", "data engineer",
@@ -86,54 +88,69 @@ class StartupJobsConnector(BaseConnector):
         )
         kept: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-        try:
-            config = _algolia_config()
-            total: int | None = None
-            for page in range(_MAX_PAGES):
-                payload = algolia_payload(cutoff, page)
-                data = _algolia_query(config, payload)
-                hits = data.get("hits") if isinstance(data, dict) else None
-                if not isinstance(hits, list):
-                    hits = []
-                if total is None:
-                    total = int(data.get("nbHits") or 0)
-                    nb_pages = int(data.get("nbPages") or 0)
-                    logger.info(
-                        f"startupjobs Algolia nbHits={total} nbPages={nb_pages} "
-                        f"hitsPerPage={_HITS_PER_PAGE}"
-                    )
-                    if total > _HITS_PER_PAGE * _MAX_PAGES:
-                        logger.info(
-                            "startupjobs Algolia window exceeds page cap; "
-                            "later hits in the date filter may be missed"
-                        )
-                page_jobs: list[dict[str, Any]] = []
-                for raw in hits:
-                    job = _parse_hit(raw)
-                    if not job:
-                        continue
-                    posted = job.get("posted_date")
-                    if posted is not None and posted < cutoff:
-                        continue
-                    if not _is_engineering_title(job["title"]):
-                        continue
-                    if job["id"] in seen_ids:
-                        continue
-                    seen_ids.add(job["id"])
-                    page_jobs.append(job)
+        config = _algolia_config()
+        if not config:
+            logger.info(
+                "startupjobs Algolia config unavailable — keeping 0 prior jobs"
+            )
+            logger.info(f"Successfully fetched {len(kept)} jobs from startupjobs")
+            return kept
+        consecutive_failures = 0
+        total: int | None = None
+        for page in range(_MAX_PAGES):
+            payload = algolia_payload(cutoff, page)
+            data = _algolia_query(config, payload)
+            if data is None:
+                consecutive_failures += 1
                 logger.info(
-                    f"startupjobs page {page}: {len(hits)} hits, "
-                    f"{len(page_jobs)} engineering"
+                    f"startupjobs page {page} skipped "
+                    f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
+                    f"keeping {len(kept)} prior jobs"
                 )
-                self._emit_page(page_jobs, kept, cutoff)
-                nb_pages = int(data.get("nbPages") or 0) if isinstance(data, dict) else 0
-                if not hits or (nb_pages and page + 1 >= nb_pages):
+                if consecutive_failures >= _MAX_FETCH_FAILURES:
                     break
-                if page + 1 < _MAX_PAGES:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching jobs from Startup.jobs: {e}")
-            logger.debug(traceback.format_exc())
+                time.sleep(_FETCH_DELAY)
+                continue
+            consecutive_failures = 0
+            hits = data.get("hits") if isinstance(data, dict) else None
+            if not isinstance(hits, list):
+                hits = []
+            if total is None:
+                total = int(data.get("nbHits") or 0)
+                nb_pages = int(data.get("nbPages") or 0)
+                logger.info(
+                    f"startupjobs Algolia nbHits={total} nbPages={nb_pages} "
+                    f"hitsPerPage={_HITS_PER_PAGE}"
+                )
+                if total > _HITS_PER_PAGE * _MAX_PAGES:
+                    logger.info(
+                        "startupjobs Algolia window exceeds page cap; "
+                        "later hits in the date filter may be missed"
+                    )
+            page_jobs: list[dict[str, Any]] = []
+            for raw in hits:
+                job = _parse_hit(raw)
+                if not job:
+                    continue
+                posted = job.get("posted_date")
+                if posted is not None and posted < cutoff:
+                    continue
+                if not _is_engineering_title(job["title"]):
+                    continue
+                if job["id"] in seen_ids:
+                    continue
+                seen_ids.add(job["id"])
+                page_jobs.append(job)
+            logger.info(
+                f"startupjobs page {page}: {len(hits)} hits, "
+                f"{len(page_jobs)} engineering"
+            )
+            self._emit_page(page_jobs, kept, cutoff)
+            nb_pages = int(data.get("nbPages") or 0) if isinstance(data, dict) else 0
+            if not hits or (nb_pages and page + 1 >= nb_pages):
+                break
+            if page + 1 < _MAX_PAGES:
+                time.sleep(_FETCH_DELAY)
         logger.info(f"Successfully fetched {len(kept)} jobs from startupjobs")
         return kept
 
@@ -445,34 +462,94 @@ def _is_challenge(status: int, text: str) -> bool:
     return "just a moment" in blob or "cf-browser-verification" in blob
 
 
-def _fetch_homepage_html() -> str:
-    html = _curl_get(f"{BASE_URL}/")
-    if html:
-        return html
-    resp = requests.get(f"{BASE_URL}/", timeout=_DETAIL_TIMEOUT_MS)
-    if _is_challenge(resp.status_code, resp.text) or resp.status_code >= 400:
-        raise RuntimeError(f"homepage HTTP {resp.status_code}")
-    return resp.text or ""
+def _fetch_homepage_html() -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        html = _curl_get(f"{BASE_URL}/")
+        if html:
+            return html
+        try:
+            resp = requests.get(f"{BASE_URL}/", timeout=_DETAIL_TIMEOUT_MS)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"startupjobs homepage failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if _is_challenge(resp.status_code, resp.text) or resp.status_code >= 400:
+            logger.info(
+                f"startupjobs homepage HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"startupjobs homepage skipped after {_RETRIES} attempts")
+    return None
 
 
-def _algolia_config() -> dict[str, str]:
-    return extract_algolia_config(_fetch_homepage_html())
+def _algolia_config() -> dict[str, str] | None:
+    html = _fetch_homepage_html()
+    if not html:
+        return None
+    try:
+        return extract_algolia_config(html)
+    except RuntimeError as e:
+        logger.info(f"startupjobs Algolia config failed: {e}")
+        return None
 
 
-def _algolia_query(config: dict[str, str], payload: dict[str, Any]) -> dict[str, Any]:
+def _algolia_query(
+    config: dict[str, str], payload: dict[str, Any]
+) -> dict[str, Any] | None:
     url = algolia_query_url(config["application_id"], config["index"])
     headers = {
         "content-type": "application/json",
         "x-algolia-application-id": config["application_id"],
         "x-algolia-api-key": config["api_key"],
     }
-    resp = requests.post(url, headers=headers, json=payload, timeout=_DETAIL_TIMEOUT_MS)
-    if resp.status_code != 200:
-        raise RuntimeError(f"Algolia HTTP {resp.status_code}")
-    data = resp.json()
-    if not isinstance(data, dict):
-        raise RuntimeError("Algolia returned non-object JSON")
-    return data
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.post(
+                url, headers=headers, json=payload, timeout=_DETAIL_TIMEOUT_MS
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"startupjobs Algolia failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code != 200:
+            logger.info(
+                f"startupjobs Algolia HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"startupjobs Algolia non-JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if not isinstance(data, dict):
+            logger.info(
+                f"startupjobs Algolia non-object JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data
+    logger.info(f"startupjobs Algolia skipped after {_RETRIES} attempts")
+    return None
 
 
 def _fetch_detail_html(url: str) -> str:

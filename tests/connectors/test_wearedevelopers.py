@@ -2,13 +2,14 @@
 Mocked tests for WeAreDevelopersConnector.
 
 Covers: markdown listing parse, load-more cursor, engineering title filter,
-newest-first stale page stop, location-as-string, offsite apply URL, and
-normalize() shape. No live HTTP.
+newest-first stale page stop, location-as-string, offsite apply URL,
+GET retries in _fetch_text, load-more INFO soft-skip, and normalize()
+shape. No live HTTP.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from connectors.wearedevelopers import (
     LISTING_URL,
@@ -225,7 +226,7 @@ def test_fetch_stops_on_stale_page(mock_fetch, _sleep, mock_unseen, mock_remembe
 @patch("connectors.wearedevelopers.time.sleep")
 @patch("connectors.wearedevelopers._fetch_text")
 def test_failed_load_more_retries_and_keeps_prior_jobs(
-    mock_fetch, _sleep, mock_unseen, mock_remember
+    mock_fetch, _sleep, mock_unseen, mock_remember, caplog
 ):
     recent_date = (datetime.now(tz=timezone.utc) - timedelta(days=2)).strftime("%B %d, %Y")
     listing_1 = "https://www.wearedevelopers.com/jobs/48497-senior-backend-engineer"
@@ -242,7 +243,8 @@ def test_failed_load_more_retries_and_keeps_prior_jobs(
     mock_fetch.side_effect = [page1, None, page2, "# detail", "# detail"]
     mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
 
-    jobs = WeAreDevelopersConnector().fetch_jobs()
+    with caplog.at_level("INFO"):
+        jobs = WeAreDevelopersConnector().fetch_jobs()
     assert {j["id"] for j in jobs} == {"48497", "2"}
     listing_calls = [c.args[0] for c in mock_fetch.call_args_list if "jobs.md" in c.args[0]]
     assert listing_calls == [
@@ -252,6 +254,30 @@ def test_failed_load_more_retries_and_keeps_prior_jobs(
     ]
     remembered = [u for c in mock_remember.call_args_list for u in c.args[1]]
     assert set(remembered) == {listing_1, listing_2}
+    assert any("load-more failed" in r.message for r in caplog.records)
+    assert not any(r.levelname == "WARNING" and "load-more" in r.message for r in caplog.records)
+
+
+@patch("connectors.wearedevelopers.time.sleep")
+@patch("connectors.wearedevelopers.requests.get")
+def test_fetch_text_retries_connection_abort(mock_get, _sleep):
+    from connectors.wearedevelopers import _RETRIES, _fetch_text
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.text = "# ok"
+    mock_get.side_effect = [
+        ReqConnectionError("Connection aborted."),
+        ok,
+    ]
+    assert _fetch_text(LISTING_URL) == "# ok"
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _fetch_text(LISTING_URL) is None
+    assert mock_get.call_count == _RETRIES
 
 
 class TestWeAreDevelopersNormalize:

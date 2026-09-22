@@ -11,8 +11,8 @@ Phase 1 walks load-more cursors (no page cap besides a runaway guard) and
 stops at the first fully stale page (``MAX_JOB_AGE_DAYS``), an empty batch,
 or a missing next cursor. On-site-only cards (no remote/hybrid/WFH signal)
 and apply URLs on boards we already crawl are dropped here. Hybrid is kept
-unless the card states a regular office requirement. A single failed
-load-more retries that cursor.
+unless the card states a regular office requirement. A single failed load-more exhausts 3 GET retries (~40s) then counts
+against the consecutive-failure budget and retries that cursor.
 
 Phase 2 fetches ``/jobs/{id}.md`` descriptions in parallel, then emits so
 the pipeline can persist. ``location`` is a string.
@@ -54,6 +54,9 @@ _FETCH_DELAY = 0.4
 # Runaway only; newest-first stale-page stop should fire earlier.
 _MAX_PAGES = 2000
 _MAX_FETCH_FAILURES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _DETAIL_WORKERS = 8
 
 _NEXT_RE = re.compile(r"\[Next page\]\(([^)]+)\)", re.I)
@@ -211,7 +214,7 @@ class WeAreDevelopersConnector(BaseConnector):
                 md = _fetch_text(_listing_url(cursor))
                 if md is None:
                     consecutive_failures += 1
-                    logger.warning(
+                    logger.info(
                         f"wearedevelopers load-more failed "
                         f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
                         "keeping prior listings, retrying"
@@ -274,7 +277,7 @@ class WeAreDevelopersConnector(BaseConnector):
                     time.sleep(_FETCH_DELAY)
             except Exception as e:
                 consecutive_failures += 1
-                logger.warning(
+                logger.info(
                     f"wearedevelopers load-more error "
                     f"({consecutive_failures}/{_MAX_FETCH_FAILURES}): {e} — "
                     "keeping prior listings, continuing"
@@ -346,17 +349,30 @@ def _detail_md_url(listing_url: str) -> str:
 
 
 def _fetch_text(url: str) -> str | None:
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=20)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"wearedevelopers GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code == 404:
-        return ""
-    if resp.status_code >= 400:
-        logger.info(f"wearedevelopers GET HTTP {resp.status_code}")
-        return None
-    return resp.text or ""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"wearedevelopers GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 404:
+            return ""
+        if resp.status_code >= 400:
+            logger.info(
+                f"wearedevelopers GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"wearedevelopers GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _extract_listing_page(md: str) -> tuple[list[dict[str, Any]], str | None]:

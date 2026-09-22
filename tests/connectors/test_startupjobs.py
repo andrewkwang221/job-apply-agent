@@ -4,12 +4,14 @@ Mocked tests for StartupJobsConnector.
 Covers: Algolia guest search (no q=, remote + FT/PT/contractor,
 published_at filter), hit parse, engineering title filter, mixed-date
 page walk (no first-stale stop), skip ineligible before detail, location
-as a string, JSON-LD hydrate, and normalize() shape. No live HTTP.
+as a string, JSON-LD hydrate, Algolia/homepage soft retries, consecutive
+page-failure soft skip keeping prior jobs, and normalize() shape.
+No live HTTP.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from connectors.startupjobs import (
     StartupJobsConnector,
@@ -246,6 +248,90 @@ def test_skips_ineligible_before_detail(mock_query, mock_cfg, mock_detail, *_pat
     }
     assert StartupJobsConnector().fetch_jobs() == []
     assert mock_detail.call_count == 0
+
+
+@patch("connectors.startupjobs.time.sleep")
+@patch("connectors.startupjobs._curl_get", return_value="")
+@patch("connectors.startupjobs.requests.post")
+def test_algolia_query_retries_read_timeout(mock_post, _curl, _sleep):
+    from connectors.startupjobs import _RETRIES, _algolia_query
+    from requests.exceptions import ReadTimeout
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.json.return_value = {"hits": [], "nbHits": 0, "nbPages": 0}
+    mock_post.side_effect = [
+        ReadTimeout("Read timed out."),
+        ok,
+    ]
+    cfg = {
+        "application_id": "APPID",
+        "api_key": "SEARCHKEY",
+        "index": "Post_production",
+    }
+    assert _algolia_query(cfg, algolia_payload(_CUTOFF, 0)) == {
+        "hits": [],
+        "nbHits": 0,
+        "nbPages": 0,
+    }
+    assert mock_post.call_count == 2
+
+    mock_post.reset_mock()
+    mock_post.side_effect = ReadTimeout("Read timed out.")
+    assert _algolia_query(cfg, algolia_payload(_CUTOFF, 0)) is None
+    assert mock_post.call_count == _RETRIES
+
+
+@patch("connectors.startupjobs.time.sleep")
+@patch("connectors.startupjobs._curl_get", return_value="")
+@patch("connectors.startupjobs.requests.get")
+def test_homepage_retries_then_soft_skips(mock_get, _curl, _sleep):
+    from connectors.startupjobs import _RETRIES, _fetch_homepage_html
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.text = _HOME_HTML
+    mock_get.side_effect = [
+        ReqConnectionError("Connection aborted."),
+        ok,
+    ]
+    assert _fetch_homepage_html() == _HOME_HTML
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _fetch_homepage_html() is None
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.startupjobs.remember_listing_urls")
+@patch("connectors.startupjobs.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.startupjobs.time.sleep")
+@patch("connectors.startupjobs.exclusion_reason", return_value=None)
+@patch("connectors.startupjobs.load_candidate_profile", return_value=_PROFILE)
+@patch("connectors.startupjobs.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.startupjobs.max_job_age_days", return_value=10)
+@patch("connectors.startupjobs._fetch_detail_html", return_value=_detail_html())
+@patch("connectors.startupjobs._algolia_config")
+@patch("connectors.startupjobs._algolia_query")
+def test_page_failure_keeps_prior_jobs(mock_query, mock_cfg, *_patches):
+    mock_cfg.return_value = {
+        "application_id": "APPID",
+        "api_key": "SEARCHKEY",
+        "index": "Post_production",
+    }
+    page0 = [_hit()]
+
+    def _query(config, payload):
+        if payload["page"] == 0:
+            return {"hits": page0, "nbHits": 2, "nbPages": 2}
+        return None
+
+    mock_query.side_effect = _query
+    jobs = StartupJobsConnector().fetch_jobs()
+    assert [j["id"] for j in jobs] == ["10074188"]
+    assert mock_query.call_count >= 2
 
 
 class TestNormalize:

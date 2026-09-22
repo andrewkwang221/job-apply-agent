@@ -4,12 +4,14 @@ Mocked tests for WorkewConnector.
 Covers: REST listing URL (date desc), listing JSON parse, engineering
 title filter, newest-first first-stale-job stop, skip ineligible before
 persist, region location as a string, ATS apply + utm strip, drop
-Workew/LinkedIn apply, and normalize() shape. No live HTTP.
+Workew/LinkedIn apply, GET retries on ConnectionError, consecutive
+page-failure soft skip keeping prior jobs, and normalize() shape.
+No live HTTP.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from connectors.workew import (
     API_URL,
@@ -233,6 +235,75 @@ def test_drops_workew_only_apply(mock_get, *_patches):
 
     mock_get.side_effect = _get
     assert WorkewConnector().fetch_jobs() == []
+
+
+@patch("connectors.workew.time.sleep")
+@patch("connectors.workew.requests.get")
+def test_fetch_json_retries_connection_abort(mock_get, _sleep):
+    from connectors.workew import _RETRIES, _fetch_json
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.json.return_value = [{"id": 1}]
+    mock_get.side_effect = [
+        ReqConnectionError("Connection aborted."),
+        ok,
+    ]
+    assert _fetch_json(API_URL, {"page": 1}) == [{"id": 1}]
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _fetch_json(API_URL, {"page": 1}) is None
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.workew.remember_listing_urls")
+@patch("connectors.workew.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.workew.time.sleep")
+@patch("connectors.workew.exclusion_reason", return_value=None)
+@patch(
+    "connectors.workew.load_candidate_profile",
+    return_value={"personal": {"location": "San Francisco, CA"}},
+)
+@patch("connectors.workew.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.workew.max_job_age_days", return_value=10)
+@patch("connectors.workew.requests.get")
+def test_page_fetch_failure_keeps_prior_jobs(mock_get, *_patches):
+    from connectors.workew import _PAGE_SIZE
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    page1 = [
+        _row(
+            job_id=i,
+            title="Platform Engineer",
+            slug=f"platform-engineer-{i}",
+            date_gmt="2026-09-13T12:00:00",
+        )
+        for i in range(1, _PAGE_SIZE + 1)
+    ]
+    page1[0] = _row()
+    listing_calls = {"n": 0}
+
+    def _get(url, **kwargs):
+        if url == REGION_URL:
+            return _Resp(_REGIONS)
+        if url == API_URL:
+            listing_calls["n"] += 1
+            params = kwargs.get("params") or {}
+            page = int(params.get("page") or 1)
+            if page == 1:
+                return _Resp(page1)
+            raise ReqConnectionError("Connection aborted.")
+        raise AssertionError(url)
+
+    mock_get.side_effect = _get
+    jobs = WorkewConnector().fetch_jobs()
+    assert "52787" in {j["id"] for j in jobs}
+    assert len(jobs) == _PAGE_SIZE
+    # page 2 exhausted retries then consecutive soft-skips until budget
+    assert listing_calls["n"] > 1
 
 
 class TestNormalize:

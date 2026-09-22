@@ -26,6 +26,7 @@ _NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
     "postjobfree",     # apply is on PostJobFree (email / resume form)
     "ladders",         # apply is on TheLadders (Apply4Me / login)
     "startupjobs",     # apply is on Startup.jobs (/apply/ is robots-disallowed)
+    "remoteok",        # apply_url is remoteok.com (subscription / OAuth wall)
     "4dayweek",        # apply is Pro / login gated on 4dayweek.io
     "builtin",         # apply is Join / Easy Apply on builtin.com (/apply/ robots-disallowed)
     "virtualvocations",  # full JD / company / apply are membership-gated
