@@ -246,6 +246,49 @@ def test_no_detail_http(mock_get, *_patches):
     assert urls == [API_URL]
 
 
+@patch("connectors.fourdayweek.remember_listing_urls")
+@patch("connectors.fourdayweek.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.fourdayweek.time.sleep")
+@patch("connectors.fourdayweek.exclusion_reason", return_value=None)
+@patch(
+    "connectors.fourdayweek.load_candidate_profile",
+    return_value={"personal": {"location": "San Francisco, CA"}},
+)
+@patch("connectors.fourdayweek.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.fourdayweek.max_job_age_days", return_value=10)
+@patch("connectors.fourdayweek.requests.get")
+def test_page_timeout_retries_then_keeps_empty(mock_get, *_patches):
+    from requests.exceptions import Timeout as RequestsTimeout
+    from connectors.fourdayweek import _RETRIES
+
+    mock_get.side_effect = RequestsTimeout("timeout")
+    jobs = FourDayWeekConnector().fetch_jobs()
+    assert jobs == []
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.fourdayweek.remember_listing_urls")
+@patch("connectors.fourdayweek.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.fourdayweek.time.sleep")
+@patch("connectors.fourdayweek.exclusion_reason", return_value=None)
+@patch(
+    "connectors.fourdayweek.load_candidate_profile",
+    return_value={"personal": {"location": "San Francisco, CA"}},
+)
+@patch("connectors.fourdayweek.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.fourdayweek.max_job_age_days", return_value=10)
+@patch("connectors.fourdayweek.requests.get")
+def test_recovers_after_transient_timeout(mock_get, *_patches):
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    mock_get.side_effect = [
+        RequestsTimeout("t"),
+        _Resp(_page([_item()])),
+    ]
+    jobs = FourDayWeekConnector().fetch_jobs()
+    assert len(jobs) == 1
+
+
 class TestNormalize:
     def _raw(self):
         return {

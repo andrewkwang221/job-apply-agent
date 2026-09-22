@@ -1,80 +1,130 @@
-import traceback
+"""
+EU Remote Jobs connector.
+
+Guest RSS at https://euremotejobs.com/job-listings/feed/. Cloudflare often
+blocks Python TLS (403) — fall back to Chromium for that case only.
+Timeouts / ConnectionError / other 4xx get 3× soft retries; INFO only so a
+dead fetch does not abort the pipeline.
+"""
+from __future__ import annotations
+
+import time
 from datetime import timezone
-from typing import List, Dict, Any
+from typing import Any
 
 import requests
-from lxml import etree
 from dateutil import parser
+from lxml import etree
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
 from utils.job_age import job_age_cutoff
-from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
+from utils.text_cleaning import clean_description
 
 logger = setup_logger("euremotejobs_connector")
 
 _FEED_URL = "https://euremotejobs.com/job-listings/feed/"
-
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 
-def _fetch_feed_via_browser(url: str) -> bytes:
+def _fetch_feed_via_browser(url: str) -> bytes | None:
     """Fetch RSS through Chromium. Cloudflare blocks Python's TLS fingerprint."""
     from playwright.sync_api import sync_playwright
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+    for attempt in range(1, _RETRIES + 1):
         try:
-            page = browser.new_page()
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if resp is None:
-                raise RuntimeError("browser navigation returned no response")
-            if resp.status >= 400:
-                raise RuntimeError(f"browser fetch HTTP {resp.status}")
-            return resp.body()
-        finally:
-            browser.close()
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(headless=True)
+                try:
+                    page = browser.new_page()
+                    resp = page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    if resp is None:
+                        raise RuntimeError("browser navigation returned no response")
+                    if resp.status >= 400:
+                        raise RuntimeError(f"browser fetch HTTP {resp.status}")
+                    return resp.body()
+                finally:
+                    browser.close()
+        except Exception as e:
+            logger.info(
+                f"euremotejobs browser failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+    logger.info(f"euremotejobs browser skipped after {_RETRIES} attempts")
+    return None
+
+
+def _fetch_feed() -> bytes | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            response = requests.get(
+                _FEED_URL, headers=_HEADERS, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"euremotejobs RSS failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if response.status_code == 403:
+            logger.info(
+                "euremotejobs requests blocked by Cloudflare (403); "
+                "fetching RSS via Chromium..."
+            )
+            return _fetch_feed_via_browser(_FEED_URL)
+        if response.status_code >= 400:
+            logger.info(
+                f"euremotejobs RSS HTTP {response.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return response.content
+    logger.info(f"euremotejobs RSS skipped after {_RETRIES} attempts")
+    return None
 
 
 class EURemoteJobsConnector(BaseConnector):
     def __init__(self):
         self.source_name = "euremotejobs"
 
-    def fetch_jobs(self) -> List[Dict[str, Any]]:
+    def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info(f"Fetching jobs from {self.source_name} RSS feed...")
         cutoff = job_age_cutoff(self.source_name)
+        content = _fetch_feed()
+        if content is None:
+            return []
         try:
-            response = requests.get(_FEED_URL, headers=_HEADERS, timeout=15)
-            if response.status_code == 403:
-                logger.info("requests blocked by Cloudflare (403); fetching RSS via Chromium...")
-                content = _fetch_feed_via_browser(_FEED_URL)
-            else:
-                response.raise_for_status()
-                content = response.content
-            _parser = etree.XMLParser(recover=True)
-            root = etree.fromstring(content, _parser)
-            channel = root.find("channel")
-            if channel is None:
-                return []
-
-            jobs = []
-            for item in channel.findall("item"):
-                raw = self._parse_item(item)
-                if not raw:
-                    continue
-                if raw.get("posted_date") and raw["posted_date"] < cutoff:
-                    continue
-                self._emit(raw, jobs)
-
-            logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
-            return jobs
-        except Exception as e:
-            logger.error(f"Error fetching jobs from {self.source_name}: {e}")
-            logger.debug(traceback.format_exc())
+            root = etree.fromstring(content, etree.XMLParser(recover=True))
+        except etree.XMLSyntaxError as e:
+            logger.info(f"euremotejobs RSS XML failed ({type(e).__name__})")
+            return []
+        channel = root.find("channel")
+        if channel is None:
             return []
 
-    def _parse_item(self, item) -> Dict[str, Any] | None:
+        jobs: list[dict[str, Any]] = []
+        for item in channel.findall("item"):
+            raw = self._parse_item(item)
+            if not raw:
+                continue
+            if raw.get("posted_date") and raw["posted_date"] < cutoff:
+                continue
+            self._emit(raw, jobs)
+
+        logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
+        return jobs
+
+    def _parse_item(self, item) -> dict[str, Any] | None:
         _NS_CONTENT = "{http://purl.org/rss/1.0/modules/content/}"
 
         def _t(tag: str) -> str:
@@ -121,22 +171,23 @@ class EURemoteJobsConnector(BaseConnector):
             "location": "Remote (EU timezone)",
         }
 
-    def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         url = raw_job.get("url", "")
         description = raw_job.get("description", "")
+        location = raw_job.get("location") or "Remote (EU timezone)"
         return {
             "external_id": raw_job.get("id", ""),
             "source": self.source_name,
             "company": raw_job.get("company", "Unknown"),
             "title": raw_job.get("title", ""),
-            "location": raw_job.get("location", "Remote (EU timezone)"),
-            "raw_location_text": raw_job.get("location", "Remote (EU timezone)"),
+            "location": location,
+            "raw_location_text": location,
             "description": description,
             "description_text": clean_description(description),
             "url": url,
             "ats_type": detect_ats(url),
             "posted_date": raw_job.get("posted_date"),
-            "remote_eligibility": None,  # let the remote filter classify — EU timezone jobs vary
+            "remote_eligibility": None,
         }
 
     def get_source_name(self) -> str:

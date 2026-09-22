@@ -365,14 +365,20 @@ class TestWorkingNomadsFetch:
         assert jobs == []
 
     def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_json({}, 503)):
-            from connectors.workingnomads import WorkingNomadsConnector
+        with patch("connectors.workingnomads.time.sleep"), \
+             patch(self._T, return_value=_mock_json({}, 503)) as mock_get:
+            from connectors.workingnomads import WorkingNomadsConnector, _RETRIES
             assert WorkingNomadsConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
     def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.workingnomads import WorkingNomadsConnector
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.workingnomads.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("err")) as mock_get:
+            from connectors.workingnomads import WorkingNomadsConnector, _RETRIES
             assert WorkingNomadsConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
 
 class TestWorkingNomadsNormalize:
@@ -536,14 +542,20 @@ class TestJobicyFetch:
             assert JobicyConnector().fetch_jobs() == []
 
     def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_json({}, 503)):
-            from connectors.jobicy import JobicyConnector
+        with patch("connectors.jobicy.time.sleep"), \
+             patch(self._T, return_value=_mock_json({}, 503)) as mock_get:
+            from connectors.jobicy import JobicyConnector, _RETRIES
             assert JobicyConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
     def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.jobicy import JobicyConnector
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.jobicy.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("err")) as mock_get:
+            from connectors.jobicy import JobicyConnector, _RETRIES
             assert JobicyConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
 
 class TestJobicyNormalize:
@@ -710,14 +722,20 @@ class TestDynamiteJobsFetch:
             assert DynamiteJobsConnector().fetch_jobs() == []
 
     def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_xml(b"", 503)):
-            from connectors.dynamitejobs import DynamiteJobsConnector
+        with patch("connectors.dynamitejobs.time.sleep"), \
+             patch(self._T, return_value=_mock_xml(b"", 503)) as mock_get:
+            from connectors.dynamitejobs import DynamiteJobsConnector, _RETRIES
             assert DynamiteJobsConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
     def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.dynamitejobs import DynamiteJobsConnector
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.dynamitejobs.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("err")) as mock_get:
+            from connectors.dynamitejobs import DynamiteJobsConnector, _RETRIES
             assert DynamiteJobsConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
 
 # ---------------------------------------------------------------------------
@@ -766,14 +784,20 @@ class TestJobspressoFetch:
             assert JobspressoConnector().fetch_jobs() == []
 
     def test_http_error_returns_empty(self):
-        with patch(self._T, return_value=_mock_xml(b"", 503)):
-            from connectors.jobspresso import JobspressoConnector
+        with patch("connectors.jobspresso.time.sleep"), \
+             patch(self._T, return_value=_mock_xml(b"", 503)) as mock_get:
+            from connectors.jobspresso import JobspressoConnector, _RETRIES
             assert JobspressoConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
     def test_exception_returns_empty(self):
-        with patch(self._T, side_effect=Exception("err")):
-            from connectors.jobspresso import JobspressoConnector
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.jobspresso.time.sleep"), \
+             patch(self._T, side_effect=RequestsTimeout("err")) as mock_get:
+            from connectors.jobspresso import JobspressoConnector, _RETRIES
             assert JobspressoConnector().fetch_jobs() == []
+        assert mock_get.call_count == _RETRIES
 
 
 # ---------------------------------------------------------------------------

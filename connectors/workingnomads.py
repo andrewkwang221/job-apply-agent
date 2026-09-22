@@ -1,43 +1,37 @@
-import traceback
+import time
+from typing import Any
+
 import requests
-from typing import List, Dict, Any
 from dateutil import parser
+
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.text_cleaning import clean_description
 from utils.logger import setup_logger
+from utils.text_cleaning import clean_description
 
 logger = setup_logger("workingnomads_connector")
+
+_API_URL = "https://www.workingnomads.com/api/exposed_jobs/"
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 
 class WorkingNomadsConnector(BaseConnector):
     def __init__(self):
-        self.api_url = "https://www.workingnomads.com/api/exposed_jobs/"
+        self.api_url = _API_URL
         self.source_name = "workingnomads"
 
-    def fetch_jobs(self) -> List[Dict[str, Any]]:
+    def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info(f"Fetching jobs from {self.source_name} API...")
-        all_jobs: List[Dict[str, Any]] = []
+        jobs = _fetch_json()
+        if jobs is None:
+            return []
+        self._emit_many(jobs)
+        logger.info(f"Successfully fetched {len(jobs)} jobs from {self.source_name}")
+        return jobs
 
-        try:
-            response = requests.get(self.api_url, timeout=15)
-            response.raise_for_status()
-            jobs = response.json()
-
-            if not isinstance(jobs, list):
-                logger.error(f"Unexpected response format from {self.source_name}: expected list")
-                return all_jobs
-
-            all_jobs = jobs
-            self._emit_many(all_jobs)
-            logger.info(f"Successfully fetched {len(all_jobs)} jobs from {self.source_name}")
-        except Exception as e:
-            logger.error(f"Error fetching jobs from {self.source_name}: {e}")
-            logger.debug(traceback.format_exc())
-
-        return all_jobs
-
-    def normalize(self, raw_job: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize(self, raw_job: dict[str, Any]) -> dict[str, Any]:
         url = raw_job.get("url", "")
 
         # Derive external_id from the last path segment of the URL, falling back to title.
@@ -79,3 +73,36 @@ class WorkingNomadsConnector(BaseConnector):
 
     def get_source_name(self) -> str:
         return self.source_name
+
+
+def _fetch_json() -> list[Any] | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(_API_URL, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"workingnomads GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"workingnomads GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except Exception as e:
+            logger.info(f"workingnomads JSON failed ({type(e).__name__})")
+            return None
+        if not isinstance(data, list):
+            logger.info("workingnomads JSON is not a list")
+            return None
+        return data
+    logger.info(f"workingnomads GET skipped after {_RETRIES} attempts")
+    return None

@@ -122,6 +122,7 @@ def test_fetch_enriches_unseen_details(mock_get, _sleep, mock_unseen, mock_remem
 
     def _get(url, **kwargs):
         resp = MagicMock()
+        resp.status_code = 200
         resp.raise_for_status = MagicMock()
         if url == LISTING_URL:
             resp.text = _listing_html([listing, _posting(job_id=2, title="Sales Manager")])
@@ -143,12 +144,47 @@ def test_fetch_enriches_unseen_details(mock_get, _sleep, mock_unseen, mock_remem
 def test_fetch_skips_known_urls(mock_get, _unseen, mock_remember):
     mock_get.return_value = MagicMock(
         text=_listing_html([_posting()]),
+        status_code=200,
         raise_for_status=MagicMock(),
     )
     jobs = YCombinatorConnector().fetch_jobs()
     assert jobs == []
     mock_remember.assert_called_once_with("ycombinator", [])
     assert mock_get.call_count == 1
+
+
+@patch("connectors.ycombinator.remember_listing_urls")
+@patch("connectors.ycombinator.unseen_listing_urls")
+@patch("connectors.ycombinator.time.sleep")
+@patch("connectors.ycombinator.requests.get")
+def test_listing_timeout_retries_then_empty(mock_get, _sleep, mock_unseen, mock_remember):
+    from requests.exceptions import Timeout as RequestsTimeout
+    from connectors.ycombinator import _RETRIES
+
+    mock_get.side_effect = RequestsTimeout("timeout")
+    jobs = YCombinatorConnector().fetch_jobs()
+    assert jobs == []
+    assert mock_get.call_count == _RETRIES
+    mock_unseen.assert_not_called()
+
+
+@patch("connectors.ycombinator.remember_listing_urls")
+@patch("connectors.ycombinator.unseen_listing_urls")
+@patch("connectors.ycombinator.time.sleep")
+@patch("connectors.ycombinator.requests.get")
+def test_detail_timeout_keeps_listing_fields(mock_get, _sleep, mock_unseen, mock_remember):
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    listing = _posting()
+    job_url = "https://www.ycombinator.com/companies/kilvin/jobs/5WEK19z-senior-backend-engineer"
+    mock_unseen.return_value = [job_url]
+
+    listing_resp = MagicMock(text=_listing_html([listing]), status_code=200)
+    mock_get.side_effect = [listing_resp, RequestsTimeout("t"), RequestsTimeout("t"), RequestsTimeout("t")]
+    jobs = YCombinatorConnector().fetch_jobs()
+    assert len(jobs) == 1
+    assert jobs[0]["title"] == "Senior Backend Engineer"
+    assert "Python role" not in jobs[0]["description"]
 
 
 class TestYCombinatorNormalize:

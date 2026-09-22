@@ -19,7 +19,6 @@ import html as html_lib
 import json
 import re
 import time
-import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urljoin
@@ -44,6 +43,9 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 _FETCH_DELAY = 0.4
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 # Guest page is ~33 cards and has no pager. Cap is a runaway guard only.
 _MAX_UNSEEN_FETCHES = 80
 
@@ -78,11 +80,8 @@ class YCombinatorConnector(BaseConnector):
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
         logger.info("Fetching jobs from ycombinator.com public software-engineer remote list…")
-        try:
-            listing_html = _fetch_html(LISTING_URL)
-        except Exception as e:
-            logger.error(f"Failed to fetch YC listing: {e}")
-            logger.debug(traceback.format_exc())
+        listing_html = _fetch_html(LISTING_URL)
+        if listing_html is None:
             return []
 
         parsed: list[dict[str, Any]] = []
@@ -109,12 +108,13 @@ class YCombinatorConnector(BaseConnector):
         crawled: list[str] = []
         kept_jobs: list[dict[str, Any]] = []
         for i, job in enumerate(jobs):
-            try:
-                detail_html = _fetch_html(job["url"])
+            detail_html = _fetch_html(job["url"])
+            if detail_html is None:
+                logger.info(
+                    f"YC detail skipped for {job['url']} — keeping listing fields"
+                )
+            else:
                 _merge_detail(job, detail_html)
-            except Exception as e:
-                logger.warning(f"Failed to fetch YC job {job['url']}: {e}")
-                logger.debug(traceback.format_exc())
             crawled.append(job["url"])
             self._emit(job, kept_jobs)
             remember_listing_urls(self.source_name, [job["url"]])
@@ -152,10 +152,30 @@ class YCombinatorConnector(BaseConnector):
         return self.source_name
 
 
-def _fetch_html(url: str) -> str:
-    resp = requests.get(url, headers=_HEADERS, timeout=20)
-    resp.raise_for_status()
-    return resp.text
+def _fetch_html(url: str) -> str | None:
+    short = url if len(url) < 80 else url[:77] + "..."
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"ycombinator GET failed ({type(e).__name__}) {short} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"ycombinator GET HTTP {resp.status_code} {short} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text
+    logger.info(f"ycombinator GET skipped after {_RETRIES} attempts: {short}")
+    return None
 
 
 def _inertia_payload(html: str) -> dict[str, Any]:

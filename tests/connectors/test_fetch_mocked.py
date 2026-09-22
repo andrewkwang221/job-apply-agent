@@ -186,16 +186,34 @@ class TestEUFetch:
         assert jobs == []
 
     def test_http_error_returns_empty_list(self):
-        with patch(self._TARGET, return_value=_mock_response(b"", 503)):
-            from connectors.euremotejobs import EURemoteJobsConnector
+        with patch("connectors.euremotejobs.time.sleep"), \
+             patch(self._TARGET, return_value=_mock_response(b"", 503)) as mock_get:
+            from connectors.euremotejobs import EURemoteJobsConnector, _RETRIES
             jobs = EURemoteJobsConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES
 
     def test_network_exception_returns_empty_list(self):
-        with patch(self._TARGET, side_effect=Exception("timeout")):
-            from connectors.euremotejobs import EURemoteJobsConnector
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.euremotejobs.time.sleep"), \
+             patch(self._TARGET, side_effect=RequestsTimeout("timeout")) as mock_get:
+            from connectors.euremotejobs import EURemoteJobsConnector, _RETRIES
             jobs = EURemoteJobsConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES
+
+    def test_recovers_after_transient_timeout(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        xml = _rss_envelope(_eu_item())
+        with patch("connectors.euremotejobs.time.sleep"), \
+             patch(self._TARGET, side_effect=[
+                 RequestsTimeout("t"), _mock_response(xml),
+             ]):
+            from connectors.euremotejobs import EURemoteJobsConnector
+            jobs = EURemoteJobsConnector().fetch_jobs()
+        assert len(jobs) == 1
 
     def test_no_channel_returns_empty_list(self):
         xml = b'<?xml version="1.0"?><rss version="2.0"></rss>'
@@ -231,21 +249,36 @@ class TestWWRFetch:
         assert len(ids) == len(set(ids))
 
     def test_one_feed_error_continues_to_next(self):
-        responses = [
-            _mock_response(b"", 503),   # first feed fails
-            _mock_response(_rss_envelope(_wwr_item()), 200),  # second succeeds
+        from connectors.weworkremotely import WeWorkRemotelyConnector, _RETRIES
+
+        # First feed exhausts retries on 503; second succeeds once.
+        responses = [_mock_response(b"", 503)] * _RETRIES + [
+            _mock_response(_rss_envelope(_wwr_item()), 200),
         ]
-        with patch(self._TARGET, side_effect=responses):
-            from connectors.weworkremotely import WeWorkRemotelyConnector
+        with patch("connectors.weworkremotely.time.sleep"), \
+             patch(self._TARGET, side_effect=responses):
             jobs = WeWorkRemotelyConnector().fetch_jobs()
-        # Should get jobs from the second feed despite first failing
         assert len(jobs) >= 1
 
     def test_all_feeds_fail_returns_empty_list(self):
-        with patch(self._TARGET, side_effect=Exception("timeout")):
-            from connectors.weworkremotely import WeWorkRemotelyConnector
+        from requests.exceptions import Timeout as RequestsTimeout
+        from connectors.weworkremotely import WeWorkRemotelyConnector, _FEED_URLS, _RETRIES
+
+        with patch("connectors.weworkremotely.time.sleep"), \
+             patch(self._TARGET, side_effect=RequestsTimeout("timeout")) as mock_get:
             jobs = WeWorkRemotelyConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES * len(_FEED_URLS)
+
+    def test_recovers_after_transient_timeout(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        ok = _mock_response(_rss_envelope(_wwr_item()), 200)
+        with patch("connectors.weworkremotely.time.sleep"), \
+             patch(self._TARGET, side_effect=[RequestsTimeout("t"), ok, ok]):
+            from connectors.weworkremotely import WeWorkRemotelyConnector
+            jobs = WeWorkRemotelyConnector().fetch_jobs()
+        assert len(jobs) >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -255,9 +288,9 @@ class TestWWRFetch:
 class TestRemotiveFetch:
     _TARGET = "connectors.remotive.requests.get"
 
-    def _mock_json_response(self, jobs_list):
+    def _mock_json_response(self, jobs_list, status=200):
         mock = MagicMock()
-        mock.raise_for_status = MagicMock()
+        mock.status_code = status
         mock.json.return_value = {"jobs": jobs_list}
         return mock
 
@@ -285,20 +318,33 @@ class TestRemotiveFetch:
             jobs = RemotiveConnector().fetch_jobs()
         assert jobs == []
 
-    def test_http_error_returns_empty_list(self):
-        from requests.exceptions import HTTPError
-        mock = MagicMock()
-        mock.raise_for_status.side_effect = HTTPError("503")
-        with patch(self._TARGET, return_value=mock):
-            from connectors.remotive import RemotiveConnector
+    def test_http_error_retries_then_returns_empty(self):
+        with patch("connectors.remotive.time.sleep"), \
+             patch(self._TARGET, return_value=self._mock_json_response([], status=503)) as mock_get:
+            from connectors.remotive import RemotiveConnector, _RETRIES
             jobs = RemotiveConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES
 
-    def test_network_exception_returns_empty_list(self):
-        with patch(self._TARGET, side_effect=Exception("timeout")):
-            from connectors.remotive import RemotiveConnector
+    def test_timeout_retries_then_returns_empty(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        with patch("connectors.remotive.time.sleep"), \
+             patch(self._TARGET, side_effect=RequestsTimeout("timeout")) as mock_get:
+            from connectors.remotive import RemotiveConnector, _RETRIES
             jobs = RemotiveConnector().fetch_jobs()
         assert jobs == []
+        assert mock_get.call_count == _RETRIES
+
+    def test_recovers_after_transient_timeout(self):
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        ok = self._mock_json_response([self._sample_job()])
+        with patch("connectors.remotive.time.sleep"), \
+             patch(self._TARGET, side_effect=[RequestsTimeout("t"), ok]):
+            from connectors.remotive import RemotiveConnector
+            jobs = RemotiveConnector().fetch_jobs()
+        assert len(jobs) == 1
 
     def test_multiple_jobs_all_returned(self):
         payload = [self._sample_job(1), self._sample_job(2), self._sample_job(3)]

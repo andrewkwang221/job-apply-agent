@@ -19,7 +19,6 @@ locations JSON array.
 from __future__ import annotations
 
 import time
-import traceback
 from datetime import datetime, timezone
 from typing import Any
 
@@ -55,7 +54,9 @@ _FETCH_DELAY = 1.1
 _PAGE_LIMIT = 100
 # Runaway only; posted_after + first-stale stop should fire earlier.
 _MAX_PAGES = 40
-_API_TIMEOUT = 30
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _CATEGORIES = "engineering,data,devops"
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
@@ -80,49 +81,48 @@ class FourDayWeekConnector(BaseConnector):
         )
         kept: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
-        try:
-            stale_stop = False
-            for page in range(1, _MAX_PAGES + 1):
-                payload = _fetch_page(page, age_days)
-                if payload is None:
-                    break
-                items = payload.get("data")
-                if not isinstance(items, list) or not items:
-                    break
-                page_jobs: list[dict[str, Any]] = []
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    raw = _parse_listing(item)
-                    if not raw:
-                        continue
-                    posted = raw.get("posted_date")
-                    if posted and posted < cutoff:
-                        logger.info(
-                            "4dayweek first stale job — stopping newest-first walk"
-                        )
-                        stale_stop = True
-                        break
-                    if not _is_engineering_title(raw["title"]):
-                        continue
-                    if raw["id"] in seen_ids:
-                        continue
-                    seen_ids.add(raw["id"])
-                    page_jobs.append(raw)
+        stale_stop = False
+        for page in range(1, _MAX_PAGES + 1):
+            payload = _fetch_page(page, age_days)
+            if payload is None:
                 logger.info(
-                    f"4dayweek page {page}: {len(items)} rows, "
-                    f"{len(page_jobs)} engineering"
-                    f"{' (stale stop)' if stale_stop else ''}"
+                    f"4dayweek page {page} skipped — keeping {len(kept)} prior jobs"
                 )
-                self._emit_page(page_jobs, kept)
-                has_more = payload.get("has_more")
-                if stale_stop or has_more is False or len(items) < _PAGE_LIMIT:
+                break
+            items = payload.get("data")
+            if not isinstance(items, list) or not items:
+                break
+            page_jobs: list[dict[str, Any]] = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                raw = _parse_listing(item)
+                if not raw:
+                    continue
+                posted = raw.get("posted_date")
+                if posted and posted < cutoff:
+                    logger.info(
+                        "4dayweek first stale job — stopping newest-first walk"
+                    )
+                    stale_stop = True
                     break
-                if page < _MAX_PAGES:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching jobs from 4DayWeek: {e}")
-            logger.debug(traceback.format_exc())
+                if not _is_engineering_title(raw["title"]):
+                    continue
+                if raw["id"] in seen_ids:
+                    continue
+                seen_ids.add(raw["id"])
+                page_jobs.append(raw)
+            logger.info(
+                f"4dayweek page {page}: {len(items)} rows, "
+                f"{len(page_jobs)} engineering"
+                f"{' (stale stop)' if stale_stop else ''}"
+            )
+            self._emit_page(page_jobs, kept)
+            has_more = payload.get("has_more")
+            if stale_stop or has_more is False or len(items) < _PAGE_LIMIT:
+                break
+            if page < _MAX_PAGES:
+                time.sleep(_FETCH_DELAY)
         logger.info(f"Successfully fetched {len(kept)} jobs from 4dayweek")
         return kept
 
@@ -310,23 +310,48 @@ def _fetch_page(page: int, age_days: int) -> dict[str, Any] | None:
         "page": page,
         "posted_after": age_days,
     }
-    try:
-        resp = requests.get(
-            API_URL, headers=_HEADERS, params=params, timeout=_API_TIMEOUT
-        )
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"4dayweek GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code == 429:
-        retry_after = resp.headers.get("Retry-After") or "60"
-        logger.info(f"4dayweek GET HTTP 429 Retry-After={retry_after}")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"4dayweek GET HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
-    except ValueError:
-        logger.info("4dayweek GET non-JSON")
-        return None
-    return data if isinstance(data, dict) else None
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(
+                API_URL, headers=_HEADERS, params=params, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"4dayweek GET failed ({type(e).__name__}) "
+                f"page {page} attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After") or "60"
+            logger.info(
+                f"4dayweek GET HTTP 429 Retry-After={retry_after} "
+                f"page {page} attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                try:
+                    wait = min(float(retry_after), 60.0)
+                except ValueError:
+                    wait = _RETRY_DELAY * attempt
+                time.sleep(wait)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"4dayweek GET HTTP {resp.status_code} "
+                f"page {page} attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(f"4dayweek GET non-JSON page {page}")
+            return None
+        if not isinstance(data, dict):
+            logger.info(f"4dayweek GET unexpected payload page {page}")
+            return None
+        return data
+    logger.info(f"4dayweek page {page} skipped after {_RETRIES} attempts")
+    return None
