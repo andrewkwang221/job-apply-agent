@@ -24,7 +24,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff, max_job_age_days
+from utils.job_age import job_age_cutoff
 from utils.job_inclusion import exclusion_reason, load_candidate_profile
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger

@@ -327,7 +327,7 @@ class TestWaasNormalize:
 
 @patch("connectors.waas.time.sleep")
 def test_goto_retries_then_succeeds(_sleep):
-    from connectors.waas import _GOTO_RETRIES, _goto
+    from connectors.waas import _goto
 
     page = MagicMock()
     ok = MagicMock(status=200)
