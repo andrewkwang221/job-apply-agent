@@ -2,19 +2,22 @@
 Mocked tests for AnywherePositionsConnector.
 
 Covers: search/regions query params, profile query merge, engineering title
-filter, newest-first stale page stop, failed page keeps prior jobs, location
-as string, and normalize() shape. No live HTTP.
+filter, newest-first stale page stop, failed page keeps prior jobs, 429
+backoff retries, location as string, and normalize() shape. No live HTTP.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
+import requests
+
 from connectors.anywherepositions import (
     API_URL,
     REGIONS,
     AnywherePositionsConnector,
     _PAGE_SIZE,
+    _RETRIES,
     _api_params,
     _is_engineering_title,
     _job_location,
@@ -56,8 +59,9 @@ def _payload(jobs: list[dict], total: int | None = None) -> dict:
 
 
 class _Resp:
-    def __init__(self, payload, status=200):
+    def __init__(self, payload, status=200, headers=None):
         self.status_code = status
+        self.headers = headers or {}
         self._payload = payload
 
     def json(self):
@@ -180,6 +184,57 @@ def test_fetch_stops_query_on_stale_page(
     assert 0 in anywhere_pages
     assert 1 in anywhere_pages
     assert 2 not in anywhere_pages
+
+
+@patch("connectors.anywherepositions.remember_listing_urls")
+@patch("connectors.anywherepositions.unseen_listing_urls")
+@patch("connectors.anywherepositions.time.sleep")
+@patch("connectors.anywherepositions.requests.get")
+@patch("connectors.anywherepositions._search_queries", return_value=["python"])
+def test_fetch_retries_429_then_succeeds(
+    _queries, mock_get, mock_sleep, mock_unseen, mock_remember
+):
+    job = _item(job_id="ok-1", slug="ok-1")
+    calls = {"n": 0}
+
+    def _side_effect(url, **kwargs):
+        params = kwargs.get("params") or {}
+        if params.get("regions") != "Anywhere" or params.get("page") != 0:
+            return _Resp(_payload([]))
+        calls["n"] += 1
+        if calls["n"] < 3:
+            return _Resp({}, status=429, headers={"Retry-After": "2"})
+        return _Resp(_payload([job]))
+
+    mock_get.side_effect = _side_effect
+    mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
+
+    jobs = AnywherePositionsConnector().fetch_jobs()
+    assert {j["id"] for j in jobs} == {"ok-1"}
+    assert calls["n"] == 3
+    assert any(c.args and c.args[0] == 2 for c in mock_sleep.call_args_list)
+
+
+@patch("connectors.anywherepositions.remember_listing_urls")
+@patch("connectors.anywherepositions.unseen_listing_urls")
+@patch("connectors.anywherepositions.time.sleep")
+@patch("connectors.anywherepositions.requests.get")
+@patch("connectors.anywherepositions._search_queries", return_value=["python"])
+def test_fetch_page_fail_logs_info_not_warning(
+    _queries, mock_get, _sleep, mock_unseen, mock_remember, caplog
+):
+    import logging
+
+    mock_get.side_effect = requests.Timeout("slow")
+    mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
+
+    with caplog.at_level(logging.INFO, logger="anywherepositions_connector"):
+        jobs = AnywherePositionsConnector().fetch_jobs()
+    assert jobs == []
+    fail_logs = [r for r in caplog.records if "page" in r.message and "failed" in r.message]
+    assert fail_logs
+    assert all(r.levelno == logging.INFO for r in fail_logs)
+    assert mock_get.call_count >= _RETRIES
 
 
 class TestAnywherePositionsNormalize:

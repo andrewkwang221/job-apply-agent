@@ -54,8 +54,10 @@ _HEADERS = {
 _FETCH_DELAY = 0.6
 # Newest-first Latest pager; runaway only (~42 remote pages live).
 _MAX_PAGES = 50
-_LISTING_TIMEOUT = 30
-_DETAIL_TIMEOUT = 20
+_MAX_FETCH_FAILURES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _JOB_A_RE = re.compile(
     r'<a href="(https://aijobs.ai/job/([^"]+))"\s+class="[^"]*jobcardStyle1[^"]*"',
@@ -114,45 +116,53 @@ class AIJobsAIConnector(BaseConnector):
         )
         seen_ids: set[str] = set()
         kept: list[dict[str, Any]] = []
+        consecutive_failures = 0
 
-        try:
-            for page in range(1, _MAX_PAGES + 1):
-                html = _fetch_html(_listing_page_url(page))
-                if not html:
-                    break
-                cards = _extract_latest_cards(html)
-                if not cards:
-                    break
-                dated: list[datetime] = []
-                page_jobs: list[dict[str, Any]] = []
-                for card in cards:
-                    raw = _parse_card(card)
-                    if not raw:
-                        continue
-                    posted = raw.get("posted_date")
-                    if posted:
-                        dated.append(posted)
-                        if posted < cutoff:
-                            continue
-                    if not _is_engineering_title(raw["title"]):
-                        continue
-                    if raw["id"] in seen_ids:
-                        continue
-                    seen_ids.add(raw["id"])
-                    page_jobs.append(raw)
+        for page in range(1, _MAX_PAGES + 1):
+            html = _fetch_html(_listing_page_url(page))
+            if html is None:
+                consecutive_failures += 1
                 logger.info(
-                    f"aijobsai page {page}: {len(cards)} cards, {len(page_jobs)} kept"
+                    f"aijobsai page {page} skipped "
+                    f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
+                    f"keeping {len(kept)} prior jobs"
                 )
-                self._emit_page(page_jobs, kept, cutoff)
-                if dated and all(dt < cutoff for dt in dated):
-                    logger.info(f"aijobsai page {page} is fully stale — stopping")
+                if consecutive_failures >= _MAX_FETCH_FAILURES:
                     break
-                if page < _MAX_PAGES:
-                    time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching AIJobs.ai listing: {e}")
-            logger.debug(traceback.format_exc())
-            return kept
+                time.sleep(_FETCH_DELAY)
+                continue
+            if not html:
+                break
+            consecutive_failures = 0
+            cards = _extract_latest_cards(html)
+            if not cards:
+                break
+            dated: list[datetime] = []
+            page_jobs: list[dict[str, Any]] = []
+            for card in cards:
+                raw = _parse_card(card)
+                if not raw:
+                    continue
+                posted = raw.get("posted_date")
+                if posted:
+                    dated.append(posted)
+                    if posted < cutoff:
+                        continue
+                if not _is_engineering_title(raw["title"]):
+                    continue
+                if raw["id"] in seen_ids:
+                    continue
+                seen_ids.add(raw["id"])
+                page_jobs.append(raw)
+            logger.info(
+                f"aijobsai page {page}: {len(cards)} cards, {len(page_jobs)} kept"
+            )
+            self._emit_page(page_jobs, kept, cutoff)
+            if dated and all(dt < cutoff for dt in dated):
+                logger.info(f"aijobsai page {page} is fully stale — stopping")
+                break
+            if page < _MAX_PAGES:
+                time.sleep(_FETCH_DELAY)
 
         logger.info(f"Successfully fetched {len(kept)} jobs from aijobsai")
         return kept
@@ -180,7 +190,14 @@ class AIJobsAIConnector(BaseConnector):
                 skipped += 1
                 continue
             try:
-                detail_html = _fetch_html(job["listing_url"], timeout=_DETAIL_TIMEOUT)
+                detail_html = _fetch_html(job["listing_url"])
+                if detail_html is None:
+                    logger.info(
+                        f"aijobsai detail skip for {job['listing_url']} — "
+                        "emitting listing"
+                    )
+                    self._emit(job, kept)
+                    continue
                 if not _merge_detail(job, detail_html, cutoff):
                     continue
                 apply_url = _apply_url_from_detail(detail_html)
@@ -188,8 +205,9 @@ class AIJobsAIConnector(BaseConnector):
                     job["url"] = apply_url
                 self._emit(job, kept)
             except Exception as e:
-                logger.warning(
-                    f"Failed to fetch aijobsai job {job['listing_url']}: {e}"
+                logger.info(
+                    f"aijobsai detail skip ({type(e).__name__}) for "
+                    f"{job['listing_url']}"
                 )
                 logger.debug(traceback.format_exc())
                 self._emit(job, kept)
@@ -235,15 +253,31 @@ def _listing_page_url(page: int) -> str:
     return f"{LISTING_URL}?page={page}"
 
 
-def _fetch_html(url: str, timeout: int = _LISTING_TIMEOUT) -> str:
-    resp = requests.get(url, headers=_HEADERS, timeout=timeout)
-    if resp.status_code == 404:
-        return ""
-    if resp.status_code == 429:
-        logger.warning(f"aijobsai HTTP 429 for {url}")
-        return ""
-    resp.raise_for_status()
-    return resp.text
+def _fetch_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"aijobsai GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 404:
+            return ""
+        if resp.status_code >= 400:
+            logger.info(
+                f"aijobsai GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"aijobsai GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _latest_section(html: str) -> str:

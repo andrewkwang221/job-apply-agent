@@ -58,8 +58,10 @@ _FETCH_DELAY = 0.4
 # Mixed-date pager; board live-caps around 5 pages. Runaway only.
 _MAX_PAGES = 40
 _REPEAT_OVERLAP = 0.5
-_LISTING_TIMEOUT = 30
-_DETAIL_TIMEOUT = 20
+_LISTING_TIMEOUT = 40
+_DETAIL_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _JOB_HREF_RE = re.compile(r"""href=["'](/job/([^/"'?#]+)[^"']*)["']""", re.I)
 _PAGER_RE = re.compile(
@@ -228,15 +230,28 @@ def _fetch_title(
 
 
 def _fetch_html(url: str, timeout: int = _LISTING_TIMEOUT) -> str:
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=timeout)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"postjobfree GET failed ({type(e).__name__}) for {url}")
-        return ""
-    if resp.status_code >= 400:
-        logger.info(f"postjobfree GET HTTP {resp.status_code} for {url}")
-        return ""
-    return resp.text or ""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=timeout)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"postjobfree GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"postjobfree GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"postjobfree GET skipped after {_RETRIES} attempts for {url}")
+    return ""
 
 
 def _extract_cards(html: str) -> list[str]:

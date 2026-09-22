@@ -3,13 +3,15 @@ Mocked tests for RemoteRocketshipConnector.
 
 Covers: 64 title×location×seniority combos, guest page=1/itemsPerPage=40
 payload, engineering title filter, merge-by-id, failed combo keeps prior
-jobs, location as string, offsite apply URL, and normalize() shape.
-No live HTTP.
+jobs, POST timeout retries, location as string, offsite apply URL, and
+normalize() shape. No live HTTP.
 """
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
+
+import requests
 
 from connectors.remoterocketship import (
     API_URL,
@@ -207,6 +209,58 @@ def test_fetch_drops_stale(
     ids = {j["id"] for j in jobs}
     assert ids == {"10"}
     assert "11" not in ids
+
+
+@patch("connectors.remoterocketship.JOB_TITLE_FILTERS", ("Software Engineer",))
+@patch("connectors.remoterocketship.LOCATION_FILTERS", ("Worldwide",))
+@patch("connectors.remoterocketship.SENIORITY_FILTERS", ("mid",))
+@patch("connectors.remoterocketship.remember_listing_urls")
+@patch("connectors.remoterocketship.unseen_listing_urls")
+@patch("connectors.remoterocketship.time.sleep")
+@patch("connectors.remoterocketship.requests.post")
+def test_fetch_retries_post_timeout_then_succeeds(
+    mock_post, mock_sleep, mock_unseen, mock_remember
+):
+    job = _item(job_id=99, slug="retry-ok")
+    calls = {"n": 0}
+
+    def _side_effect(url, **kwargs):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise requests.ConnectionError("reset")
+        return _Resp(_payload([job]))
+
+    mock_post.side_effect = _side_effect
+    mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
+
+    jobs = RemoteRocketshipConnector().fetch_jobs()
+    assert {j["id"] for j in jobs} == {"99"}
+    assert calls["n"] == 3
+    assert mock_sleep.call_count >= 2
+
+
+@patch("connectors.remoterocketship.JOB_TITLE_FILTERS", ("Software Engineer",))
+@patch("connectors.remoterocketship.LOCATION_FILTERS", ("Worldwide",))
+@patch("connectors.remoterocketship.SENIORITY_FILTERS", ("mid",))
+@patch("connectors.remoterocketship.remember_listing_urls")
+@patch("connectors.remoterocketship.unseen_listing_urls")
+@patch("connectors.remoterocketship.time.sleep")
+@patch("connectors.remoterocketship.requests.post")
+def test_combo_skip_logs_info_not_warning(
+    mock_post, _sleep, mock_unseen, mock_remember, caplog
+):
+    import logging
+
+    mock_post.return_value = _Resp({}, status=401)
+    mock_unseen.side_effect = lambda urls, source, **kw: list(urls)
+
+    with caplog.at_level(logging.INFO, logger="remoterocketship_connector"):
+        jobs = RemoteRocketshipConnector().fetch_jobs()
+    assert jobs == []
+    skip_logs = [r for r in caplog.records if "failed —" in r.message]
+    assert skip_logs
+    assert all(r.levelno == logging.INFO for r in skip_logs)
+    assert mock_post.call_count == 1
 
 
 class TestRemoteRocketshipNormalize:

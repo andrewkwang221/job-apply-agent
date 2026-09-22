@@ -60,8 +60,10 @@ _FETCH_DELAY = 0.4
 # Runaway only; newest-first stale-page stop should fire earlier.
 _MAX_PAGES = 40
 _DETAIL_WORKERS = 8
-_LISTING_TIMEOUT = 45
-_DETAIL_TIMEOUT = 30
+_LISTING_TIMEOUT = 40
+_DETAIL_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -255,7 +257,7 @@ def _fetch_query(
         for page in range(1, _MAX_PAGES + 1):
             html = _fetch_html(_listing_page_url(page, search, worktype))
             if html is None:
-                logger.warning(
+                logger.info(
                     f"remotescout24 query={search!r} worktype={worktype} "
                     f"page={page} failed — keeping prior jobs, stopping this query"
                 )
@@ -433,8 +435,7 @@ def _get(
 ) -> requests.Response | None:
     headers = {**_HEADERS, "Accept": accept}
     timeout = _DETAIL_TIMEOUT if "/api/" in url else _LISTING_TIMEOUT
-    resp = None
-    for attempt in range(4):
+    for attempt in range(1, _RETRIES + 1):
         try:
             resp = requests.get(
                 url,
@@ -443,18 +444,24 @@ def _get(
                 timeout=timeout,
             )
         except (requests.Timeout, requests.ConnectionError) as e:
-            logger.info(f"remotescout24 GET failed ({type(e).__name__})")
-            return None
-        if resp.status_code != 429 or attempt == 3:
-            break
-        logger.info(f"remotescout24 GET HTTP 429 — retry {attempt + 1}/3")
-        time.sleep(1.5 * (attempt + 1))
-    if resp is None:
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"remotescout24 GET HTTP {resp.status_code}")
-        return None
-    return resp
+            logger.info(
+                f"remotescout24 GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"remotescout24 GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp
+    logger.info(f"remotescout24 GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _is_engineering_title(title: str) -> bool:

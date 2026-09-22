@@ -3,19 +3,24 @@ Mocked tests for BrenxorConnector.
 
 Covers: mid/senior/lead × Anywhere/USA combo URLs, card HTML parse,
 engineering title filter, newest-first stale page stop, 500 retry then
-skip combo, expired JobPosting skip, location stays the listing string,
-apply 302 + utm/ref strip, and normalize() shape. No live HTTP.
+skip combo, detail soft-retry then emit listing, expired JobPosting skip,
+location stays the listing string, apply 302 + utm/ref strip, and
+normalize() shape. No live HTTP.
 """
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
+import requests
+
 from connectors.brenxor import (
     LISTING_URL,
     BrenxorConnector,
+    _RETRIES,
     _extract_cards,
     _is_engineering_title,
     _listing_page_url,
@@ -333,6 +338,60 @@ def test_fetch_combos_stale_stop_skips_sales_retries_500_and_uses_apply_redirect
     assert "https://brenxor.com/job-details-187475-learning-and-development-lead" not in urls
     assert "https://brenxor.com/job-details-2-senior-backend-engineer" not in urls
     assert any(u.endswith("/usa-only") or "/usa-only?" in u for u in listing_urls)
+
+
+@patch("connectors.brenxor.remember_listing_urls")
+@patch("connectors.brenxor.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.brenxor.time.sleep")
+@patch("connectors.brenxor.load_candidate_profile", return_value=None)
+@patch("connectors.brenxor.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.brenxor.max_job_age_days", return_value=10)
+@patch("connectors.brenxor.datetime")
+@patch("connectors.brenxor.requests.get")
+def test_fetch_emits_listing_when_detail_times_out(
+    mock_get,
+    mock_dt,
+    _age_days,
+    _cutoff,
+    _profile,
+    mock_sleep,
+    mock_unseen,
+    mock_remember,
+    caplog,
+):
+    mock_dt.now.return_value = _NOW
+    mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
+
+    listing_pages = {
+        (_MID_ANY, 1): _listing_html(_card_html(posted="7 hours ago")),
+    }
+    detail_url = "https://brenxor.com/job-details-188093-senior-software-engineer"
+    detail_calls = {"n": 0}
+
+    def _side_effect(url, **kwargs):
+        parsed = urlparse(url)
+        if parsed.path.startswith("/job-details-") and "/apply-" not in parsed.path:
+            detail_calls["n"] += 1
+            raise requests.Timeout("detail slow")
+        return _http(url, listing_pages, _detail_html(), failing_bases=set(_COMBOS[1:]))
+
+    mock_get.side_effect = _side_effect
+
+    with caplog.at_level(logging.INFO, logger="brenxor_connector"):
+        jobs = BrenxorConnector().fetch_jobs()
+
+    assert len(jobs) == 1
+    assert jobs[0]["id"] == "188093"
+    assert jobs[0]["title"] == "Senior Software Engineer"
+    assert jobs[0]["listing_url"] == detail_url
+    assert detail_calls["n"] == _RETRIES
+    skip_logs = [
+        r for r in caplog.records
+        if "detail skipped" in r.message or "detail failed" in r.message
+    ]
+    assert skip_logs
+    assert all(r.levelno == logging.INFO for r in skip_logs)
+    assert not any(r.levelno >= logging.WARNING for r in skip_logs)
 
 
 class TestBrenxorNormalize:

@@ -231,6 +231,41 @@ def test_skips_ineligible_before_detail(mock_get, *_patches):
     assert offer_gets == []
 
 
+@patch("connectors.jobgether.time.sleep")
+@patch("connectors.jobgether.requests.get")
+def test_fetch_page_retries_timeout_then_ok(mock_get, _sleep):
+    from connectors.jobgether import _RETRIES, _fetch_page
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    ok = _Resp(_page([_item()], page=1, has_more=False))
+    mock_get.side_effect = [
+        RequestsTimeout("Read timed out."),
+        RequestsTimeout("Read timed out."),
+        ok,
+    ]
+    data = _fetch_page(_api_params("engineer", 1))
+    assert data is not None
+    assert len(data["jobs"]) == 1
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.jobgether.time.sleep")
+@patch("connectors.jobgether.requests.get")
+def test_fetch_html_retries_then_soft_skips(mock_get, _sleep):
+    from connectors.jobgether import _RETRIES, _fetch_html
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _fetch_html("https://jobgether.com/offer/abc") == ""
+    assert mock_get.call_count == _RETRIES
+
+    mock_get.reset_mock()
+    ok = _Resp(text="<html>ok</html>")
+    mock_get.side_effect = [ReqConnectionError("Connection aborted."), ok]
+    assert _fetch_html("https://jobgether.com/offer/abc") == "<html>ok</html>"
+    assert mock_get.call_count == 2
+
+
 class TestJobgetherNormalize:
     def _raw(self):
         return {

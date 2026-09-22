@@ -61,8 +61,10 @@ _API_DELAY = 0.4
 _FETCH_DELAY = 2.0
 _MAX_PAGES = 10
 _PAGE_LIMIT = 25
-_API_TIMEOUT = 30
-_DETAIL_TIMEOUT = 20
+_API_TIMEOUT = 40
+_DETAIL_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _LD_JSON_RE = re.compile(
     r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
@@ -247,33 +249,66 @@ def _fetch_keyword(
 
 
 def _fetch_page(params: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        resp = requests.get(
-            API_URL, headers=_HEADERS, params=params, timeout=_API_TIMEOUT
-        )
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"jobgether GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"jobgether GET HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(
+                API_URL, headers=_HEADERS, params=params, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"jobgether GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"jobgether GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"jobgether GET JSON failed attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    logger.info(f"jobgether GET skipped after {_RETRIES} attempts")
+    return None
 
 
 def _fetch_html(url: str) -> str:
-    try:
-        resp = requests.get(url, headers=_HTML_HEADERS, timeout=_DETAIL_TIMEOUT)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"jobgether offer failed ({type(e).__name__}) for {url}")
-        return ""
-    if resp.status_code >= 400:
-        logger.info(f"jobgether offer HTTP {resp.status_code} for {url}")
-        return ""
-    return resp.text or ""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(
+                url, headers=_HTML_HEADERS, timeout=_DETAIL_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"jobgether offer failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"jobgether offer HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"jobgether offer skipped after {_RETRIES} attempts for {url}")
+    return ""
 
 
 def _is_engineering_title(title: str, functions: list[str] | None = None) -> bool:

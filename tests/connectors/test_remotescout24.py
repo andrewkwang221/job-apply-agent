@@ -403,6 +403,40 @@ def test_fetch_merges_duplicate_ids_across_worktypes(
     assert [job["id"] for job in jobs] == ["1"]
 
 
+@patch("connectors.remotescout24.time.sleep")
+@patch("connectors.remotescout24.requests.get")
+def test_get_retries_timeout_then_ok(mock_get, _sleep):
+    from connectors.remotescout24 import _RETRIES, _get
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    ok = _Resp(text="<html>ok</html>")
+    mock_get.side_effect = [
+        RequestsTimeout("read timed out"),
+        RequestsTimeout("read timed out"),
+        ok,
+    ]
+    resp = _get(f"{BASE_URL}/en/jobs/search?page=1")
+    assert resp is not None
+    assert resp.text == "<html>ok</html>"
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.remotescout24.time.sleep")
+@patch("connectors.remotescout24.requests.get")
+def test_get_retries_connection_and_4xx_then_skips(mock_get, _sleep):
+    from connectors.remotescout24 import _RETRIES, _get
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _get(f"{BASE_URL}/en/jobs/search?page=1") is None
+    assert mock_get.call_count == _RETRIES
+
+    mock_get.reset_mock()
+    mock_get.side_effect = [_Resp(text="err", status=500)] * _RETRIES
+    assert _get(f"{BASE_URL}/en/jobs/search?page=1") is None
+    assert mock_get.call_count == _RETRIES
+
+
 class TestRemoteScout24Normalize:
     def _raw(self):
         return {

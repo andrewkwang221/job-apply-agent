@@ -53,6 +53,9 @@ _FETCH_DELAY = 0.4
 # Runaway only; newest-first stale-page stop should fire earlier.
 _MAX_PAGES = 40
 _MAX_FETCH_FAILURES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -176,7 +179,7 @@ def _fetch_listing(
         data = _fetch_page(_listing_body(offset))
         if data is None:
             consecutive_failures += 1
-            logger.warning(
+            logger.info(
                 f"trulyremote page {page} failed "
                 f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
                 "keeping prior jobs, continuing"
@@ -222,19 +225,39 @@ def _fetch_listing(
 
 
 def _fetch_page(body: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        resp = requests.post(API_URL, headers=_HEADERS, json=body, timeout=45)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"trulyremote POST failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"trulyremote POST HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.post(
+                API_URL, headers=_HEADERS, json=body, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"trulyremote POST failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"trulyremote POST HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"trulyremote POST JSON failed attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    logger.info(f"trulyremote POST skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_records(data: dict[str, Any]) -> list[dict[str, Any]]:

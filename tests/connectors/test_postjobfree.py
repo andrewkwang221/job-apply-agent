@@ -277,6 +277,33 @@ def test_skips_ineligible_before_detail(mock_get, *_patches):
     assert detail_gets == []
 
 
+@patch("connectors.postjobfree.time.sleep")
+@patch("connectors.postjobfree.requests.get")
+def test_fetch_html_retries_timeout_then_ok(mock_get, _sleep):
+    from connectors.postjobfree import _RETRIES, _fetch_html
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    ok = _Resp(text="<html>ok</html>")
+    mock_get.side_effect = [
+        RequestsTimeout("read timed out"),
+        RequestsTimeout("read timed out"),
+        ok,
+    ]
+    assert _fetch_html("https://www.postjobfree.com/jobs") == "<html>ok</html>"
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.postjobfree.time.sleep")
+@patch("connectors.postjobfree.requests.get")
+def test_fetch_html_timeout_exhausts_retries(mock_get, _sleep):
+    from connectors.postjobfree import _RETRIES, _fetch_html
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    mock_get.side_effect = RequestsTimeout("read timed out")
+    assert _fetch_html("https://www.postjobfree.com/jobs") == ""
+    assert mock_get.call_count == _RETRIES
+
+
 class TestNormalize:
     def _raw(self):
         return {

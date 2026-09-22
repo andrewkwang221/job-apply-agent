@@ -157,6 +157,32 @@ def test_fetch_stops_on_stale_page(mock_post, _sleep, mock_unseen, mock_remember
     mock_remember.assert_called_once()
 
 
+@patch("connectors.devremote.time.sleep")
+@patch("connectors.devremote.requests.post")
+def test_fetch_filter_page_retries_timeout(mock_post, _sleep):
+    from connectors.devremote import _RETRIES, _fetch_filter_page
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"jobs": [], "count": 0, "pageSize": _PAGE_SIZE}
+
+    mock_post.side_effect = [RequestsTimeout("timeout"), _Resp()]
+    assert _fetch_filter_page({"query": {}, "pageSize": 50, "skip": 0}) == {
+        "jobs": [],
+        "count": 0,
+        "pageSize": _PAGE_SIZE,
+    }
+    assert mock_post.call_count == 2
+
+    mock_post.reset_mock()
+    mock_post.side_effect = RequestsTimeout("timeout")
+    assert _fetch_filter_page({"query": {}, "pageSize": 50, "skip": 0}) is None
+    assert mock_post.call_count == _RETRIES
+
+
 class TestDevRemoteNormalize:
     def _raw(self):
         return {

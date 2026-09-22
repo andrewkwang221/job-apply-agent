@@ -11,7 +11,9 @@ call ``search`` once per unique profile tag, role, keyword, and skill, then
 merge by job id. The UI infinite-scrolls ``page``; walk ``page=0,1,…`` until
 the first fully stale page (``MAX_JOB_AGE_DAYS``), a short/empty page, or
 repeated fetch failures — keep jobs already collected and continue the other
-queries so one 403 does not drop the rest.
+queries so one 403 does not drop the rest. Page failures log at INFO; 429/timeouts
+retry with backoff inside each page fetch (3 attempts) before counting as a
+page failure toward the 3-failure stop.
 
 ``location`` is a string. Listing URLs are on anywherepositions.com (aggregator).
 """
@@ -42,6 +44,8 @@ API_VERSION = "currency-fix-2026-04-16-rs1"
 REGIONS = ("Anywhere", "US")
 _PAGE_SIZE = 50
 _FETCH_DELAY = 0.4
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _MAX_PAGES = 40
 _MAX_FETCH_FAILURES = 3
 _HEADERS = {
@@ -193,7 +197,7 @@ def _fetch_query(
         data = _fetch_page(_api_params(search, region, page))
         if data is None:
             consecutive_failures += 1
-            logger.warning(
+            logger.info(
                 f"anywherepositions {region!r}/{search!r} page {page} failed "
                 f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
                 "keeping prior jobs, continuing"
@@ -237,20 +241,55 @@ def _fetch_query(
     return added
 
 
-def _fetch_page(params: dict[str, Any]) -> dict[str, Any] | None:
+def _retry_wait(resp: requests.Response, attempt: int) -> float:
+    raw = resp.headers.get("Retry-After") or ""
     try:
-        resp = requests.get(API_URL, headers=_HEADERS, params=params, timeout=20)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"anywherepositions GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"anywherepositions GET HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
+        wait = float(raw)
     except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+        wait = _RETRY_DELAY * attempt
+    return min(max(wait, 0), 60)
+
+
+def _fetch_page(params: dict[str, Any]) -> dict[str, Any] | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(API_URL, headers=_HEADERS, params=params, timeout=20)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"anywherepositions GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 429:
+            wait = _retry_wait(resp, attempt)
+            logger.info(
+                f"anywherepositions GET HTTP 429 "
+                f"attempt {attempt}/{_RETRIES} wait={wait:.0f}s"
+            )
+            if attempt < _RETRIES:
+                time.sleep(wait)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"anywherepositions GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"anywherepositions GET JSON failed attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    return None
 
 
 def _extract_jobs(data: dict[str, Any]) -> list[dict[str, Any]]:

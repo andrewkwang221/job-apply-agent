@@ -280,6 +280,30 @@ def test_fetch_stops_on_stale_page_skips_sales_and_uses_apply_redirect(
     assert "https://www.aijobs.com/jobs/2-senior-backend-engineer" not in urls
 
 
+@patch("connectors.aijobs.time.sleep")
+@patch("connectors.aijobs.requests.get")
+def test_fetch_html_retries_connection_abort(mock_get, _sleep):
+    from connectors.aijobs import _RETRIES, _fetch_html
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.text = "<html>ok</html>"
+    mock_get.side_effect = [
+        ReqConnectionError("Connection aborted."),
+        ok,
+    ]
+    assert _fetch_html("https://www.aijobs.com/jobs?remote=1&order=posted_at") == (
+        "<html>ok</html>"
+    )
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = ReqConnectionError("Connection aborted.")
+    assert _fetch_html("https://www.aijobs.com/jobs?remote=1&order=posted_at") is None
+    assert mock_get.call_count == _RETRIES
+
+
 class TestAIJobsNormalize:
     def _raw(self):
         return {

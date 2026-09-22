@@ -52,6 +52,8 @@ _HEADERS = {
 _FETCH_DELAY = 0.4
 _LISTING_TIMEOUT = 30
 _DETAIL_TIMEOUT = 20
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _TITLE_START_RE = re.compile(
     r'<a class="[^"]*font-semibold[^"]*" href="(/job-details/([^"]+))"',
@@ -110,36 +112,60 @@ class TopSalariesConnector(BaseConnector):
             f"(age_days={age_days}; newest-first, stop at first stale card)…"
         )
         kept: list[dict[str, Any]] = []
+        total_cards = 0
+        total_stale = 0
+        total_non_eng = 0
         try:
             html = _fetch_html(LISTING_URL)
+            if html is None:
+                logger.info(
+                    f"topsalaries listing skipped after retries "
+                    f"(age_days={age_days})"
+                )
+                logger.info("Successfully fetched 0 jobs from topsalaries")
+                return kept
             if not html:
+                logger.info(
+                    f"topsalaries listing empty (age_days={age_days})"
+                )
                 logger.info("Successfully fetched 0 jobs from topsalaries")
                 return kept
             now = datetime.now(tz=timezone.utc)
             page_jobs: list[dict[str, Any]] = []
             stale_stop = False
             for card in _extract_cards(html):
+                total_cards += 1
                 raw = _parse_card(card, now=now)
                 if not raw:
                     continue
                 posted = raw.get("posted_date")
                 if posted and posted < cutoff:
+                    total_stale += 1
                     logger.info(
-                        "topsalaries first stale card — stopping newest-first walk"
+                        "topsalaries first stale card — stopping newest-first walk "
+                        f"(age_days={age_days})"
                     )
                     stale_stop = True
                     break
                 if not _is_engineering_title(raw["title"]):
+                    total_non_eng += 1
                     continue
                 page_jobs.append(raw)
             logger.info(
-                f"topsalaries listing: {len(page_jobs)} engineering cards"
-                f"{' (stale stop)' if stale_stop else ''}"
+                f"topsalaries listing: {total_cards} cards, "
+                f"{len(page_jobs)} engineering in-window "
+                f"(stale={total_stale}, non-engineering={total_non_eng}"
+                f"{', stale stop' if stale_stop else ''})"
             )
             self._emit_page(page_jobs, kept, cutoff)
         except Exception as e:
             logger.error(f"Error fetching jobs from TopSalaries: {e}")
             logger.debug(traceback.format_exc())
+        logger.info(
+            f"topsalaries summary: {total_cards} cards, {len(kept)} kept "
+            f"(stale={total_stale}, non-engineering={total_non_eng}, "
+            f"age_days={age_days})"
+        )
         logger.info(f"Successfully fetched {len(kept)} jobs from topsalaries")
         return kept
 
@@ -209,16 +235,29 @@ class TopSalariesConnector(BaseConnector):
         return self.source_name
 
 
-def _fetch_html(url: str, timeout: int = _LISTING_TIMEOUT) -> str:
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=timeout)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"topsalaries GET failed ({type(e).__name__}) for {url}")
-        return ""
-    if resp.status_code >= 400:
-        logger.info(f"topsalaries GET HTTP {resp.status_code} for {url}")
-        return ""
-    return resp.text or ""
+def _fetch_html(url: str, timeout: int = _LISTING_TIMEOUT) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=timeout)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"topsalaries GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"topsalaries GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"topsalaries GET skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _extract_cards(html: str) -> list[str]:

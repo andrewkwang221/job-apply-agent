@@ -54,6 +54,7 @@ _UA = (
 )
 _NAV_TIMEOUT_MS = 60_000
 _DETAIL_TIMEOUT_MS = 45_000
+_OPEN_RETRIES = 3
 # Live pager last button is 40; runaway only after newest-first stale stop.
 _MAX_PAGES = 40
 
@@ -288,16 +289,34 @@ def _is_filtered_search(resp: Any) -> bool:
 
 
 def _open_listing(page: Any) -> bool:
-    try:
-        with page.expect_response(_is_filtered_search, timeout=30_000):
-            page.goto(
-                LISTING_URL, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS
+    last_err: Exception | None = None
+    for attempt in range(1, _OPEN_RETRIES + 1):
+        try:
+            with page.expect_response(_is_filtered_search, timeout=30_000):
+                page.goto(
+                    LISTING_URL,
+                    wait_until="domcontentloaded",
+                    timeout=_NAV_TIMEOUT_MS,
+                )
+            page.wait_for_selector('a[href*="jobId="]', timeout=30_000)
+            last_err = None
+            break
+        except Exception as e:
+            last_err = e
+            logger.info(
+                f"levelsfyi filtered search wait failed "
+                f"({type(e).__name__}) attempt {attempt}/{_OPEN_RETRIES}"
             )
-        page.wait_for_selector('a[href*="jobId="]', timeout=30_000)
-    except Exception as e:
+            if attempt < _OPEN_RETRIES:
+                try:
+                    page.wait_for_timeout(1000 * attempt)
+                except Exception:
+                    pass
+                continue
+    if last_err is not None:
         logger.info(
-            f"levelsfyi filtered search wait failed ({type(e).__name__}); "
-            "trying rendered cards"
+            f"levelsfyi filtered search wait failed "
+            f"({type(last_err).__name__}); trying rendered cards"
         )
         try:
             page.wait_for_selector('a[href*="jobId="]', timeout=15_000)

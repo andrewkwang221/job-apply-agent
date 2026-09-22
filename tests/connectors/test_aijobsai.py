@@ -287,6 +287,25 @@ def test_fetch_stops_on_stale_page_skips_featured_and_sales(
     assert "https://aijobs.ai/job/senior-ai-product-engineer-backend" not in urls
 
 
+@patch("connectors.aijobsai.time.sleep")
+@patch("connectors.aijobsai.requests.get")
+def test_fetch_html_retries_timeout(mock_get, _sleep):
+    from connectors.aijobsai import _RETRIES, _fetch_html
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    ok = MagicMock()
+    ok.status_code = 200
+    ok.text = "<html>ok</html>"
+    mock_get.side_effect = [RequestsTimeout("timeout"), ok]
+    assert _fetch_html("https://aijobs.ai/remote") == "<html>ok</html>"
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = RequestsTimeout("timeout")
+    assert _fetch_html("https://aijobs.ai/remote") is None
+    assert mock_get.call_count == _RETRIES
+
+
 class TestAIJobsAINormalize:
     def _raw(self):
         return {

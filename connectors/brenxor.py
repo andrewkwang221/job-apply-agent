@@ -11,7 +11,8 @@ Live lists are newest-first; stop at the first fully stale page.
 Retry a 500 once, then skip that combo so others still store.
 
 Keep engineering titles, skip expired/stale/known URLs. Detail
-JobPosting JSON-LD supplies description/``datePosted``. ``location``
+JobPosting JSON-LD supplies description/``datePosted``; soft-retry detail
+GET 3× and emit the listing card when detail still fails. ``location``
 stays the listing-card string (never a JSON-LD dict).
 ``GET /job-details/apply-{id}`` 302s to the employer ATS; store that
 URL and strip ``utm_*`` / ``ref``.
@@ -56,6 +57,8 @@ _HEADERS = {
     "Referer": LISTING_URL,
 }
 _FETCH_DELAY = 0.4
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 # Newest-first date pager; runaway only (~24 anywhere pages live).
 _MAX_PAGES = 40
 _LISTING_TIMEOUT = 30
@@ -206,14 +209,16 @@ class BrenxorConnector(BaseConnector):
                 continue
             try:
                 detail_html = _fetch_detail_html(job["listing_url"])
-                if not _merge_detail(job, detail_html, cutoff):
+                if detail_html is not None and not _merge_detail(
+                    job, detail_html, cutoff
+                ):
                     continue
                 apply_url = _resolve_apply_url(job["id"])
                 if apply_url:
                     job["url"] = apply_url
                 self._emit(job, kept)
             except Exception as e:
-                logger.warning(f"Failed to fetch brenxor job {job['listing_url']}: {e}")
+                logger.info(f"brenxor detail skipped for {job['listing_url']}: {e}")
                 logger.debug(traceback.format_exc())
                 self._emit(job, kept)
             if i + 1 < len(pending):
@@ -293,12 +298,40 @@ def _fetch_listing_html(url: str) -> str | None:
     return None
 
 
-def _fetch_detail_html(url: str) -> str:
-    resp = requests.get(url, headers=_HEADERS, timeout=_DETAIL_TIMEOUT)
-    if resp.status_code in (404, 429):
-        return ""
-    resp.raise_for_status()
-    return resp.text
+def _fetch_detail_html(url: str) -> str | None:
+    """Return detail HTML, ``''`` on 404, or ``None`` after exhausted soft retries."""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_DETAIL_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"brenxor detail failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 404:
+            return ""
+        if resp.status_code == 429 or resp.status_code >= 500:
+            logger.info(
+                f"brenxor detail HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"brenxor detail HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES} for {url}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"brenxor detail skipped after {_RETRIES} attempts for {url}")
+    return None
 
 
 def _extract_cards(html: str) -> list[str]:

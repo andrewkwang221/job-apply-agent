@@ -297,6 +297,45 @@ def test_skips_ineligible_before_detail(mock_get, mock_dt, *_patches):
     assert detail_gets == []
 
 
+@patch("connectors.topsalaries.time.sleep")
+@patch("connectors.topsalaries.requests.get")
+def test_fetch_html_retries_timeout(mock_get, _sleep):
+    from connectors.topsalaries import _RETRIES, _fetch_html
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    mock_get.side_effect = [RequestsTimeout("timeout"), _Resp("<html>ok</html>")]
+    assert _fetch_html("https://topsalaries.tech/") == "<html>ok</html>"
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = RequestsTimeout("timeout")
+    assert _fetch_html("https://topsalaries.tech/") is None
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.topsalaries.remember_listing_urls")
+@patch("connectors.topsalaries.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.topsalaries.time.sleep")
+@patch("connectors.topsalaries.load_candidate_profile", return_value=None)
+@patch("connectors.topsalaries.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.topsalaries.max_job_age_days", return_value=2)
+@patch("connectors.topsalaries.datetime")
+@patch("connectors.topsalaries.requests.get")
+def test_fetch_logs_first_card_stale_zero(mock_get, mock_dt, *_patches):
+    mock_dt.now.return_value = _NOW
+    mock_dt.side_effect = lambda *a, **k: datetime(*a, **k)
+    listing = _listing_html(
+        _card_html(
+            slug="old-staff-engineer-acme-1",
+            title="Staff Platform Engineer",
+            published="Published 40 days ago",
+        )
+    )
+    mock_get.return_value = _Resp(listing)
+    jobs = TopSalariesConnector().fetch_jobs()
+    assert jobs == []
+
+
 class TestNormalize:
     def _raw(self):
         return {

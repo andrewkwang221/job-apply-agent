@@ -17,7 +17,9 @@ from connectors.dice import (
     DiceConnector,
     _PAGE_SIZE,
     _RATE_LIMIT_BACKOFF,
+    _RETRIES,
     _detail_description,
+    _fetch_detail_html,
     _is_engineering_title,
     _is_rate_limited_error,
     _job_location,
@@ -205,6 +207,41 @@ def test_detail_description_replaces_truncated_summary():
     assert "Full body python kubernetes" in job["description"]
     _merge_detail(job, "")
     assert "Full body python kubernetes" in job["description"]
+
+
+@patch("connectors.dice.time.sleep")
+@patch("connectors.dice.requests.get")
+def test_fetch_detail_html_retries_read_timeout(mock_get, mock_sleep):
+    import requests
+
+    ok = type("R", (), {
+        "status_code": 200,
+        "text": (
+            '<div class="job-detail-description-module__EJDWFq__jobDescription">'
+            "FULL DETAIL</div>"
+        ),
+    })()
+    mock_get.side_effect = [
+        requests.exceptions.ReadTimeout("slow"),
+        requests.exceptions.ReadTimeout("slow"),
+        ok,
+    ]
+    html = _fetch_detail_html("https://www.dice.com/job-detail/abc")
+    assert html is not None
+    assert "FULL DETAIL" in html
+    assert mock_get.call_count == 3
+    assert mock_sleep.call_count == 2
+
+
+@patch("connectors.dice.time.sleep")
+@patch("connectors.dice.requests.get")
+def test_fetch_detail_html_gives_up_after_retries(mock_get, mock_sleep):
+    import requests
+
+    mock_get.side_effect = requests.exceptions.ReadTimeout("slow")
+    assert _fetch_detail_html("https://www.dice.com/job-detail/abc") is None
+    assert mock_get.call_count == _RETRIES
+    assert mock_sleep.call_count == _RETRIES - 1
 
 
 @patch("connectors.dice.remember_listing_urls")

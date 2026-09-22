@@ -12,9 +12,9 @@ empty page / ``totalPages`` (runaway cap only). Drop stale jobs by
 
 ``requests`` and Playwright Chromium are Akamai-blocked on this host even
 though a normal browser loads the same URL with no challenge. Fetch with
-``curl_cffi`` Chrome TLS impersonation first, then ``requests``, then
-Chromium. Guest apply/company is often empty, so scoring caps this source
-at review.
+``curl_cffi`` Chrome TLS impersonation (retries), then plain ``requests``.
+Do not use Chromium (HTTP/2 is blocked). Guest apply/company is often
+empty, so scoring caps this source at review.
 """
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -54,8 +54,11 @@ _HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 _FETCH_DELAY = 0.4
-_REQUESTS_TIMEOUT = 8
-_CHROME_TIMEOUT = 25
+_REQUESTS_TIMEOUT = 40
+_CHROME_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
+_MAX_FETCH_FAILURES = 5
 _MAX_PAGES = 10
 
 _NEXT_DATA_RE = re.compile(
@@ -82,29 +85,52 @@ class RemoteCoConnector(BaseConnector):
         self.source_name = "remoteco"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from remote.co 100%-remote / US-anywhere list…")
+        age_days = max_job_age_days(self.source_name)
+        logger.info(
+            f"Fetching jobs from remote.co 100%-remote / US-anywhere list "
+            f"(age_days={age_days})…"
+        )
         cutoff = job_age_cutoff(self.source_name)
         parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
         fetcher = _ListingFetcher()
+        consecutive_failures = 0
+        total_listings = 0
+        total_stale = 0
+        total_non_eng = 0
 
         try:
             for page in range(1, _MAX_PAGES + 1):
                 html = fetcher.fetch(_listing_page_url(page))
                 if html is None:
-                    logger.warning(
-                        f"remote.co page {page} fetch failed — keeping prior jobs, "
-                        "continuing"
+                    consecutive_failures += 1
+                    logger.info(
+                        f"remote.co page {page} skipped "
+                        f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
+                        f"keeping {len(parsed)} prior jobs"
                     )
+                    if consecutive_failures >= _MAX_FETCH_FAILURES:
+                        break
+                    time.sleep(_FETCH_DELAY)
                     continue
                 if not html:
                     break
+                consecutive_failures = 0
                 raw_items, total_pages = _extract_listing_page(html)
                 if not raw_items:
                     break
+                total_listings += len(raw_items)
                 kept = 0
+                stale = 0
+                non_eng = 0
                 for item in raw_items:
-                    raw = _parse_raw_job(item, cutoff)
+                    raw, reason = _parse_raw_job_result(item, cutoff)
+                    if reason == "stale":
+                        stale += 1
+                        continue
+                    if reason == "non-eng":
+                        non_eng += 1
+                        continue
                     if not raw:
                         continue
                     if raw["id"] in seen_ids:
@@ -113,6 +139,8 @@ class RemoteCoConnector(BaseConnector):
                     parsed.append(raw)
                     self._emit(raw)
                     kept += 1
+                total_stale += stale
+                total_non_eng += non_eng
                 search_pages = min(max(total_pages, 1), _MAX_PAGES)
                 if page == 1:
                     logger.info(
@@ -121,13 +149,14 @@ class RemoteCoConnector(BaseConnector):
                     )
                 logger.info(
                     f"remote.co page {page}/{search_pages}: "
-                    f"{len(raw_items)} listings, {kept} kept"
+                    f"{len(raw_items)} listings, {kept} kept "
+                    f"(stale={stale}, non-engineering={non_eng})"
                 )
                 if page >= total_pages:
                     break
                 time.sleep(_FETCH_DELAY)
         except Exception as e:
-            logger.error(f"Error fetching remote.co listing: {e}")
+            logger.info(f"remote.co listing aborted ({type(e).__name__}): {e}")
             logger.debug(traceback.format_exc())
         finally:
             fetcher.close()
@@ -138,8 +167,10 @@ class RemoteCoConnector(BaseConnector):
         if jobs:
             remember_listing_urls(self.source_name, [job["url"] for job in jobs])
         logger.info(
-            f"remote.co listing: {len(parsed)} engineering jobs, "
-            f"{len(jobs)} unseen"
+            f"remote.co summary: {total_listings} listings, "
+            f"{len(parsed)} eng in-window, {len(jobs)} unseen "
+            f"(stale={total_stale}, non-engineering={total_non_eng}, "
+            f"age_days={age_days})"
         )
         logger.info(f"Successfully fetched {len(jobs)} jobs from remoteco")
         return jobs
@@ -213,32 +244,73 @@ def _fetch_via_curl_cffi(url: str) -> str | None:
             verify=verify,
         )
 
-    verify = True if _CURL_VERIFY is None else _CURL_VERIFY
-    try:
-        resp = _get(verify=verify)
-    except Exception as e:
-        if "certificate" not in str(e).lower() and "ssl" not in type(e).__name__.lower():
-            logger.info(f"remote.co chrome-TLS fetch failed ({type(e).__name__})")
-            return None
-        _CURL_VERIFY = False
+    for attempt in range(1, _RETRIES + 1):
+        verify = True if _CURL_VERIFY is None else _CURL_VERIFY
         try:
-            resp = _get(verify=False)
-        except Exception as e2:
-            logger.info(f"remote.co chrome-TLS fetch failed ({type(e2).__name__})")
-            return None
-    else:
-        if _CURL_VERIFY is None:
-            _CURL_VERIFY = verify
-    return _html_from_response(resp.status_code, resp.text)
+            resp = _get(verify=verify)
+        except Exception as e:
+            is_cert = (
+                "certificate" in str(e).lower()
+                or "ssl" in type(e).__name__.lower()
+            )
+            if is_cert and _CURL_VERIFY is not False:
+                _CURL_VERIFY = False
+                try:
+                    resp = _get(verify=False)
+                except Exception as e2:
+                    logger.info(
+                        f"remote.co chrome-TLS failed ({type(e2).__name__}) "
+                        f"attempt {attempt}/{_RETRIES}"
+                    )
+                    if attempt < _RETRIES:
+                        time.sleep(_RETRY_DELAY * attempt)
+                    continue
+            else:
+                logger.info(
+                    f"remote.co chrome-TLS failed ({type(e).__name__}) "
+                    f"attempt {attempt}/{_RETRIES}"
+                )
+                if attempt < _RETRIES:
+                    time.sleep(_RETRY_DELAY * attempt)
+                continue
+        else:
+            if _CURL_VERIFY is None:
+                _CURL_VERIFY = verify
+
+        html = _html_from_response(resp.status_code, resp.text)
+        if html is not None:
+            return html
+        logger.info(
+            f"remote.co chrome-TLS HTTP {resp.status_code} "
+            f"attempt {attempt}/{_RETRIES}"
+        )
+        if attempt < _RETRIES:
+            time.sleep(_RETRY_DELAY * attempt)
+    return None
 
 
 def _fetch_via_requests(url: str) -> str | None:
-    try:
-        resp = requests.get(url, headers=_HEADERS, timeout=_REQUESTS_TIMEOUT)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"remote.co requests failed ({type(e).__name__}); will try Chromium")
-        return None
-    return _html_from_response(resp.status_code, resp.text)
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_REQUESTS_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"remote.co requests failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        html = _html_from_response(resp.status_code, resp.text)
+        if html is not None:
+            return html
+        logger.info(
+            f"remote.co requests HTTP {resp.status_code} "
+            f"attempt {attempt}/{_RETRIES}"
+        )
+        if attempt < _RETRIES:
+            time.sleep(_RETRY_DELAY * attempt)
+    return None
 
 
 def _html_from_response(status: int, text: str) -> str | None:
@@ -262,16 +334,13 @@ def _fetch_html_requests(url: str) -> str | None:
 
 
 class _ListingFetcher:
-    """Chrome-TLS HTTP only. Playwright HTTP/2 is blocked on this host."""
+    """Chrome-TLS first, then plain requests. Chromium HTTP/2 is blocked here."""
 
     def fetch(self, url: str) -> str | None:
-        html = _fetch_via_curl_cffi(url)
+        html = _fetch_html_requests(url)
         if html is not None:
             return html
-        logger.warning(
-            "remote.co chrome-TLS miss; not falling back to Chromium "
-            "(HTTP/2 is blocked on this host)"
-        )
+        logger.info("remote.co fetch miss after chrome-TLS and requests retries")
         return None
 
     def close(self) -> None:
@@ -480,18 +549,20 @@ def _job_url(item: dict[str, Any], job_id: str) -> str:
     return urljoin(BASE_URL + "/", f"job-details/{job_id}")
 
 
-def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+def _parse_raw_job_result(
+    item: dict[str, Any], cutoff: datetime
+) -> tuple[dict[str, Any] | None, str]:
     title = (item.get("title") or "").strip() or _slug_to_title(item.get("slug") or "")
     if not title or not _is_engineering_title(title):
-        return None
+        return None, "non-eng"
 
     expire_on = _parse_dt(item.get("expireOn") or item.get("expire_on"))
     if expire_on and expire_on < datetime.now(tz=timezone.utc):
-        return None
+        return None, "expired"
 
     posted_date = _item_posted(item)
     if posted_date and posted_date < cutoff:
-        return None
+        return None, "stale"
 
     slug = (item.get("slug") or "").strip()
     job_id = str(item.get("id") or slug or title[:80])
@@ -506,4 +577,9 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | N
         "description": description,
         "location": _job_location(item),
         "posted_date": posted_date,
-    }
+    }, "kept"
+
+
+def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+    raw, _reason = _parse_raw_job_result(item, cutoff)
+    return raw

@@ -14,8 +14,9 @@ fully stale page (``MAX_JOB_AGE_DAYS``). Do not send Dice's 7-day
 
 On 429: keep jobs already collected, retry the same page with exponential
 backoff. Search ``summary`` is a short excerpt; the full body is loaded from
-each job-detail HTML page (not MCP ``get_job_details``) and emitted before
-the next search page so an abort still stores those jobs. Other errors retry
+each job-detail HTML page (not MCP ``get_job_details``) with up to 3 GET
+retries, and emitted before the next search page so an abort still stores
+those jobs. Other errors retry
 with the page delay, then continue other queries. ``location`` is always a
 string. Apply is on dice.com (review-capped).
 """
@@ -49,6 +50,8 @@ LISTING_URL = f"{BASE_URL}/jobs?filters.workplaceTypes=Remote%7CHybrid"
 _PROFILE_PATH = "profile.yaml"
 _PAGE_SIZE = 100
 _FETCH_DELAY = 1.0
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _RATE_LIMIT_BACKOFF = (5, 10, 20, 40, 60)
 # Runaway only; newest-first stale-page stop should fire earlier.
 _MAX_PAGES = 200
@@ -559,15 +562,28 @@ def _listing_url(item: dict[str, Any], job_id: str) -> str:
 def _fetch_detail_html(url: str) -> str | None:
     if not url:
         return None
-    try:
-        resp = requests.get(url, headers=_HTML_HEADERS, timeout=25)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"dice job-detail GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"dice job-detail GET HTTP {resp.status_code}")
-        return None
-    return resp.text or ""
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HTML_HEADERS, timeout=25)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"dice job-detail GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"dice job-detail GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"dice job-detail skipped after {_RETRIES} attempts")
+    return None
 
 
 def _detail_description(html: str) -> str:

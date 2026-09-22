@@ -24,7 +24,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
@@ -45,6 +45,8 @@ FILTER_QUERY: dict[str, Any] = {
 }
 _PAGE_SIZE = 50
 _FETCH_DELAY = 0.4
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 # Runaway only; newest-first stale-page stop should fire earlier.
 _MAX_PAGES = 80
 _HEADERS = {
@@ -72,10 +74,17 @@ class DevRemoteConnector(BaseConnector):
         self.source_name = "devremote"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from DevRemote filter API (newest-first)…")
+        age_days = max_job_age_days(self.source_name)
         cutoff = job_age_cutoff(self.source_name)
+        logger.info(
+            f"Fetching jobs from DevRemote filter API "
+            f"(age_days={age_days}; newest-first)…"
+        )
         parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        total_listings = 0
+        total_stale = 0
+        total_non_eng = 0
 
         try:
             skip = 0
@@ -84,8 +93,9 @@ class DevRemoteConnector(BaseConnector):
                 payload = _filter_payload(skip)
                 data = _fetch_filter_page(payload)
                 if data is None:
-                    logger.warning(
-                        f"devremote skip={skip} fetch failed — keeping prior jobs, stopping"
+                    logger.info(
+                        f"devremote skip={skip} skipped after retries "
+                        f"(keeping {len(parsed)} prior jobs)"
                     )
                     break
                 raw_items, count, page_size = _extract_filter_page(data)
@@ -97,13 +107,22 @@ class DevRemoteConnector(BaseConnector):
                 if not raw_items:
                     break
 
+                total_listings += len(raw_items)
                 dated: list[datetime] = []
                 kept = 0
+                stale = 0
+                non_eng = 0
                 for item in raw_items:
-                    raw = _parse_raw_job(item, cutoff)
                     posted = _item_posted(item)
                     if posted:
                         dated.append(posted)
+                    raw, reason = _parse_raw_job_result(item, cutoff)
+                    if reason == "stale":
+                        stale += 1
+                        continue
+                    if reason == "non-eng":
+                        non_eng += 1
+                        continue
                     if not raw:
                         continue
                     if raw["id"] in seen_ids:
@@ -112,9 +131,12 @@ class DevRemoteConnector(BaseConnector):
                     parsed.append(raw)
                     self._emit(raw)
                     kept += 1
+                total_stale += stale
+                total_non_eng += non_eng
                 all_stale = bool(dated) and all(dt < cutoff for dt in dated)
                 logger.info(
-                    f"devremote skip={skip}: {len(raw_items)} listings, {kept} kept"
+                    f"devremote skip={skip}: {len(raw_items)} listings, {kept} kept "
+                    f"(stale={stale}, non-engineering={non_eng})"
                 )
                 if all_stale:
                     logger.info(f"devremote skip={skip} is fully stale — stopping")
@@ -133,6 +155,11 @@ class DevRemoteConnector(BaseConnector):
         jobs = [job for job in parsed if job["listing_url"] in unseen]
         if jobs:
             remember_listing_urls(self.source_name, [job["listing_url"] for job in jobs])
+        logger.info(
+            f"devremote summary: {total_listings} listings, {len(jobs)} kept "
+            f"(stale={total_stale}, non-engineering={total_non_eng}, "
+            f"age_days={age_days})"
+        )
         logger.info(f"Successfully fetched {len(jobs)} jobs from devremote")
         return jobs
 
@@ -170,21 +197,45 @@ def _filter_payload(skip: int, page_size: int = _PAGE_SIZE) -> dict[str, Any]:
 
 
 def _fetch_filter_page(payload: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        resp = requests.post(
-            FILTER_URL, headers=_HEADERS, json=payload, timeout=20
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.post(
+                FILTER_URL, headers=_HEADERS, json=payload, timeout=20
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"devremote filter POST failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"devremote filter POST HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"devremote filter POST invalid JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if isinstance(data, dict):
+            return data
+        logger.info(
+            f"devremote filter POST non-object JSON attempt {attempt}/{_RETRIES}"
         )
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"devremote filter POST failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"devremote filter POST HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+        if attempt < _RETRIES:
+            time.sleep(_RETRY_DELAY * attempt)
+    logger.info(f"devremote filter POST skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_filter_page(data: dict[str, Any]) -> tuple[list[dict[str, Any]], int, int]:
@@ -304,16 +355,18 @@ def _offsite_apply_url(apply_url: Any) -> str:
     return url
 
 
-def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+def _parse_raw_job_result(
+    item: dict[str, Any], cutoff: datetime
+) -> tuple[dict[str, Any] | None, str]:
     if item.get("isLive") is False:
-        return None
+        return None, "offline"
     title = (item.get("title") or "").strip()
     if not title or not _is_engineering_title(title):
-        return None
+        return None, "non-eng"
 
     posted_date = _item_posted(item)
     if posted_date and posted_date < cutoff:
-        return None
+        return None, "stale"
 
     slug = (item.get("slug") or "").strip()
     job_id = str(item.get("id") or slug or title[:80])
@@ -330,4 +383,9 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | N
         "description": description,
         "location": _job_location(item),
         "posted_date": posted_date,
-    }
+    }, ""
+
+
+def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+    raw, _ = _parse_raw_job_result(item, cutoff)
+    return raw

@@ -219,6 +219,25 @@ def test_fetch_keeps_jobs_when_a_page_errors(
     assert {j["id"] for j in jobs} == {"new-1", "new-2"}
 
 
+@patch("connectors.workable.time.sleep")
+@patch("connectors.workable.requests.get")
+def test_fetch_page_retries_connection_error(mock_get, _sleep):
+    from connectors.workable import _RETRIES, _fetch_page
+    from requests.exceptions import ConnectionError as RequestsConnectionError
+
+    ok = _Resp(_payload([_item()]))
+    mock_get.side_effect = [RequestsConnectionError("reset"), ok]
+    data = _fetch_page([("query", "engineering")])
+    assert data is not None
+    assert len(data["jobs"]) == 1
+    assert mock_get.call_count == 2
+
+    mock_get.reset_mock()
+    mock_get.side_effect = RequestsConnectionError("reset")
+    assert _fetch_page([("query", "engineering")]) is None
+    assert mock_get.call_count == _RETRIES
+
+
 @patch("connectors.workable.remember_listing_urls")
 @patch("connectors.workable.unseen_listing_urls")
 @patch("connectors.workable.time.sleep")

@@ -209,12 +209,15 @@ def test_is_blocked_html():
     assert _is_blocked_html(_listing_html([_item()]), 200) is False
 
 
+@patch("connectors.remoteco.time.sleep")
 @patch("connectors.remoteco.requests.get")
-def test_fetch_via_requests_falls_back_on_timeout(mock_get):
+def test_fetch_via_requests_falls_back_on_timeout(mock_get, _sleep):
     import requests as req
+    from connectors.remoteco import _RETRIES
 
     mock_get.side_effect = req.Timeout("read timed out")
     assert _fetch_via_requests("https://remote.co/remote-jobs/search") is None
+    assert mock_get.call_count == _RETRIES
 
 
 @patch("connectors.remoteco._fetch_via_requests")
@@ -224,6 +227,18 @@ def test_fetch_html_prefers_chrome_tls(mock_chrome, mock_requests):
     html = _fetch_html_requests("https://remote.co/remote-jobs/search")
     assert html and "__NEXT_DATA__" in html
     mock_requests.assert_not_called()
+
+
+@patch("connectors.remoteco._fetch_via_requests")
+@patch("connectors.remoteco._fetch_via_curl_cffi", return_value=None)
+def test_listing_fetcher_falls_back_to_requests(mock_chrome, mock_requests):
+    from connectors.remoteco import _ListingFetcher
+
+    mock_requests.return_value = _listing_html([_item()])
+    html = _ListingFetcher().fetch("https://remote.co/remote-jobs/search")
+    assert html and "__NEXT_DATA__" in html
+    mock_chrome.assert_called_once()
+    mock_requests.assert_called_once()
 
 
 @patch("connectors.remoteco.remember_listing_urls")

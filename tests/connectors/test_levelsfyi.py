@@ -427,6 +427,48 @@ def test_fetch_stops_at_first_stale_page(
     assert mock_next.call_count == 1
 
 
+def test_open_listing_retries_timeout_then_fallback():
+    from connectors.levelsfyi import _OPEN_RETRIES, _open_listing
+
+    page = MagicMock()
+    # expect_response waits on __exit__ after goto (Playwright-style).
+    fail_cms = []
+    for _ in range(_OPEN_RETRIES):
+        cm = MagicMock()
+        cm.__enter__.return_value = MagicMock()
+        cm.__exit__.side_effect = TimeoutError("Timeout 30000ms exceeded")
+        fail_cms.append(cm)
+    page.expect_response.side_effect = fail_cms
+    page.wait_for_selector.side_effect = [
+        TimeoutError("no cards"),  # soft fallback after retries
+    ]
+
+    assert _open_listing(page) is False
+    assert page.goto.call_count == _OPEN_RETRIES
+    assert page.expect_response.call_count == _OPEN_RETRIES
+    # Final soft fallback selector wait once after retries exhausted.
+    assert page.wait_for_selector.call_count == 1
+
+
+def test_open_listing_retries_then_succeeds():
+    from connectors.levelsfyi import _open_listing
+
+    page = MagicMock()
+    fail_cm = MagicMock()
+    fail_cm.__enter__.return_value = MagicMock()
+    fail_cm.__exit__.side_effect = TimeoutError("Timeout 30000ms exceeded")
+    ok_cm = MagicMock()
+    ok_cm.__enter__.return_value = MagicMock()
+    ok_cm.__exit__.return_value = False
+    page.expect_response.side_effect = [fail_cm, ok_cm]
+    page.wait_for_selector.return_value = None
+
+    assert _open_listing(page) is True
+    assert page.goto.call_count == 2
+    assert page.expect_response.call_count == 2
+    assert page.wait_for_selector.call_count == 1
+
+
 class TestNormalize:
     def _raw(self):
         return {

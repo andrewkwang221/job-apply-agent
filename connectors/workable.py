@@ -51,6 +51,8 @@ LISTING_URL = f"{BASE_URL}/search?{urlencode(_FIXED_QUERY)}"
 _PROFILE_PATH = "profile.yaml"
 _PAGE_SIZE = 20
 _FETCH_DELAY = 0.4
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 # Runaway only; search is mixed-date so no stale-page stop.
 _MAX_PAGES = 200
 _MAX_FETCH_FAILURES = 5
@@ -223,7 +225,7 @@ def _fetch_query(
         data = _fetch_page(_api_params(query, page_token))
         if data is None:
             consecutive_failures += 1
-            logger.warning(
+            logger.info(
                 f"workable query={query!r} page {page} failed "
                 f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
                 "keeping prior jobs, continuing"
@@ -263,19 +265,43 @@ def _fetch_query(
 
 
 def _fetch_page(params: list[tuple[str, str]]) -> dict[str, Any] | None:
-    try:
-        resp = requests.get(API_URL, headers=_HEADERS, params=params, timeout=30)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"workable GET failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"workable GET HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
-    except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(API_URL, headers=_HEADERS, params=params, timeout=30)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"workable GET failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"workable GET HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"workable GET invalid JSON attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if isinstance(data, dict):
+            return data
+        logger.info(
+            f"workable GET non-object JSON attempt {attempt}/{_RETRIES}"
+        )
+        if attempt < _RETRIES:
+            time.sleep(_RETRY_DELAY * attempt)
+    logger.info(f"workable GET skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_jobs(data: dict[str, Any]) -> list[dict[str, Any]]:

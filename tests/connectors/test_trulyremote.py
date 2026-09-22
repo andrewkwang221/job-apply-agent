@@ -214,10 +214,13 @@ def test_fetch_keeps_prior_jobs_when_a_page_fails(
     mock_post.side_effect = [
         _Resp(_page([_record(listing_id=1)], offset="itrNext")),
         _Resp(status=500),
+        _Resp(status=500),
+        _Resp(status=500),
         _Resp(_page([_record(listing_id=2)], offset=None)),
     ]
     jobs = TrulyRemoteConnector().fetch_jobs()
     assert [job["id"] for job in jobs] == ["1", "2"]
+    assert mock_post.call_count == 5
 
 
 @patch("connectors.trulyremote.remember_listing_urls")
@@ -241,6 +244,35 @@ def test_fetch_merges_duplicate_listing_id(
     jobs = TrulyRemoteConnector().fetch_jobs()
     assert [job["id"] for job in jobs] == ["9"]
     assert jobs[0]["url"].startswith("https://job-boards.greenhouse.io/")
+
+
+@patch("connectors.trulyremote.time.sleep")
+@patch("connectors.trulyremote.requests.post")
+def test_fetch_page_retries_connection_then_ok(mock_post, _sleep):
+    from connectors.trulyremote import _RETRIES, _fetch_page
+    from requests.exceptions import ConnectionError as ReqConnectionError
+
+    ok = _Resp(_page([_record(listing_id=1)]))
+    mock_post.side_effect = [
+        ReqConnectionError("Connection aborted."),
+        ReqConnectionError("Connection aborted."),
+        ok,
+    ]
+    data = _fetch_page(_listing_body())
+    assert data is not None
+    assert len(data["records"]) == 1
+    assert mock_post.call_count == _RETRIES
+
+
+@patch("connectors.trulyremote.time.sleep")
+@patch("connectors.trulyremote.requests.post")
+def test_fetch_page_timeout_exhausts_retries(mock_post, _sleep):
+    from connectors.trulyremote import _RETRIES, _fetch_page
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    mock_post.side_effect = RequestsTimeout("read timed out")
+    assert _fetch_page(_listing_body()) is None
+    assert mock_post.call_count == _RETRIES
 
 
 def test_normalize_shape():

@@ -11,6 +11,7 @@ To get more than one 40-job slice, request every composition of
 ``jobTitleFilters`` (16) × ``locationFilters`` (Worldwide, United States) ×
 ``seniorityFilters`` (mid, senior) — 64 calls — then merge by job id.
 On 401/error, keep jobs already collected and continue the other combos.
+POST timeouts/connection errors retry up to 3 times; combo skips log at INFO.
 
 ``location`` is always a string. Prefer the offsite ``url`` as apply URL;
 listing URLs stay on remoterocketship.com (aggregator).
@@ -41,6 +42,8 @@ API_URL = f"{BASE_URL}/api/fetch_job_openings/"
 LISTING_REFERER = f"{BASE_URL}/remote-jobs/?page=1&sort=DateAdded"
 _ITEMS_PER_PAGE = 40
 _FETCH_DELAY = 0.4
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -199,7 +202,7 @@ def _fetch_combo(
 ) -> int:
     data = _post_filter(_filter_payload(title, location, seniority))
     if data is None:
-        logger.warning(
+        logger.info(
             f"remoterocketship {title!r}/{location!r}/{seniority} failed — "
             "keeping prior jobs, continuing"
         )
@@ -225,20 +228,50 @@ def _fetch_combo(
     return added
 
 
-def _post_filter(payload: dict[str, Any]) -> dict[str, Any] | None:
+def _retry_wait(resp: requests.Response, attempt: int) -> float:
+    raw = resp.headers.get("Retry-After") or ""
     try:
-        resp = requests.post(API_URL, headers=_HEADERS, json=payload, timeout=30)
-    except (requests.Timeout, requests.ConnectionError) as e:
-        logger.info(f"remoterocketship POST failed ({type(e).__name__})")
-        return None
-    if resp.status_code >= 400:
-        logger.info(f"remoterocketship POST HTTP {resp.status_code}")
-        return None
-    try:
-        data = resp.json()
+        wait = float(raw)
     except ValueError:
-        return None
-    return data if isinstance(data, dict) else None
+        wait = _RETRY_DELAY * attempt
+    return min(max(wait, 0), 60)
+
+
+def _post_filter(payload: dict[str, Any]) -> dict[str, Any] | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.post(API_URL, headers=_HEADERS, json=payload, timeout=30)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"remoterocketship POST failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code == 429 or resp.status_code >= 500:
+            wait = _retry_wait(resp, attempt)
+            logger.info(
+                f"remoterocketship POST HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(wait)
+            continue
+        if resp.status_code >= 400:
+            logger.info(f"remoterocketship POST HTTP {resp.status_code}")
+            return None
+        try:
+            data = resp.json()
+        except ValueError:
+            logger.info(
+                f"remoterocketship POST JSON failed attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return data if isinstance(data, dict) else None
+    return None
 
 
 def _extract_jobs(data: dict[str, Any]) -> list[dict[str, Any]]:
