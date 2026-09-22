@@ -323,3 +323,24 @@ class TestWaasNormalize:
         assert isinstance(n["location"], str)
         assert n["url"].startswith("https://www.workatastartup.com/")
         assert n["external_id"] == "85113"
+
+
+@patch("connectors.waas.time.sleep")
+def test_goto_retries_then_succeeds(_sleep):
+    from connectors.waas import _GOTO_RETRIES, _goto
+
+    page = MagicMock()
+    ok = MagicMock(status=200)
+    page.goto.side_effect = [TimeoutError("Timeout 60000ms exceeded"), ok]
+    assert _goto(page, "https://example.com", label="test") is ok
+    assert page.goto.call_count == 2
+
+
+@patch("connectors.waas.time.sleep")
+def test_goto_exhausts_retries(_sleep):
+    from connectors.waas import _GOTO_RETRIES, _goto
+
+    page = MagicMock()
+    page.goto.side_effect = TimeoutError("Timeout 60000ms exceeded")
+    assert _goto(page, "https://example.com", label="test") is None
+    assert page.goto.call_count == _GOTO_RETRIES

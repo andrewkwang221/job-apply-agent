@@ -378,3 +378,31 @@ def test_hydrate_retries_rate_limit(mock_get, _sleep):
     hydrate_job_descriptions(jobs)
     assert "After retry" in jobs[0]["description"]
     assert calls["n"] == 2
+
+
+@patch("connectors.remotejobsfinder.time.sleep")
+@patch("connectors.remotejobsfinder.requests.get")
+def test_fetch_page_retries_timeout_then_ok(mock_get, _sleep):
+    from connectors.remotejobsfinder import _RETRIES, _fetch_page
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    mock_get.side_effect = [
+        RequestsTimeout("read timeout=40"),
+        RequestsTimeout("read timeout=40"),
+        _Resp({"jobs": [], "meta": {"totalRecords": 0}}),
+    ]
+    data = _fetch_page([("search", "engineering"), ("skip", "0")])
+    assert data is not None
+    assert data["jobs"] == []
+    assert mock_get.call_count == _RETRIES
+
+
+@patch("connectors.remotejobsfinder.time.sleep")
+@patch("connectors.remotejobsfinder.requests.get")
+def test_fetch_page_timeout_exhausts_retries(mock_get, _sleep):
+    from connectors.remotejobsfinder import _RETRIES, _fetch_page
+    from requests.exceptions import Timeout as RequestsTimeout
+
+    mock_get.side_effect = RequestsTimeout("read timeout=40")
+    assert _fetch_page([("search", "engineering"), ("skip", "0")]) is None
+    assert mock_get.call_count == _RETRIES

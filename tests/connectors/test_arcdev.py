@@ -129,37 +129,84 @@ class TestEngineeringTitle:
 
 
 class TestFetchJobs:
+    @patch("connectors.arcdev._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.arcdev.time.sleep")
     @patch("connectors.arcdev.requests.get")
-    def test_returns_parsed_jobs(self, mock_get, _sleep):
+    def test_returns_parsed_jobs(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response(_listing_html())
         jobs = ArcDevConnector().fetch_jobs()
         assert len(jobs) == 1
         assert jobs[0]["title"] == "Senior Backend Engineer"
         assert mock_get.call_count >= 1
 
+    @patch("connectors.arcdev._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.arcdev.time.sleep")
     @patch("connectors.arcdev.requests.get")
-    def test_http_error_returns_empty(self, mock_get, _sleep):
+    def test_http_error_returns_empty(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response("fail", status=500)
         assert ArcDevConnector().fetch_jobs() == []
 
+    @patch("connectors.arcdev._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.arcdev.time.sleep")
     @patch("connectors.arcdev.requests.get")
-    def test_dedupes_same_job_across_category_pages(self, mock_get, _sleep):
+    def test_dedupes_same_job_across_category_pages(self, mock_get, _sleep, _curl):
         mock_get.return_value = _mock_response(_listing_html())
         jobs = ArcDevConnector().fetch_jobs()
         assert len(jobs) == 1
 
+    @patch("connectors.arcdev._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.arcdev._fetch_via_browser")
     @patch("connectors.arcdev.time.sleep")
     @patch("connectors.arcdev.requests.get")
-    def test_uses_browser_when_next_data_missing(self, mock_get, _sleep, mock_browser):
+    def test_uses_browser_when_next_data_missing(
+        self, mock_get, _sleep, mock_browser, _curl
+    ):
         mock_get.return_value = _mock_response("<html><body>empty shell</body></html>")
         mock_browser.return_value = _listing_html()
         jobs = ArcDevConnector().fetch_jobs()
         assert len(jobs) == 1
         assert mock_browser.called
+
+    @patch("connectors.arcdev.time.sleep")
+    @patch("connectors.arcdev.requests.get")
+    @patch("connectors.arcdev._fetch_via_curl_cffi")
+    def test_prefers_chrome_tls(self, mock_curl, mock_get, _sleep):
+        mock_curl.return_value = _listing_html()
+        jobs = ArcDevConnector().fetch_jobs()
+        assert len(jobs) == 1
+        mock_get.assert_not_called()
+
+    @patch("connectors.arcdev._fetch_via_curl_cffi", return_value=None)
+    @patch("connectors.arcdev.time.sleep")
+    @patch("connectors.arcdev.requests.get")
+    def test_timeout_retries_then_continues(self, mock_get, _sleep, _curl):
+        from connectors.arcdev import _RETRIES
+        from requests.exceptions import Timeout as RequestsTimeout
+
+        good = _mock_response(_listing_html())
+
+        def side_effect(url, *args, **kwargs):
+            if url.rstrip("/").endswith("/front-end"):
+                raise RequestsTimeout("read timeout=40")
+            return good
+
+        mock_get.side_effect = side_effect
+        jobs = ArcDevConnector().fetch_jobs()
+        assert len(jobs) == 1
+        front_calls = [
+            c for c in mock_get.call_args_list
+            if str(c.args[0]).rstrip("/").endswith("/front-end")
+        ]
+        assert len(front_calls) == _RETRIES
+
+
+class TestParseRawJobUrlString:
+    def test_builds_url_from_url_string(self):
+        item = _item()
+        item.pop("url")
+        item["urlString"] = "senior-backend-engineer-abc"
+        raw = _parse_raw_job(item, _CUTOFF)
+        assert raw["url"].endswith("/remote-jobs/details/senior-backend-engineer-abc")
 
 
 class TestNormalize:

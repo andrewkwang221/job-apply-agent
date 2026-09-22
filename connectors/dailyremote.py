@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import re
 import time
-import traceback
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib.parse import urljoin
@@ -37,10 +36,20 @@ from utils.text_cleaning import clean_description
 logger = setup_logger("dailyremote_connector")
 
 LISTING_URL = "https://dailyremote.com/remote-software-development-jobs"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 _FETCH_DELAY = 0.4
 # Runaway only. ~30 cards/page; do not walk ~1,700 catalog pages.
 _MAX_PAGES = 40
+_MAX_FETCH_FAILURES = 5
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
 _CARD_RE = re.compile(
     r'<article\s+class="lst-card js-card"\s+data-id="(\d+)"(.*?)</article>',
@@ -90,49 +99,58 @@ class DailyRemoteConnector(BaseConnector):
         known = known_job_urls(self.source_name)
         all_jobs: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
+        consecutive_failures = 0
 
-        try:
-            for page in range(1, _MAX_PAGES + 1):
-                html = _fetch_listing_html(page)
-                if not html:
-                    break
-                cards = _extract_cards(html)
-                if not cards:
-                    break
-
-                crawled: list[str] = []
-                new_on_page = 0
-                for card in cards:
-                    parsed = _parse_card(card, cutoff)
-                    url = (parsed or {}).get("url") or ""
-                    if url:
-                        crawled.append(url)
-                    if not parsed:
-                        continue
-                    job_id = parsed["id"]
-                    if job_id in seen_ids:
-                        continue
-                    if url.rstrip("/") in known:
-                        continue
-                    seen_ids.add(job_id)
-                    all_jobs.append(parsed)
-                    self._emit(parsed)
-                    new_on_page += 1
-
-                remember_listing_urls(self.source_name, crawled)
-                known.update(u.rstrip("/") for u in crawled)
-
+        for page in range(1, _MAX_PAGES + 1):
+            html = _fetch_listing_html(page)
+            if html is None:
+                consecutive_failures += 1
                 logger.info(
-                    f"Page {page}: {len(cards)} cards, {new_on_page} kept "
-                    f"(total {len(all_jobs)})"
+                    f"dailyremote page {page} skipped "
+                    f"({consecutive_failures}/{_MAX_FETCH_FAILURES}) — "
+                    f"keeping {len(all_jobs)} prior jobs"
                 )
-                if page < _MAX_PAGES and _has_next_page(html, page):
-                    time.sleep(_FETCH_DELAY)
-                else:
+                if consecutive_failures >= _MAX_FETCH_FAILURES:
                     break
-        except Exception as e:
-            logger.error(f"Error fetching jobs from {self.source_name}: {e}")
-            logger.debug(traceback.format_exc())
+                time.sleep(_FETCH_DELAY)
+                continue
+            if not html:
+                break
+            consecutive_failures = 0
+            cards = _extract_cards(html)
+            if not cards:
+                break
+
+            crawled: list[str] = []
+            new_on_page = 0
+            for card in cards:
+                parsed = _parse_card(card, cutoff)
+                url = (parsed or {}).get("url") or ""
+                if url:
+                    crawled.append(url)
+                if not parsed:
+                    continue
+                job_id = parsed["id"]
+                if job_id in seen_ids:
+                    continue
+                if url.rstrip("/") in known:
+                    continue
+                seen_ids.add(job_id)
+                all_jobs.append(parsed)
+                self._emit(parsed)
+                new_on_page += 1
+
+            remember_listing_urls(self.source_name, crawled)
+            known.update(u.rstrip("/") for u in crawled)
+
+            logger.info(
+                f"Page {page}: {len(cards)} cards, {new_on_page} kept "
+                f"(total {len(all_jobs)})"
+            )
+            if page < _MAX_PAGES and _has_next_page(html, page):
+                time.sleep(_FETCH_DELAY)
+            else:
+                break
 
         logger.info(f"Successfully fetched {len(all_jobs)} jobs from {self.source_name}")
         return all_jobs
@@ -166,9 +184,30 @@ def _fetch_listing_html(page: int) -> str | None:
     params: dict[str, Any] = {"sort": "time"}
     if page > 1:
         params["page"] = page
-    resp = requests.get(LISTING_URL, headers=_HEADERS, params=params, timeout=25)
-    resp.raise_for_status()
-    return resp.text
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(
+                LISTING_URL, headers=_HEADERS, params=params, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"dailyremote page {page} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"dailyremote page {page} HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"dailyremote page {page} skipped after {_RETRIES} attempts")
+    return None
 
 
 def _extract_cards(html: str) -> list[tuple[str, str]]:

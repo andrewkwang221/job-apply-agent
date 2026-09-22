@@ -151,6 +151,26 @@ class TestFetchJobs:
     @patch("connectors.dailyremote.known_job_urls", return_value=set())
     @patch("connectors.dailyremote.time.sleep")
     @patch("connectors.dailyremote.requests.get")
+    def test_connection_abort_retries_then_keeps_prior(
+        self, mock_get, _sleep, _known, _remember
+    ):
+        from connectors.dailyremote import _RETRIES
+        from requests.exceptions import ConnectionError as ReqConnectionError
+
+        page1 = _card_html(job_id="1", slug="backend-engineer", next_page=2)
+        mock_get.side_effect = [
+            _mock_response(page1),
+            *([ReqConnectionError("Connection aborted.")] * _RETRIES),
+            _mock_response(_card_html(job_id="3", slug="platform-engineer")),
+        ]
+        jobs = DailyRemoteConnector().fetch_jobs()
+        assert {j["id"] for j in jobs} == {"1", "3"}
+        assert mock_get.call_count == 1 + _RETRIES + 1
+
+    @patch("connectors.dailyremote.remember_listing_urls")
+    @patch("connectors.dailyremote.known_job_urls", return_value=set())
+    @patch("connectors.dailyremote.time.sleep")
+    @patch("connectors.dailyremote.requests.get")
     def test_skips_already_known_listing_url(self, mock_get, _sleep, known, _remember):
         url = "https://dailyremote.com/remote-job/senior-backend-engineer-5587310"
         known.return_value = {url}

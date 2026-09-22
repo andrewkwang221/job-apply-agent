@@ -38,20 +38,30 @@ logger = setup_logger("flexa_connector")
 
 _GRAPHQL_URL = "https://flexa.careers/api/graphql"
 _HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)",
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
     "Content-Type": "application/json",
     "Accept": "application/json",
 }
-_PAGE_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_PAGE_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 
 # GraphQL jobs to fetch per request (API limit unknown — 300 is conservative).
+# Listing is DATE_DESC newest-first, so a page-fetch prefix cap is OK.
 _GRAPHQL_BATCH = 300
-# Max individual Flexa job pages to fetch per pipeline run.
 _MAX_PAGE_FETCHES = 100
-# Politeness delay between page fetches (seconds).
 _FETCH_DELAY = 0.4
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 
-# Engineering-relevant keywords matched as substrings of the job title (lowercase).
 _ENGINEERING_KEYWORDS = {
     "engineer", "engineering", "developer", "software", "backend", "frontend",
     "full stack", "full-stack", "fullstack", "devops", "sre", "data engineer",
@@ -88,13 +98,14 @@ class FlexaConnector(BaseConnector):
 
         jobs: List[Dict[str, Any]] = []
         for gql_job in eng_jobs[:_MAX_PAGE_FETCHES]:
+            url = (gql_job.get("url") or "").strip()
             try:
                 enriched = _enrich_from_page(gql_job)
                 if enriched:
                     self._emit(enriched, jobs)
                 time.sleep(_FETCH_DELAY)
             except Exception as e:
-                logger.warning(f"Failed to fetch {gql_job.get('url', '')}: {e}")
+                logger.info(f"flexa detail skip ({type(e).__name__}) for {url}")
                 logger.debug(traceback.format_exc())
 
         logger.info(f"Successfully fetched {len(jobs)} jobs from flexa.careers")
@@ -125,23 +136,39 @@ class FlexaConnector(BaseConnector):
         return self.source_name
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 def _fetch_graphql_jobs(limit: int) -> List[Dict[str, Any]]:
     """Query the Flexa GraphQL API and return raw job dicts."""
     payload = {"query": _GRAPHQL_QUERY % limit}
-    try:
-        resp = requests.post(_GRAPHQL_URL, json=payload, headers=_HEADERS, timeout=20)
-        resp.raise_for_status()
-        data = resp.json()
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.post(
+                _GRAPHQL_URL, json=payload, headers=_HEADERS, timeout=_API_TIMEOUT
+            )
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"flexa GraphQL failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"flexa GraphQL HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        try:
+            data = resp.json()
+        except Exception as e:
+            logger.info(f"flexa GraphQL JSON failed ({type(e).__name__})")
+            return []
         jobs = (data.get("data") or {}).get("jobs") or []
         return [j for j in jobs if isinstance(j, dict)]
-    except Exception as e:
-        logger.error(f"GraphQL request failed: {e}")
-        logger.debug(traceback.format_exc())
-        return []
+    logger.info(f"flexa GraphQL skipped after {_RETRIES} attempts")
+    return []
 
 
 def _is_engineering_title(title: str) -> bool:
@@ -179,18 +206,43 @@ def _stringify_location(value: Any) -> str:
     return "Worldwide"
 
 
+def _fetch_detail_html(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_PAGE_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"flexa detail failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"flexa detail HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    logger.info(f"flexa detail skipped after {_RETRIES} attempts")
+    return None
+
+
 def _enrich_from_page(gql_job: Dict[str, Any]) -> Dict[str, Any] | None:
     """Fetch the Flexa job page and merge JSON-LD data into the GraphQL job dict."""
     url = (gql_job.get("url") or "").strip()
     if not url:
         return None
 
-    resp = requests.get(url, headers=_PAGE_HEADERS, timeout=15)
-    resp.raise_for_status()
+    html = _fetch_detail_html(url)
+    if html is None:
+        return None
 
-    jsonld = _extract_jsonld(resp.text)
+    jsonld = _extract_jsonld(html)
 
-    # Skip expired postings.
     if jsonld:
         valid_through = jsonld.get("validThrough")
         if valid_through:

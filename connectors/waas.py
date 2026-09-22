@@ -67,8 +67,10 @@ _PUBLIC_HEADERS = {
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
 _FETCH_DELAY = 0.4
-_NAV_TIMEOUT_MS = 45_000
+_NAV_TIMEOUT_MS = 60_000
 _SCROLL_WAIT_MS = 8_000
+_GOTO_RETRIES = 3
+_GOTO_RETRY_DELAY = 1.5
 # Newest-first directory: stale-batch stop; these are runaway guards.
 _MAX_PAGES = 80
 _MAX_SCROLLS = 80
@@ -144,9 +146,14 @@ class WaasConnector(BaseConnector):
                 _enrich_details(page, all_jobs, on_job=self._emit)
                 remembered = [job["url"] for job in all_jobs]
         except Exception as e:
-            logger.error(f"Error fetching WAAS jobs: {e}")
+            logger.info(f"WAAS fetch aborted ({type(e).__name__}): {e}")
             logger.debug(traceback.format_exc())
-            return []
+            if all_jobs and not remembered:
+                remembered = [job["url"] for job in all_jobs]
+            if remembered:
+                remember_listing_urls(self.source_name, remembered)
+            logger.info(f"Successfully fetched {len(all_jobs)} jobs from waas")
+            return all_jobs
 
         if remembered:
             remember_listing_urls(self.source_name, remembered)
@@ -177,6 +184,29 @@ class WaasConnector(BaseConnector):
 
     def get_source_name(self) -> str:
         return self.source_name
+
+
+def _goto(page: Any, url: str, *, label: str = "page") -> Any | None:
+    """Navigate with retries. Returns the response, or None after exhausting retries."""
+    last_err: Exception | None = None
+    for attempt in range(1, _GOTO_RETRIES + 1):
+        try:
+            return page.goto(
+                url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS
+            )
+        except Exception as e:
+            last_err = e
+            logger.info(
+                f"WAAS goto {label} failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_GOTO_RETRIES}"
+            )
+            if attempt < _GOTO_RETRIES:
+                time.sleep(_GOTO_RETRY_DELAY * attempt)
+    if last_err is not None:
+        logger.info(
+            f"WAAS goto {label} skipped after {_GOTO_RETRIES} attempts: {last_err}"
+        )
+    return None
 
 
 def _url_host(url: str) -> str:
@@ -562,11 +592,8 @@ def _collect_companies(page: Any, cutoff: datetime) -> list[dict[str, Any]]:
     page.on("request", on_request)
     page.on("response", on_response)
     try:
-        page.goto(
-            WAAS_COMPANIES_URL,
-            wait_until="domcontentloaded",
-            timeout=_NAV_TIMEOUT_MS,
-        )
+        if _goto(page, WAAS_COMPANIES_URL, label="companies") is None:
+            return []
         _wait_algolia_opts(page)
         try:
             page.wait_for_selector(".directory-list", timeout=15_000)
@@ -575,7 +602,11 @@ def _collect_companies(page: Any, cutoff: datetime) -> list[dict[str, Any]]:
         _wait_for_first_search(page, captured, store)
         if captured.get("first_payload") is None and not store:
             logger.info("WAAS reloading directory after AlgoliaOpts is ready")
-            page.reload(wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+            except Exception as e:
+                logger.info(f"WAAS reload failed ({type(e).__name__})")
+                return list(store.values())
             _wait_algolia_opts(page)
             _wait_for_first_search(page, captured, store)
         if not _on_companies_directory(page.url):
@@ -729,7 +760,7 @@ def _enrich_details(page: Any, jobs: list[dict[str, Any]], on_job=None) -> None:
             html = _page_html(page, job["url"])
             _merge_detail(job, html)
         except Exception as e:
-            logger.warning(f"Failed to fetch WAAS job {job['url']}: {e}")
+            logger.info(f"WAAS detail skip ({type(e).__name__}) for {job['url']}")
             logger.debug(traceback.format_exc())
         if on_job:
             on_job(job)
@@ -1014,7 +1045,8 @@ def _launch_browser(pw: Any) -> Any:
 def _login(page: Any, email: str, password: str) -> bool:
     continue_to = quote(WAAS_COMPANIES_URL, safe="")
     login_url = f"{ACCOUNT_LOGIN_URL}?continue={continue_to}"
-    page.goto(login_url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
+    if _goto(page, login_url, label="login") is None:
+        return False
     if _is_waas_host(page.url):
         return True
     if page.locator("iframe[src*='recaptcha'], iframe[src*='hcaptcha'], iframe[src*='turnstile']").count():
@@ -1078,8 +1110,10 @@ def _browser_session(email: str, password: str):
 
 
 def _page_html(page: Any, url: str) -> str:
-    resp = page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-    if resp is not None and resp.status >= 400:
-        logger.warning(f"WAAS HTTP {resp.status} on {url}")
+    resp = _goto(page, url, label="detail")
+    if resp is None:
+        return ""
+    if getattr(resp, "status", 200) >= 400:
+        logger.info(f"WAAS HTTP {resp.status} on {url}")
         return ""
     return page.content()

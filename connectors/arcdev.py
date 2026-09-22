@@ -8,13 +8,14 @@ embedded in Next.js ``__NEXT_DATA__`` as ``arcJobs`` + ``externalJobs``.
 Strategy
 --------
 1. GET the hub page plus a small set of engineering category pages
-   (``/remote-jobs/back-end``, ``full-stack``, ``devops``, …). Each public
-   category page returns up to ~60 jobs; do not walk the 696-slug catalog
-   or the client-side CSRF pager.
+   (``/remote-jobs/back-end``, ``full-stack``, ``devops``, …) via Chrome-TLS
+   first, then plain ``requests``. Each public category page returns up to
+   ~60 jobs; do not walk the 696-slug catalog or the client-side CSRF pager.
 2. Parse ``__NEXT_DATA__``. Fall back to Chromium only when the response is
    an empty JS shell.
 3. Keep engineering-relevant titles; drop postings older than
-   ``MAX_JOB_AGE_DAYS``.
+   ``MAX_JOB_AGE_DAYS`` (log stale/non-eng counts — public pages often have
+   no in-window jobs).
 4. Store the Arc job URL. Arc Exclusive / Fast apply is account-gated, so
    scoring caps this source at review. No Arc credentials.
 """
@@ -33,15 +34,24 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
-from utils.job_age import job_age_cutoff
+from utils.job_age import job_age_cutoff, max_job_age_days
 from utils.logger import setup_logger
 from utils.text_cleaning import clean_description
 
 logger = setup_logger("arcdev_connector")
 
 LISTING_URL = "https://arc.dev/remote-jobs"
-_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; job-apply-agent/1.0)"}
+_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
 _FETCH_DELAY = 0.4
+_API_TIMEOUT = 40
+_RETRIES = 3
+_RETRY_DELAY = 1.5
 _NEXT_DATA_RE = re.compile(
     r'<script[^>]*id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
     re.DOTALL | re.IGNORECASE,
@@ -93,50 +103,69 @@ _UNIT_TO_KWARG = {
     "weeks": "weeks",
 }
 
+_CURL_VERIFY: bool | None = None
+
 
 class ArcDevConnector(BaseConnector):
     def __init__(self):
         self.source_name = "arcdev"
 
     def fetch_jobs(self) -> list[dict[str, Any]]:
-        logger.info("Fetching jobs from arc.dev public board…")
+        age_days = max_job_age_days(self.source_name)
         cutoff = job_age_cutoff(self.source_name)
+        logger.info(
+            f"Fetching jobs from arc.dev public board (age_days={age_days})…"
+        )
         all_jobs: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
         urls = [LISTING_URL, *[f"{LISTING_URL}/{slug}" for slug in _CATEGORY_SLUGS]]
+        total_stale = 0
+        total_non_eng = 0
+        total_listings = 0
 
-        try:
-            for i, url in enumerate(urls):
-                try:
-                    html = _fetch_listing_html(url)
-                except Exception as e:
-                    logger.warning(f"Failed to fetch {url}: {e}")
-                    logger.debug(traceback.format_exc())
-                    continue
-                if not html:
-                    continue
-                raw_items = _extract_listing_jobs(html)
-                new_on_page = 0
-                for item in raw_items:
-                    parsed = _parse_raw_job(item, cutoff)
-                    if not parsed:
-                        continue
-                    job_id = parsed["id"]
-                    if job_id in seen_ids:
-                        continue
-                    seen_ids.add(job_id)
-                    self._emit(parsed, all_jobs)
-                    new_on_page += 1
-                logger.info(
-                    f"{url}: {len(raw_items)} listings, {new_on_page} kept "
-                    f"(total {len(all_jobs)})"
-                )
+        for i, url in enumerate(urls):
+            html = _fetch_listing_html(url)
+            if not html:
+                logger.info(f"arc.dev skipped {url} (keeping {len(all_jobs)} prior)")
                 if i + 1 < len(urls):
                     time.sleep(_FETCH_DELAY)
-        except Exception as e:
-            logger.error(f"Error fetching jobs from {self.source_name}: {e}")
-            logger.debug(traceback.format_exc())
+                continue
+            raw_items = _extract_listing_jobs(html)
+            total_listings += len(raw_items)
+            new_on_page = 0
+            stale = 0
+            non_eng = 0
+            for item in raw_items:
+                parsed, reason = _parse_raw_job_result(item, cutoff)
+                if reason == "stale":
+                    stale += 1
+                    continue
+                if reason == "non-eng":
+                    non_eng += 1
+                    continue
+                if not parsed:
+                    continue
+                job_id = parsed["id"]
+                if job_id in seen_ids:
+                    continue
+                seen_ids.add(job_id)
+                self._emit(parsed, all_jobs)
+                new_on_page += 1
+            total_stale += stale
+            total_non_eng += non_eng
+            logger.info(
+                f"{url}: {len(raw_items)} listings, {new_on_page} kept "
+                f"(stale={stale}, non-engineering={non_eng}, "
+                f"total {len(all_jobs)})"
+            )
+            if i + 1 < len(urls):
+                time.sleep(_FETCH_DELAY)
 
+        logger.info(
+            f"arc.dev summary: {total_listings} listings across pages, "
+            f"{len(all_jobs)} kept (stale={total_stale}, "
+            f"non-engineering={total_non_eng}, age_days={age_days})"
+        )
         logger.info(f"Successfully fetched {len(all_jobs)} jobs from {self.source_name}")
         return all_jobs
 
@@ -165,33 +194,106 @@ class ArcDevConnector(BaseConnector):
         return self.source_name
 
 
-def _fetch_via_browser(url: str) -> str:
+def _fetch_via_browser(url: str) -> str | None:
     """Render the listing when requests gets an empty JS shell."""
-    from playwright.sync_api import sync_playwright
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+    try:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(headless=True)
+            try:
+                page = browser.new_page()
+                resp = page.goto(url, wait_until="domcontentloaded", timeout=45000)
+                if resp is None or resp.status >= 400:
+                    return None
+                page.wait_for_timeout(1500)
+                return page.content()
+            finally:
+                browser.close()
+    except Exception as e:
+        logger.info(f"arc.dev Chromium failed ({type(e).__name__}) for {url}")
+        logger.debug(traceback.format_exc())
+        return None
+
+
+def _fetch_via_curl_cffi(url: str) -> str | None:
+    global _CURL_VERIFY
+    try:
+        from curl_cffi import requests as chrome_requests
+    except ImportError:
+        return None
+
+    def _get(*, verify: bool):
+        return chrome_requests.get(
+            url,
+            impersonate="chrome",
+            timeout=_API_TIMEOUT,
+            allow_redirects=True,
+            verify=verify,
+        )
+
+    verify = True if _CURL_VERIFY is None else _CURL_VERIFY
+    try:
+        resp = _get(verify=verify)
+    except Exception as e:
+        if "certificate" not in str(e).lower() and "ssl" not in type(e).__name__.lower():
+            logger.info(f"arc.dev chrome-TLS failed ({type(e).__name__})")
+            return None
+        _CURL_VERIFY = False
         try:
-            page = browser.new_page()
-            resp = page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if resp is None:
-                raise RuntimeError("browser navigation returned no response")
-            if resp.status >= 400:
-                raise RuntimeError(f"browser fetch HTTP {resp.status}")
-            page.wait_for_timeout(1500)
-            return page.content()
-        finally:
-            browser.close()
+            resp = _get(verify=False)
+        except Exception as e2:
+            logger.info(f"arc.dev chrome-TLS failed ({type(e2).__name__})")
+            return None
+    else:
+        if _CURL_VERIFY is None:
+            _CURL_VERIFY = verify
+    if resp.status_code >= 400:
+        logger.info(f"arc.dev chrome-TLS HTTP {resp.status_code}")
+        return None
+    return resp.text or ""
+
+
+def _fetch_via_requests(url: str) -> str | None:
+    for attempt in range(1, _RETRIES + 1):
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+        except (requests.Timeout, requests.ConnectionError) as e:
+            logger.info(
+                f"arc.dev requests failed ({type(e).__name__}) "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        if resp.status_code >= 400:
+            logger.info(
+                f"arc.dev requests HTTP {resp.status_code} "
+                f"attempt {attempt}/{_RETRIES}"
+            )
+            if attempt < _RETRIES:
+                time.sleep(_RETRY_DELAY * attempt)
+            continue
+        return resp.text or ""
+    return None
 
 
 def _fetch_listing_html(url: str) -> str | None:
-    resp = requests.get(url, headers=_HEADERS, timeout=25)
-    resp.raise_for_status()
-    html = resp.text
+    html = _fetch_via_curl_cffi(url)
+    if html is None:
+        html = _fetch_via_requests(url)
+    if html is None:
+        return None
     if _NEXT_DATA_RE.search(html):
         return html
     logger.info(f"No __NEXT_DATA__ in {url}; fetching via Chromium…")
-    return _fetch_via_browser(url)
+    browser_html = _fetch_via_browser(url)
+    if browser_html and _NEXT_DATA_RE.search(browser_html):
+        return browser_html
+    return None
 
 
 def _extract_listing_jobs(html: str) -> list[dict[str, Any]]:
@@ -300,10 +402,15 @@ def _job_url(item: dict[str, Any]) -> str:
         raw = item.get(key)
         if isinstance(raw, str) and raw.strip():
             return urljoin("https://arc.dev", raw.strip())
-    random_key = str(item.get("randomKey") or "").strip()
-    slug = str(item.get("slug") or "").strip()
+    slug = (
+        str(item.get("urlString") or "").strip()
+        or str(item.get("slug") or "").strip()
+    )
     if slug:
+        if slug.startswith("http"):
+            return slug
         return urljoin("https://arc.dev", f"/remote-jobs/details/{slug}")
+    random_key = str(item.get("randomKey") or "").strip()
     if random_key:
         return f"https://arc.dev/remote-jobs/details/{random_key}"
     return ""
@@ -325,10 +432,12 @@ def _description(item: dict[str, Any]) -> str:
     return description
 
 
-def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+def _parse_raw_job_result(
+    item: dict[str, Any], cutoff: datetime
+) -> tuple[dict[str, Any] | None, str]:
     title = (item.get("title") or item.get("position") or "").strip()
     if not title or not _is_engineering_title(title):
-        return None
+        return None, "non-eng"
 
     posted_date = _parse_dt(
         item.get("postedAt")
@@ -338,12 +447,12 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | N
         or item.get("posted_at")
     )
     if posted_date and posted_date < cutoff:
-        return None
+        return None, "stale"
 
     job_id = str(item.get("randomKey") or item.get("id") or item.get("slug") or title[:80])
     url = _job_url(item)
     if not url:
-        return None
+        return None, "no-url"
 
     return {
         "id": job_id,
@@ -353,4 +462,9 @@ def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | N
         "description": _description(item),
         "location": _location_text(item),
         "posted_date": posted_date,
-    }
+    }, "kept"
+
+
+def _parse_raw_job(item: dict[str, Any], cutoff: datetime) -> dict[str, Any] | None:
+    raw, _reason = _parse_raw_job_result(item, cutoff)
+    return raw
