@@ -13,7 +13,7 @@ https://4dayweek.io/developers
 through shared inclusion.
 
 List JSON already has the JD — no detail HTTP. Apply is Pro/login gated
-on 4dayweek.io (review-capped). ``location`` is a string, never the
+on 4dayweek.io. ``location`` is a string, never the
 locations JSON array.
 """
 from __future__ import annotations

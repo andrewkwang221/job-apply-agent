@@ -13,8 +13,7 @@ mixed — walk ``?page=`` (runaway cap). Engineering title filter. Skip
 known URLs. Skip detail HTTP; the card has title, location, blurb, and
 ISO ``published_date`` in the tracking payload.
 
-``location`` is a string. Apply is Join / Easy Apply on builtin.com
-(review-capped).
+``location`` is a string. Apply is Join / Easy Apply on builtin.com.
 """
 from __future__ import annotations
 

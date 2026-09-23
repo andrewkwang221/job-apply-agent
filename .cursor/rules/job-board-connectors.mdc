@@ -31,7 +31,7 @@ New `connectors/*.py` + `CONNECTORS` register is not architecture.
 
 ## Normalize
 
-`location` and `raw_location_text` must be strings, never JSON-LD dicts. Paywalled apply → `_NO_DIRECT_APPLY_SOURCES`. Aggregator host → `form_inspector._LISTING_DOMAINS`.
+`location` and `raw_location_text` must be strings, never JSON-LD dicts. Aggregator host → `form_inspector._LISTING_DOMAINS`.
 
 ## Job inclusion
 

@@ -11,7 +11,7 @@ varying ``term=``). Keep Full-time / Part-time / Contract (and Other); drop
 Internship / Temporary on the card. ``location`` is the region string
 (``USA Only``, ``Worldwide``, …). Skip known listing URLs. Skip detail HTTP;
 the card has title, company, region, and ``Mon DD, YYYY``. Apply is
-register-gated (``/register?account_type=worker``) — capped at review.
+register-gated (``/register?account_type=worker``).
 """
 from __future__ import annotations
 

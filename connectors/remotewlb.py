@@ -13,7 +13,7 @@ Engineering title filter (slug + JobPosting). Skip expired
 ``validThrough``. Detail JobPosting JSON-LD for description/company/
 ``datePosted``. ``location`` is ``Remote`` (TELECOMMUTE).
 
-``directApply`` is false and there is no employer apply URL — review-capped.
+``directApply`` is false and there is no employer apply URL.
 Fetch via Chrome TLS (``curl_cffi``) with soft retries; plain ``requests``
 fallback.
 """

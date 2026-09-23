@@ -15,7 +15,7 @@ AND and returned no results.
 Stop at the first stale ``lastmod``. Engineering title from the slug.
 Skip known URLs. Skip detail when listing title + ``Remote`` fails
 inclusion. Guest job HTML has a Job Summary; full JD / company / apply are
-membership gated (review-capped). ``location`` is a string.
+membership gated. ``location`` is a string.
 """
 from __future__ import annotations
 

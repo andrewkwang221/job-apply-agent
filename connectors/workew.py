@@ -13,7 +13,7 @@ company, region, and employer apply — no detail HTTP.
 
 ``location`` is the region taxonomy name (``Fully Remote``, ``Remote US``,
 …). Employer ATS ``meta._application`` is stored (``utm_*`` stripped);
-Workew / LinkedIn / mailto apply dropped. Not review-capped.
+Workew / LinkedIn / mailto apply dropped.
 """
 from __future__ import annotations
 

@@ -18,7 +18,7 @@ each job-detail HTML page (not MCP ``get_job_details``) with up to 3 GET
 retries, and emitted before the next search page so an abort still stores
 those jobs. Other errors retry
 with the page delay, then continue other queries. ``location`` is always a
-string. Apply is on dice.com (review-capped).
+string. Apply is on dice.com.
 """
 from __future__ import annotations
 

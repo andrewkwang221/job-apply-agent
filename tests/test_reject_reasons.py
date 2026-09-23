@@ -99,22 +99,6 @@ def test_job_to_dict_includes_reject_fields():
 
 
 def test_job_to_dict_includes_eval_bucket():
-    gated = Job(
-        external_id="eval-gated",
-        source="dice",
-        company="Acme",
-        title="Staff Engineer",
-        location="Remote",
-        url="https://example.com/jobs/eval-gated",
-        status="review",
-        fit_score=80,
-        rule_status="shortlisted",
-        recommendation="shortlist",
-    )
-    data = _job_to_dict(gated)
-    assert data["eval_code"] == "gated"
-    assert data["eval_label"] == "No direct apply"
-
     location = Job(
         external_id="eval-loc",
         source="remotive",

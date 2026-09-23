@@ -9,7 +9,7 @@ first job older than ``max_job_age_days``. ``search[countries][]=US``,
 pay rate $50–100+/hr including unlisted rates, and ``search[newer_than]`` as
 the cutoff date. Engineering title filter. ``location`` is ``Remote`` (the
 HQ line is the client's office). Skip detail HTTP. Apply opens an account
-dialog (capped at review).
+dialog.
 """
 from __future__ import annotations
 

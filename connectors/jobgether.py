@@ -14,7 +14,7 @@ roles. Each engineering keyword is walked and merged by id. Stop at the
 first fully stale page (``MAX_JOB_AGE_DAYS``). Skip known listing URLs.
 
 List JSON has no JD. Unseen eligible offers are hydrated from JobPosting
-JSON-LD (2s crawl-delay). Apply stays on jobgether.com (review-capped).
+JSON-LD (2s crawl-delay). Apply stays on jobgether.com.
 ``location`` is the listing string, never a JSON-LD dict.
 """
 from __future__ import annotations

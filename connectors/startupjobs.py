@@ -16,8 +16,7 @@ No seniority facet. Dates are mixed — walk pages until empty / nbPages
 (runaway cap). Engineering title filter. Skip detail when listing
 location/title already fails ``job_inclusion``. Never ``/apply/``.
 
-``location`` is a string (never JSON-LD). Apply stays on startup.jobs
-(review-capped).
+``location`` is a string (never JSON-LD). Apply stays on startup.jobs.
 """
 from __future__ import annotations
 

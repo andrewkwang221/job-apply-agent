@@ -13,8 +13,7 @@ Strategy
    page cap or the first old job.
 2. Parse ``__NEXT_DATA__`` for title, summary, location, dates, and slug.
 3. Keep engineering-relevant titles; skip expired and stale postings.
-4. Store the remotejobs.io job URL. Apply links are paywalled, so scoring
-   caps this source at review (see ``_NO_DIRECT_APPLY_SOURCES``).
+4. Store the remotejobs.io job URL. Apply links are paywalled.
 """
 from __future__ import annotations
 

@@ -18,7 +18,7 @@ Skip detail when listing location/title already fails ``job_inclusion``.
 Detail ``__NEXT_DATA__.pageProps.initialJobDetails`` supplies
 ``applicationUrl`` / description / ``postingDate``. Store employer ATS
 apply URLs (``utm_*`` stripped). Drop LinkedIn-only / levels.fyi-only
-apply so this source is not review-capped. ``location`` is the listing
+apply. ``location`` is the listing
 string.
 """
 from __future__ import annotations

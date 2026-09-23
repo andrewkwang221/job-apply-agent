@@ -20,8 +20,7 @@ titles, so keep engineering titles on the card. Stop at the first stale
 job. Skip known listing URLs. Skip detail HTTP when listing location/title
 already fails ``job_inclusion``.
 
-``location`` is the listing-card string. Apply stays on theladders.com
-(review-capped).
+``location`` is the listing-card string. Apply stays on theladders.com.
 """
 from __future__ import annotations
 

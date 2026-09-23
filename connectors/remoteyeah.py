@@ -10,8 +10,7 @@ listing is a large SSR page; prefer the feed. ``robots.txt`` allows all.
 filter (path already mid/senior/staff/principal + US/worldwide, but
 leaks DevRel / marketing). ``location`` from the description
 ``Locations:`` bullet (string). Skip known listing URLs. Skip detail
-HTTP. Apply is a CSRF POST to ``/jobs/…/apply`` (``directApply: false``)
-— capped at review.
+HTTP. Apply is a CSRF POST to ``/jobs/…/apply`` (``directApply: false``).
 """
 from __future__ import annotations
 

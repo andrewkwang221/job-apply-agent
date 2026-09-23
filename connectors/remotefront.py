@@ -15,8 +15,7 @@ known listing URLs via ``unseen_listing_urls``. Do not first-stale-stop or
 prefix-slice. Engineering title filter. ``location`` is a string.
 
 Detail page supplies description and an employer apply URL when present
-(aggregator host → ``_LISTING_DOMAINS``). Not review-capped when the
-employer link is stored.
+(aggregator host → ``_LISTING_DOMAINS``).
 """
 from __future__ import annotations
 

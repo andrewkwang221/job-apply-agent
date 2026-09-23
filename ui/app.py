@@ -39,7 +39,7 @@ from utils.application_filter import (
 )
 from utils.compensation import extract_compensation
 from utils.company_research import company_name_key
-from utils.scoring import REJECT_LABELS, _NO_DIRECT_APPLY_SOURCES, parse_score_breakdown
+from utils.scoring import REJECT_LABELS, parse_score_breakdown
 from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
 # ---------------------------------------------------------------------------
@@ -287,7 +287,6 @@ def _plain_str(value) -> str:
 
 
 EVAL_LABELS: dict[str, str] = {
-    "gated": "No direct apply",
     "location": "Location",
     "llm_shortlist": "LLM shortlist",
     "llm_review": "LLM review",
@@ -298,11 +297,6 @@ EVAL_LABELS: dict[str, str] = {
 
 def _eval_bucket(job: Job) -> tuple[str, str]:
     """Primary evaluation chip for review / shortlisted list view."""
-    source = (job.source or "").strip().lower()
-    if source in _NO_DIRECT_APPLY_SOURCES:
-        return "gated", EVAL_LABELS["gated"]
-    if (job.rule_status or "") == "shortlisted" and (job.status or "") == "review":
-        return "gated", EVAL_LABELS["gated"]
     remote = (job.remote_eligibility or "").strip().lower()
     if remote == "review":
         return "location", EVAL_LABELS["location"]

@@ -12,8 +12,7 @@ disallows ``/api/``; that guest JSON is still the only filterable listing
 ``max_job_age_days``, then stop at the first job older than the cutoff
 (``postedAt`` is newest-first). Page with ``offset`` (25/page). Engineering
 title filter. ``location`` is a string. Skip known listing URLs. Skip
-detail HTTP. Apply is an external employer link on the job page (not
-review-capped).
+detail HTTP. Apply is an external employer link on the job page.
 """
 from __future__ import annotations
 

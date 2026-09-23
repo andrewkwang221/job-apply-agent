@@ -21,7 +21,7 @@ Pro wall ("see every result, not just page one") — do not walk past it.
 Engineering title filter. ``location`` is a string. Skip detail when the
 card already has title, location, and description. Detail JobPosting /
 ``applicationUrl`` supplies the JD and an employer apply URL when present.
-Full results and extra applications are Pro — review-capped. Aggregator
+Full results and extra applications are Pro. Aggregator
 host → ``_LISTING_DOMAINS``.
 """
 from __future__ import annotations

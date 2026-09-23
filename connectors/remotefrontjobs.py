@@ -9,7 +9,7 @@ guest JSON is still the only payload with location, snippet, and apply link.
 do not stop at the first stale job. Do not send ``seniority`` (profile
 inclusion owns that). Engineering title filter. ``location`` is a string.
 Skip known listing URLs. Skip detail HTTP. Apply is the external ``link``
-(employer ATS or another board) — not review-capped.
+(employer ATS or another board).
 """
 from __future__ import annotations
 

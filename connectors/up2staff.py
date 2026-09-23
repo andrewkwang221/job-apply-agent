@@ -11,7 +11,7 @@ than ``max_job_age_days`` (``MAX_JOB_AGE_DAYS`` after ingest). The AJAX
 ``max_num_pages`` count is the full board — do not walk it.
 Engineering title filter. Skip known listing URLs. Skip detail HTTP; the
 card has title, company, HQ/OFF location, and ``<time>``. ``location`` is
-a string. Apply is membership-gated (capped at review).
+a string. Apply is membership-gated.
 """
 from __future__ import annotations
 

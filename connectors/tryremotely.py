@@ -6,7 +6,7 @@ Guest ``GET /api/v1/job-listings`` (no key). The list endpoint accepts only
 reading each row. Newest-first ``pubDate``; stop at the first job older than
 ``max_job_age_days``. Keep ``workModel == Remote``. Engineering title filter.
 ``locations`` joined into one string. Skip detail HTTP. ``applicationLink``
-is the TryRemotely job page (capped at review).
+is the TryRemotely job page.
 """
 from __future__ import annotations
 

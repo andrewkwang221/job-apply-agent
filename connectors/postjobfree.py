@@ -12,7 +12,7 @@ page (overlap with the previous page). Drop stale rows via
 
 Listing cards have title, company, location, date, snippet. Skip detail
 HTTP when listing location/title already fails ``job_inclusion``.
-Apply stays on postjobfree.com (review-capped). ``location`` is a string.
+Apply stays on postjobfree.com. ``location`` is a string.
 """
 from __future__ import annotations
 

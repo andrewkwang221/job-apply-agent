@@ -8,8 +8,7 @@ returns the unfiltered board. Unique ``profile.yaml`` ``target_roles`` as
 ``offset`` + ``limit``; stop at the first job older than
 ``max_job_age_days``. Engineering title filter. ``location`` is a string.
 Skip known listing URLs. Skip detail HTTP — the list payload has title,
-company, location, and description. Apply is an on-site button (capped at
-review).
+company, location, and description. Apply is an on-site button.
 """
 from __future__ import annotations
 

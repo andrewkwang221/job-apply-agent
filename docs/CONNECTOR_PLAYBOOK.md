@@ -37,7 +37,7 @@ Seniority uses `profile.yaml` `seniority.preferred` and `seniority.acceptable` (
 
 1. **Inspect live** (no login unless later approved): RSS/Atom, JSON/GraphQL, sitemap + `lastmod`, listing HTML / `__NEXT_DATA__`. Prefer structured feeds over scrape. `requests` first; Playwright only if the listing is an empty JS shell (EURemoteJobs / Arc).
 2. **Engineering filter** on title or URL slug; skip expired (`validThrough`).
-3. **Store** a usable job URL. If apply/company is paywalled, cap scoring at `review` via `_NO_DIRECT_APPLY_SOURCES` in `utils/scoring.py`. If it is an aggregator, add the domain to `utils/form_inspector.py` `_LISTING_DOMAINS`.
+3. **Store** a usable job URL. If it is an aggregator, add the domain to `utils/form_inspector.py` `_LISTING_DOMAINS`.
 4. **Normalize** to: `external_id`, `source`, `company`, `title`, `location` (**str** only), `raw_location_text`, `description`, `description_text`, `url`, `ats_type`, `posted_date`, `remote_eligibility`. Never persist a JSON-LD dict as `location` (Flexa `PostalAddress` bug).
 5. **Register** in `run_pipeline.py` `CONNECTORS`, CLI help, `README.md`, `docs/ARCHITECTURE.md`. Add `SYSTEM_BROWSER_DOMAINS` only if Playwright is blocked on that host.
 6. **Tests**: mocked fetch (no live HTTP) + `normalize()` shape. Do not commit unless asked.

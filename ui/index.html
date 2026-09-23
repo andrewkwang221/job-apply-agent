@@ -1270,19 +1270,8 @@ function _isEvalList() {
   return currentStatus === 'review' || currentStatus === 'shortlisted';
 }
 
-const _GATED_SOURCES = new Set([
-  'weworkremotely', 'remotejobsio', 'dailyremote', 'arcdev', 'flexjobs',
-  'ycombinator', 'waas', 'techjobsforgood', 'remotecom', 'remoteco', 'dice',
-  'jobgether', 'postjobfree', 'ladders', 'startupjobs', '4dayweek', 'builtin',
-  'up2staff', 'remotearmy', 'remoteyeah',
-]);
-
 function _derivedEval(job) {
   if (job.eval_code) return {code: job.eval_code, label: job.eval_label || job.eval_code};
-  const source = (job.source || '').toLowerCase();
-  if (_GATED_SOURCES.has(source) || (job.rule_status === 'shortlisted' && job.status === 'review')) {
-    return {code: 'gated', label: 'No direct apply'};
-  }
   if ((job.remote_eligibility || '').toLowerCase() === 'review') {
     return {code: 'location', label: 'Location'};
   }

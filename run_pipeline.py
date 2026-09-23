@@ -88,7 +88,7 @@ from utils.dedup import collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
 from utils.llm_analysis import analyze_job_with_ollama, ollama_is_reachable
 from utils.ollama_client import request_headers, unreachable_hint
-from utils.scoring import SHORTLIST_MIN_SCORE, _NO_DIRECT_APPLY_SOURCES, dump_score_breakdown, score_job
+from utils.scoring import SHORTLIST_MIN_SCORE, dump_score_breakdown, score_job
 from utils.resume_selector import select_resume
 from utils.logger import setup_logger
 from utils.email_report import send_report
@@ -187,10 +187,8 @@ SYSTEM_BROWSER_DOMAINS = {
 }
 
 # Sources skipped when --source all is used. Enable individually with --source <name>.
-# We Work Remotely, DailyRemote, and Arc.dev are fetched; apply is gated so scoring
-# caps them at review (see _NO_DIRECT_APPLY_SOURCES). FlexJobs is paid-login and
-# opt-in only (`--source flexjobs`). JustJoin is Poland-focused and opt-in
-# (`--source justjoin`).
+# FlexJobs is paid-login and opt-in only (`--source flexjobs`). JustJoin is
+# Poland-focused and opt-in (`--source justjoin`).
 DISABLED_SOURCES: set[str] = {"flexjobs", "justjoin"}
 
 engine = create_engine(config.DATABASE_URL)
@@ -873,7 +871,6 @@ def _run_rescore(candidate_profile, status: str, promote: bool = False) -> str:
             )
         jobs = session.query(Job).filter(Job.status == status).all()
         rejected = 0
-        downgraded = 0
         restored = 0
         promoted = 0
         for job in jobs:
@@ -897,15 +894,6 @@ def _run_rescore(candidate_profile, status: str, promote: bool = False) -> str:
                 job.reject_code = None
                 job.reject_detail = None
                 restored += 1
-            elif (
-                status == "shortlisted"
-                and new_status == "review"
-                and str(job_dict.get("source", "")).lower() in _NO_DIRECT_APPLY_SOURCES
-            ):
-                # Downgrade shortlisted → review only for sources that have no direct apply path.
-                # Score regressions alone are not enough — LLM/manual promotions are preserved.
-                job.status = "review"
-                downgraded += 1
             elif _should_promote(job, status, promote, score):
                 job.status = "shortlisted"
                 job.rule_status = "shortlisted"
@@ -915,12 +903,10 @@ def _run_rescore(candidate_profile, status: str, promote: bool = False) -> str:
             else:
                 job.rule_status = new_status
         session.commit()
-        kept = len(jobs) - rejected - downgraded - restored - promoted
+        kept = len(jobs) - rejected - restored - promoted
         msg = f"Rescored {len(jobs)} '{status}' jobs: {rejected} rejected"
         if promoted:
             msg += f", {promoted} promoted to shortlisted"
-        if downgraded:
-            msg += f", {downgraded} downgraded to review"
         if restored:
             msg += f", {restored} restored from location reject"
         msg += f", {kept} kept."

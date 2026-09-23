@@ -4,8 +4,8 @@ RemoteOK connector.
 Guest JSON at https://remoteok.com/api (``/remote-jobs.json`` redirects there).
 Descriptions no longer embed ATS apply links; ``apply_url`` points at RemoteOK
 listing pages (subscription / OAuth wall). Keep engineering-relevant jobs with
-the listing URL and cap scoring at review via ``_NO_DIRECT_APPLY_SOURCES``.
-Prefer an offsite ATS href from the description when one is still present.
+the listing URL. Prefer an offsite ATS href from the description when one is
+still present.
 """
 from __future__ import annotations
 
