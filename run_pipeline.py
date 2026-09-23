@@ -79,6 +79,7 @@ from connectors.remotefrontjobs import RemoteFrontJobsConnector
 from connectors.remotefront import RemoteFrontConnector
 from connectors.remotewlb import RemoteWlbConnector
 from connectors.omnijobs import OmniJobsConnector
+from connectors.techcareers import TechCareersConnector
 from connectors.hubstafftalent import HubstaffTalentConnector
 from connectors.tryremotely import TryRemotelyConnector
 from connectors.findmyremote import FindMyRemoteConnector
@@ -156,6 +157,7 @@ CONNECTORS = {
     "remotefront": RemoteFrontConnector,
     "remotewlb": RemoteWlbConnector,
     "omnijobs": OmniJobsConnector,
+    "techcareers": TechCareersConnector,
     "hubstafftalent": HubstaffTalentConnector,
     "tryremotely": TryRemotelyConnector,
     "findmyremote": FindMyRemoteConnector,
@@ -1007,7 +1009,7 @@ def help_command():
         ("", "dynamitejobs  workingnomads  getonboard  himalayas  adzuna", ""),
         ("", "ashby  greenhouse  lever  direct_ats  nodesk  remote100k", ""),
         ("", "wearedistributed  flexa  remotejobsio  remotejobsfinder", ""),
-        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  remotefrontjobs  remotefront  remotewlb  omnijobs  hubstafftalent  tryremotely  findmyremote  wearedevelopers", ""),
+        ("", "dailyremote  arcdev  flexjobs  ycombinator  waas  techjobsforgood  remotecom  remoteco  devremote  anywherepositions  remoterocketship  dice  workable  remotescout24  trulyremote  aijobs  aijobsai  justjoin  brenxor  jobgether  postjobfree  topsalaries  levelsfyi  workew  ladders  startupjobs  4dayweek  builtin  virtualvocations  up2staff  remotearmy  remoteyeah  remotesource  remotejobs  remotefrontjobs  remotefront  remotewlb  omnijobs  techcareers  hubstafftalent  tryremotely  findmyremote  wearedevelopers", ""),
         ("", "all = every registered source except flexjobs (paid board; --source flexjobs)", ""),
     ]
 
