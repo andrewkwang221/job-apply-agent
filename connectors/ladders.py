@@ -5,16 +5,20 @@ Guest search HTML at
 https://www.theladders.com/jobs/searchresults-jobs?keywords=…&sortBy=PUBLICATION_DATE&daysPublished=N&remoteFlags=Remote
 
 ``requests`` / ``curl_cffi`` hit Cloudflare 403. Playwright + installed
-Chrome is the default fetch. Listing/detail ``goto`` waits soft-retry up
-to ``_OPEN_RETRIES`` times (TimeoutError noise); outer abort logs INFO
-and keeps jobs already emitted. ``robots.txt`` disallows ``/api/*`` and
+Chrome is the default fetch. A listing ``goto`` waits ``_LISTING_TIMEOUT_MS``
+and soft-retries up to ``_OPEN_RETRIES`` times; HTML that already contains
+job links is used immediately. A still-empty page is retried once on a new
+tab, then the walk continues. Two failed listings in a row stop that query.
+Detail ``goto`` waits soft-retry the same way. Outer abort logs INFO and
+keeps jobs already emitted. ``robots.txt`` disallows ``/api/*`` and
 ``/job/*/apply``, so guest job JSON and apply URLs are unused.
 
 ``sortBy=PUBLICATION_DATE`` is live Newest. Walk unique profile
-``target_roles`` (plus ``software engineer``). Keyword search leaks
-sales titles, so keep engineering titles on the card. Stop at the first
-stale job. Skip known listing URLs. Skip detail HTTP when listing
-location/title already fails ``job_inclusion``.
+``target_roles`` (plus ``software engineer``) until a loaded page has no
+cards or repeats the previous page's first id. Keyword search leaks sales
+titles, so keep engineering titles on the card. Stop at the first stale
+job. Skip known listing URLs. Skip detail HTTP when listing location/title
+already fails ``job_inclusion``.
 
 ``location`` is the listing-card string. Apply stays on theladders.com
 (review-capped).
@@ -48,11 +52,13 @@ _UA = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 )
-_NAV_TIMEOUT_MS = 60_000
+_LISTING_TIMEOUT_MS = 15_000
 _DETAIL_TIMEOUT_MS = 45_000
 _OPEN_RETRIES = 3
-# Newest-first date pager; runaway only.
-_MAX_PAGES = 40
+# Safety ceiling. A loaded page with no cards, a repeated first id, a stale
+# card, or two failed listings stops the query first.
+_RUNAWAY_PAGES = 200
+_BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
 _CATCHALL_QUERY = "software engineer"
 _FALLBACK_QUERIES = (
     "software engineer",
@@ -124,13 +130,36 @@ class LaddersConnector(BaseConnector):
                 for query in queries:
                     added = 0
                     prev_first = ""
-                    for page_n in range(1, _MAX_PAGES + 1):
+                    failed_loads = 0
+                    page_n = 1
+                    while page_n <= _RUNAWAY_PAGES:
                         url = listing_url(query, age_days, page_n)
                         html = _open_listing(page, url)
-                        if not html:
-                            break
+                        if _listing_failed(html):
+                            fresh = _new_listing_page(page)
+                            if fresh is not None:
+                                page = fresh
+                                html = _open_listing(page, url)
+                        if _listing_failed(html):
+                            failed_loads += 1
+                            logger.info(
+                                f"ladders query={query!r} page {page_n}: "
+                                f"listing failed ({failed_loads} in a row)"
+                            )
+                            if failed_loads >= 2:
+                                logger.info(
+                                    f"ladders query={query!r}: two failed "
+                                    "listings — stopping this query"
+                                )
+                                break
+                            page_n += 1
+                            continue
+                        failed_loads = 0
                         cards = _extract_cards(html, now=now)
                         if not cards:
+                            logger.info(
+                                f"ladders query={query!r} page {page_n}: 0 cards"
+                            )
                             break
                         first_id = cards[0]["id"]
                         if page_n > 1 and first_id == prev_first:
@@ -161,6 +190,12 @@ class LaddersConnector(BaseConnector):
                         self._emit_page(page, page_jobs, kept, cutoff)
                         if stale_stop:
                             break
+                        page_n += 1
+                    else:
+                        logger.info(
+                            f"ladders query={query!r}: runaway cap "
+                            f"{_RUNAWAY_PAGES} — stopping this query"
+                        )
                     logger.info(
                         f"ladders query={query!r}: +{added} (total {len(seen_ids)})"
                     )
@@ -472,6 +507,7 @@ def _browser_session():
         context = None
         try:
             context = browser.new_context(user_agent=_UA, locale="en-US")
+            context.route("**/*", _abort_heavy)
             page = context.new_page()
             yield page
         finally:
@@ -480,12 +516,56 @@ def _browser_session():
             browser.close()
 
 
+def _abort_heavy(route: Any) -> None:
+    if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+        route.abort()
+    else:
+        route.continue_()
+
+
+def _listing_failed(html: str | None) -> bool:
+    if not html or not str(html).strip():
+        return True
+    return "just a moment" in html.lower()
+
+
+def _html_has_job_links(html: str | None) -> bool:
+    if _listing_failed(html):
+        return False
+    return "/job/" in (html or "").lower()
+
+
+def _page_html(page: Any) -> str:
+    try:
+        html = page.content()
+    except Exception:
+        return ""
+    return html or ""
+
+
+def _new_listing_page(page: Any) -> Any | None:
+    """Open a fresh tab and close the one that just failed to load."""
+    context = getattr(page, "context", None)
+    if context is None:
+        return None
+    try:
+        fresh = context.new_page()
+    except Exception as e:
+        logger.info(f"ladders new tab failed ({type(e).__name__})")
+        return None
+    try:
+        page.close()
+    except Exception:
+        pass
+    return fresh
+
+
 def _open_listing(page: Any, url: str) -> str:
     last_err: Exception | None = None
     for attempt in range(1, _OPEN_RETRIES + 1):
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=_NAV_TIMEOUT_MS)
-            page.wait_for_selector('a[href*="/job/"]', timeout=_NAV_TIMEOUT_MS)
+            page.goto(url, wait_until="domcontentloaded", timeout=_LISTING_TIMEOUT_MS)
+            page.wait_for_selector('a[href*="/job/"]', timeout=_LISTING_TIMEOUT_MS)
             last_err = None
             break
         except Exception as e:
@@ -494,6 +574,10 @@ def _open_listing(page: Any, url: str) -> str:
                 f"ladders listing wait failed ({type(e).__name__}) "
                 f"attempt {attempt}/{_OPEN_RETRIES} for {url}"
             )
+            html = _page_html(page)
+            if _html_has_job_links(html):
+                logger.info("ladders listing using cards already on the page")
+                return html
             if attempt < _OPEN_RETRIES:
                 try:
                     page.wait_for_timeout(1000 * attempt)
@@ -505,17 +589,11 @@ def _open_listing(page: Any, url: str) -> str:
             f"ladders listing wait failed ({type(last_err).__name__}); "
             "trying rendered cards"
         )
-        try:
-            html = page.content()
-        except Exception:
+        html = _page_html(page)
+        if _listing_failed(html):
             return ""
-        if "just a moment" in (html or "").lower():
-            return ""
-        return html or ""
-    try:
-        return page.content() or ""
-    except Exception:
-        return ""
+        return html
+    return _page_html(page)
 
 
 def _open_detail(page: Any, url: str) -> str:
