@@ -1,0 +1,50 @@
+---
+description: Guidelines for creating clear, focused Git commits
+alwaysApply: true
+---
+
+# Git commit rules
+
+- Create commits only when explicitly requested.
+- Review the diff and Git status before staging.
+- Include only changes relevant to the requested task. Never discard or overwrite unrelated work.
+- Keep each commit focused on one logical change.
+- Never commit secrets, credentials, local configuration, or unintended generated files.
+- Run checks appropriate to the change. Report failures honestly; do not bypass hooks or checks without permission.
+
+## Commit messages
+
+Use Conventional Commits:
+
+<type>(<optional scope>): <summary>
+
+Types:
+- feat: new functionality
+- fix: bug correction
+- docs: documentation changes
+- refactor: restructuring without changing behavior
+- test: adding or updating tests
+- perf: performance improvements
+- build: build system or dependency changes
+- ci: continuous integration changes
+- chore: other maintenance
+
+Write the summary in imperative mood, without a trailing period.
+Keep it concise, preferably within 72 characters.
+Describe the actual change; avoid vague messages such as "update files".
+
+For nontrivial changes, add a body explaining the reason, relevant
+behavior changes, and important tradeoffs. Wrap prose at approximately
+72 characters.
+
+Mark breaking changes with ! after the type or scope, and add a
+BREAKING CHANGE: footer explaining the impact and migration.
+
+Reference issue identifiers only when supplied or verified.
+
+## Safe Git workflow
+
+- Stage specific files or hunks; inspect the staged diff before committing.
+- Never amend commits, rewrite history, force-push, or push unless authorized.
+- Do not change Git identity or add unsupported authorship claims.
+- After committing, report the commit hash, summary, and validation results.
