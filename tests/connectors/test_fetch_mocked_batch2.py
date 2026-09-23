@@ -479,7 +479,7 @@ class TestRemoteOKFetch:
 
     def test_timeout_retries_then_empty(self):
         from requests.exceptions import Timeout as RequestsTimeout
-        from connectors.remoteok import RemoteOKConnector, _RETRIES
+        from connectors.remoteok import RemoteOKConnector
 
         with patch(self._T, side_effect=RequestsTimeout("timeout")):
             with patch("connectors.remoteok.time.sleep"):
