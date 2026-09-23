@@ -8,38 +8,6 @@ from utils.seniority import matches_seniority_level, seniority_exclusion
 REVIEW_MIN_SCORE = 28
 SHORTLIST_MIN_SCORE = 60
 
-# Sources that require a paid subscription or don't have a direct apply URL.
-# Jobs from these sources are capped at 'review' so they never reach shortlisted.
-_NO_DIRECT_APPLY_SOURCES: frozenset[str] = frozenset({
-    "weworkremotely",  # subscription required to view full job / apply
-    "remotejobsio",    # apply / company details gated behind a subscription
-    "dailyremote",     # company name and apply URL are Premium-gated
-    "arcdev",          # Arc Exclusive / Fast apply requires an Arc account
-    "flexjobs",        # employer/apply details require a FlexJobs subscription
-    "ycombinator",     # apply goes through a YC Work at a Startup account
-    "waas",            # Work at a Startup apply requires a YC profile
-    "techjobsforgood", # apply requires a Tech Jobs for Good account
-    "remotecom",       # Quick apply / sign-in on remote.com
-    "remoteco",        # Remote.co guest apply/company often empty (FlexJobs-powered)
-    "dice",            # apply is on Dice (account / Easy Apply)
-    "jobgether",       # apply is on Jobgether (account / premium auto-apply)
-    "postjobfree",     # apply is on PostJobFree (email / resume form)
-    "ladders",         # apply is on TheLadders (Apply4Me / login)
-    "startupjobs",     # apply is on Startup.jobs (/apply/ is robots-disallowed)
-    "remoteok",        # apply_url is remoteok.com (subscription / OAuth wall)
-    "4dayweek",        # apply is Pro / login gated on 4dayweek.io
-    "builtin",         # apply is Join / Easy Apply on builtin.com (/apply/ robots-disallowed)
-    "virtualvocations",  # full JD / company / apply are membership-gated
-    "up2staff",        # apply / employer link is membership-gated
-    "remotearmy",      # apply is /register?account_type=worker (directApply false)
-    "remoteyeah",      # apply is CSRF POST /jobs/…/apply redirect (directApply false)
-    "remotejobs",      # apply is an on-site button (no external employer URL)
-    "hubstafftalent",  # apply opens an account dialog (apply_auth.dialog)
-    "tryremotely",     # applicationLink is the TryRemotely job page (/apply/ disallowed)
-    "remotewlb",       # JobPosting directApply false; no employer apply URL
-    "omnijobs",        # free preview only; full results and extra apply are Pro
-})
-
 TITLE_REJECT_KEYWORDS = [
     # Sales / BD
     "sales manager", "sales director", "sales executive", "sales representative",
@@ -463,11 +431,5 @@ def score_job(job: Dict[str, Any], profile: Dict[str, Any]) -> Dict[str, Any]:
             _overlap_detail(score, result["matched_skills"], result["matched_keywords"]),
             score=score,
         )
-
-    # Sources without a direct apply path are capped at review so they never
-    # reach the shortlist (no point surfacing jobs we can't act on).
-    source = str(job.get("source", "")).lower()
-    if source in _NO_DIRECT_APPLY_SOURCES and result["recommended_status"] == "shortlisted":
-        result["recommended_status"] = "review"
 
     return result
