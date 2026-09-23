@@ -38,7 +38,7 @@ from utils.application_filter import (
     recent_applied_company_keys,
 )
 from utils.compensation import extract_compensation
-from utils.company_research import company_name_key
+from utils.company_research import company_name_key, is_real_company_name
 from utils.scoring import REJECT_LABELS, parse_score_breakdown
 from utils.text_cleaning import sanitize_skill_object_dumps, clean_description
 
@@ -331,7 +331,8 @@ def _job_to_dict(
     eval_code, eval_label = _eval_bucket(job)
     company_key = company_name_key(job.company or "")
     applied_same_company = bool(
-        applied_company_keys
+        is_real_company_name(job.company or "")
+        and applied_company_keys
         and company_key
         and company_key in applied_company_keys
     )

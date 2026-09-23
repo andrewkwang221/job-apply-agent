@@ -163,6 +163,16 @@ def company_name_key(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", s)
 
 
+# Connectors store this when a posting has no employer name. It is not one company.
+_PLACEHOLDER_COMPANY_KEYS = frozenset({"unknown"})
+
+
+def is_real_company_name(name: str) -> bool:
+    """False for blank names and the Unknown placeholder."""
+    key = company_name_key(name)
+    return bool(key) and key not in _PLACEHOLDER_COMPANY_KEYS
+
+
 def website_host(url: str) -> Optional[str]:
     try:
         host = (urlparse(url).hostname or "").lower()

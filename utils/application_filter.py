@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 import config
 from models.database import ApplicationHistory, Job
-from utils.company_research import company_name_key
+from utils.company_research import company_name_key, is_real_company_name
 
 
 def _as_utc(value) -> datetime | None:
@@ -46,6 +46,8 @@ def recent_applied_company_keys(
     def _remember(company: str, when) -> None:
         applied_at = _as_utc(when)
         if not applied_at or applied_at < cutoff:
+            return
+        if not is_real_company_name(company):
             return
         key = company_name_key(company)
         if key:

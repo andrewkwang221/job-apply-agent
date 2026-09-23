@@ -91,6 +91,15 @@ def test_company_name_key_strips_legal_suffixes():
     assert company_name_key("Meta Platforms, Inc.") == "metaplatforms"
 
 
+def test_unknown_is_not_a_real_company():
+    from utils.company_research import is_real_company_name
+
+    assert is_real_company_name("Unknown") is False
+    assert is_real_company_name("  unknown ") is False
+    assert is_real_company_name("Acme") is True
+    assert is_real_company_name("") is False
+
+
 def test_blocked_hosts_skip_ats_listing_and_wikipedia():
     assert is_blocked_host("boards.greenhouse.io")
     assert is_blocked_host("jobs.ashbyhq.com")

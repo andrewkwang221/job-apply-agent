@@ -110,6 +110,14 @@ class TestRecentAppliedCompanyKeys:
         _applied_job(db_session, updated_at=now)
         assert recent_applied_company_keys(db_session, now=now, days=0) == set()
 
+    def test_excludes_unknown_placeholder_company(self, db_session):
+        from datetime import datetime, timezone
+        from utils.application_filter import recent_applied_company_keys
+
+        now = datetime(2026, 9, 15, tzinfo=timezone.utc)
+        _applied_job(db_session, company="Unknown", updated_at=now)
+        assert recent_applied_company_keys(db_session, now=now, days=30) == set()
+
 
 # ---------------------------------------------------------------------------
 # resume_selector — select_resume()

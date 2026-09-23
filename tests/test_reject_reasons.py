@@ -255,6 +255,42 @@ def test_list_marks_recent_same_company_apply(memory_client):
     assert applied["Old apply"]["applied_same_company"] is False
 
 
+def test_unknown_company_does_not_get_applied_star(memory_client):
+    client, _job_id = memory_client
+    now = datetime.utcnow()
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="applied-unknown",
+            source="test",
+            company="Unknown",
+            title="Applied Unknown",
+            location="Remote",
+            url="https://example.com/jobs/applied-unknown",
+            status="applied",
+            created_at=now,
+            updated_at=now,
+        ))
+        session.add(Job(
+            external_id="review-unknown",
+            source="test",
+            company="Unknown",
+            title="Review Unknown",
+            location="Remote",
+            url="https://example.com/jobs/review-unknown",
+            status="review",
+            fit_score=70,
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    rows = {j["title"]: j for j in client.get("/api/jobs?status=review").json()["jobs"]}
+    assert rows["Review Unknown"]["applied_same_company"] is False
+    applied = {j["title"]: j for j in client.get("/api/jobs?status=applied").json()["jobs"]}
+    assert applied["Applied Unknown"]["applied_same_company"] is False
+
+
 @pytest.fixture()
 def memory_client():
     engine = create_engine(
