@@ -1,12 +1,17 @@
 """
 Tests for utils/dedup.py — is_duplicate() and generate_job_hash()
 """
+from datetime import datetime, timedelta, timezone
+
 from models.database import Job
 from utils.dedup import is_duplicate, generate_job_hash
 
+_POSTED = datetime(2026, 9, 20, tzinfo=timezone.utc)
+
 
 def _add_job(db_session, url="https://example.com/1", company="Acme",
-             title="Engineer", location="Remote", description=""):
+             title="Engineer", location="Remote", description="",
+             posted_date=_POSTED):
     job = Job(
         external_id=f"dedup-{url[-8:]}-{title[:8]}",
         source="test",
@@ -18,6 +23,7 @@ def _add_job(db_session, url="https://example.com/1", company="Acme",
         description_text=description,
         url=url,
         status="new",
+        posted_date=posted_date,
     )
     db_session.add(job)
     db_session.commit()
@@ -76,7 +82,8 @@ class TestIsDuplicateByUrl:
     def test_no_url_falls_through_to_hash(self, db_session):
         _add_job(db_session, company="HashCo", title="Dev", location="Remote")
         result = is_duplicate(
-            {"url": None, "company": "HashCo", "title": "Dev", "location": "Remote"},
+            {"url": None, "company": "HashCo", "title": "Dev", "location": "Remote",
+             "posted_date": _POSTED},
             db_session,
         )
         assert result is True
@@ -90,7 +97,8 @@ class TestIsDuplicateByHash:
     def test_same_company_title_location_is_duplicate(self, db_session):
         _add_job(db_session, url="https://a.com/1", company="Acme", title="Engineer", location="Remote")
         result = is_duplicate(
-            {"url": "https://b.com/2", "company": "Acme", "title": "Engineer", "location": "Remote"},
+            {"url": "https://b.com/2", "company": "Acme", "title": "Engineer", "location": "Remote",
+             "posted_date": _POSTED},
             db_session,
         )
         assert result is True
@@ -109,7 +117,8 @@ class TestIsDuplicateByHash:
         # applies to the hash itself — tested here via title ("Sr." vs "Sr").
         _add_job(db_session, url="https://a.com/1", company="Acme", title="Sr. Engineer", location="Remote")
         result = is_duplicate(
-            {"url": "https://b.com/2", "company": "Acme", "title": "Sr Engineer", "location": "Remote"},
+            {"url": "https://b.com/2", "company": "Acme", "title": "Sr Engineer", "location": "Remote",
+             "posted_date": _POSTED},
             db_session,
         )
         assert result is True
@@ -134,6 +143,7 @@ class TestDeepDuplicateAcrossUrls:
                 "company": "Acme",
                 "title": "Sr Backend Engineer",
                 "location": "Remote (US)",
+                "posted_date": _POSTED,
             },
             db_session,
         )
@@ -155,6 +165,7 @@ class TestDeepDuplicateAcrossUrls:
                 "location": "San Francisco, CA",
                 "description": _LONG_DESC,
                 "description_text": _LONG_DESC,
+                "posted_date": _POSTED,
             },
             db_session,
         )
@@ -288,3 +299,135 @@ class TestCollapseDuplicateJobs:
         assert dropped == 1
         left = db_session.query(Job).one()
         assert left.status == "applied"
+
+
+class TestDedupRules:
+    def test_url_case_is_the_same_posting(self, db_session):
+        _add_job(
+            db_session,
+            url="https://Example.com/jobs/ABC/",
+            company="Dentsu Austria",
+            title="Lead Architect",
+            posted_date=_POSTED - timedelta(days=30),
+        )
+        assert is_duplicate(
+            {
+                "url": "https://example.com/jobs/abc?utm_source=board",
+                "company": "Dentsu Aegis Network",
+                "title": "Something else",
+                "location": "Boston, MA",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )
+
+    def test_generic_remote_within_period(self, db_session):
+        _add_job(
+            db_session,
+            url="https://a.com/reddit",
+            company="Reddit",
+            title="Senior Software Engineer",
+            location="Worldwide",
+        )
+        assert is_duplicate(
+            {
+                "url": "https://b.com/reddit",
+                "company": "Reddit",
+                "title": "Senior Software Engineer",
+                "location": "United States (Remote)",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )
+
+    def test_same_title_outside_period_is_kept(self, db_session):
+        from config import MAX_DEDUPLICATION_PERIOD
+
+        _add_job(db_session, url="https://a.com/old", company="Reddit", title="Engineer", location="Remote")
+        assert not is_duplicate(
+            {
+                "url": "https://b.com/new",
+                "company": "Reddit",
+                "title": "Engineer",
+                "location": "Worldwide",
+                "posted_date": _POSTED + timedelta(days=MAX_DEDUPLICATION_PERIOD + 1),
+            },
+            db_session,
+        )
+
+    def test_multiword_company_is_found(self, db_session):
+        _add_job(
+            db_session,
+            url="https://a.com/gm",
+            company="General Motors",
+            title="Backend Engineer",
+            location="Remote",
+        )
+        assert is_duplicate(
+            {
+                "url": "https://b.com/gm",
+                "company": "General Motors",
+                "title": "Backend Engineer",
+                "location": "Remote",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )
+
+    def test_holdings_suffix_matches(self, db_session):
+        _add_job(db_session, url="https://a.com/affirm", company="Affirm", title="Engineer", location="Remote")
+        assert is_duplicate(
+            {
+                "url": "https://b.com/affirm",
+                "company": "Affirm Holdings",
+                "title": "Engineer",
+                "location": "Remote",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )
+
+    def test_subsidiary_is_not_the_same_employer(self, db_session):
+        _add_job(
+            db_session,
+            url="https://a.com/gd",
+            company="General Dynamics",
+            title="Principal Software Engineer",
+            location="Remote",
+        )
+        assert not is_duplicate(
+            {
+                "url": "https://b.com/gdit",
+                "company": "General Dynamics Information Technology",
+                "title": "Principal Software Engineer",
+                "location": "Remote",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )
+
+    def test_city_remote_is_not_generic_remote(self, db_session):
+        _add_job(db_session, url="https://a.com/city", company="Acme", title="Engineer", location="Remote")
+        assert not is_duplicate(
+            {
+                "url": "https://b.com/city",
+                "company": "Acme",
+                "title": "Engineer",
+                "location": "Remote, Boston",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )
+
+    def test_unknown_company_is_not_one_employer(self, db_session):
+        _add_job(db_session, url="https://a.com/u", company="Unknown", title="Engineer", location="Remote")
+        assert not is_duplicate(
+            {
+                "url": "https://b.com/u",
+                "company": "Unknown",
+                "title": "Engineer",
+                "location": "Remote",
+                "posted_date": _POSTED,
+            },
+            db_session,
+        )

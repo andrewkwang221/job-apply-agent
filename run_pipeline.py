@@ -85,7 +85,7 @@ from connectors.hubstafftalent import HubstaffTalentConnector
 from connectors.tryremotely import TryRemotelyConnector
 from connectors.findmyremote import FindMyRemoteConnector
 from utils.form_prefill import _TimingCollector
-from utils.dedup import collapse_duplicate_jobs, is_duplicate
+from utils.dedup import backfill_dedup_keys, collapse_duplicate_jobs, is_duplicate
 from utils.application_filter import has_already_applied
 from utils.llm_analysis import analyze_job_with_ollama, ollama_is_reachable
 from utils.ollama_client import request_headers, unreachable_hint
@@ -197,6 +197,7 @@ engine = create_engine(config.DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 if engine.dialect.name == "sqlite":
     ensure_job_columns(engine)
+    backfill_dedup_keys(engine)
     ensure_company_profiles(engine)
 
 @click.group()

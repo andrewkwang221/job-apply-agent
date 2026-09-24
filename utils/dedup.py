@@ -1,15 +1,31 @@
 import hashlib
 import re
+from datetime import date, datetime, timezone
 from typing import Any, Dict, Iterable
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
+from sqlalchemy import event, text
 from sqlalchemy.orm import Session
 
+import config
 from models.database import Job
 
 _COMPANY_SUFFIXES = frozenset({
     "inc", "llc", "ltd", "corp", "co", "gmbh", "plc", "limited",
     "company", "incorporated", "corporation",
+    "holdings", "group", "technologies", "technology", "international", "na",
 })
+_PLACEHOLDER_COMPANY_TOKENS = frozenset({"unknown"})
+_GENERIC_REMOTE_WORDS = frozenset({
+    "remote", "worldwide", "global", "anywhere", "fully", "work", "from", "home",
+    "wfh", "us", "usa", "united", "states", "national", "available", "only",
+    "first", "north", "america", "telecommute",
+})
+_TRACKING_PARAMS = frozenset({
+    "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
+    "gh_src", "lever-source",
+})
+_TITLE_OVERLAP = 0.8
 
 _REMOTE_LOCATION_KEYS = frozenset({
     "remote", "worldwide", "global", "anywhere", "fullyremote",
@@ -29,11 +45,34 @@ def _normalize_text(text: Any) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text).lower())
 
 
-def _company_key(company: str) -> str:
+def _company_tokens(company: str) -> list[str]:
     words = re.findall(r"[a-z0-9]+", str(company or "").lower())
+    if len(words) >= 2 and words[-2:] == ["n", "a"]:
+        words = words[:-2] + ["na"]
     while words and words[-1] in _COMPANY_SUFFIXES:
         words.pop()
-    return "".join(words)
+    return words
+
+
+def _company_key(company: str) -> str:
+    return "".join(_company_tokens(company))
+
+
+def _companies_match(left: str, right: str) -> bool:
+    """True when the names are the same employer, ignoring legal suffixes."""
+    a = _company_tokens(left)
+    b = _company_tokens(right)
+    if not a or not b:
+        return False
+    if a == ["unknown"] or b == ["unknown"] or set(a) <= _PLACEHOLDER_COMPANY_TOKENS:
+        return False
+    if set(b) <= _PLACEHOLDER_COMPANY_TOKENS:
+        return False
+    if len(a) > len(b):
+        a, b = b, a
+    if b[: len(a)] != a:
+        return False
+    return all(token in _COMPANY_SUFFIXES for token in b[len(a) :])
 
 
 def _title_tokens(title: str) -> list[str]:
@@ -86,7 +125,74 @@ def _titles_overlap(title_a: str, title_b: str) -> bool:
     b = set(_title_tokens(title_b))
     if not a or not b:
         return False
-    return len(a & b) / min(len(a), len(b)) >= 0.6
+    return len(a & b) / min(len(a), len(b)) >= _TITLE_OVERLAP
+
+
+def _location_words(location: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", str(location or "").lower())
+
+
+def _is_generic_remote(location: str) -> bool:
+    words = _location_words(location)
+    return bool(words) and all(word in _GENERIC_REMOTE_WORDS for word in words)
+
+
+def _locations_compatible(left: str, right: str) -> bool:
+    if _is_generic_remote(left) and _is_generic_remote(right):
+        return True
+    left_key = _location_key(left)
+    return bool(left_key) and left_key == _location_key(right)
+
+
+def normalize_job_url(url: str) -> str:
+    """Lowercase host and path, drop the trailing slash and tracking params."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    try:
+        parsed = urlparse(raw)
+    except ValueError:
+        return ""
+    host = (parsed.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    if not host:
+        return ""
+    path = parsed.path.rstrip("/").lower()
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key.lower() not in _TRACKING_PARAMS
+    ]
+    query.sort()
+    return urlunparse(("", host, path, "", urlencode(query), ""))
+
+
+def _posted_at(job: Dict[str, Any] | Any) -> datetime | None:
+    value = job.get("posted_date") if isinstance(job, dict) else getattr(job, "posted_date", None)
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, date):
+        dt = datetime.combine(value, datetime.min.time())
+    else:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
+def _within_dedup_period(left: Dict[str, Any] | Any, right: Dict[str, Any] | Any) -> bool:
+    posted_left = _posted_at(left)
+    posted_right = _posted_at(right)
+    if posted_left is None or posted_right is None:
+        return False
+    try:
+        period = int(config.MAX_DEDUPLICATION_PERIOD)
+    except (TypeError, ValueError):
+        period = 7
+    return abs((posted_left.date() - posted_right.date()).days) <= max(period, 0)
 
 
 def _job_fields(job: Dict[str, Any] | Any) -> tuple[str, str, str]:
@@ -104,19 +210,21 @@ def _job_fields(job: Dict[str, Any] | Any) -> tuple[str, str, str]:
 
 
 def _same_posting(incoming: Dict[str, Any], existing: Dict[str, Any] | Any) -> bool:
+    """Same employer and role inside the dedup window. The URL check is separate."""
     in_co, in_title, in_loc = _job_fields(incoming)
     ex_co, ex_title, ex_loc = _job_fields(existing)
-    if not (_company_key(in_co) and _title_key(in_title)):
+    if not _companies_match(in_co, ex_co) or not _title_key(in_title):
         return False
-    if _company_key(in_co) != _company_key(ex_co):
+    if not _within_dedup_period(incoming, existing):
         return False
-    if generate_job_hash(in_co, in_title, in_loc) == generate_job_hash(ex_co, ex_title, ex_loc):
-        return True
     in_fp = _description_fingerprint(in_co, incoming)
     ex_fp = _description_fingerprint(ex_co, existing)
     if in_fp and in_fp == ex_fp and _titles_overlap(in_title, ex_title):
         return True
-    return False
+    return (
+        _title_key(in_title) == _title_key(ex_title)
+        and _locations_compatible(in_loc, ex_loc)
+    )
 
 
 def _pending_jobs(session: Session):
@@ -124,18 +232,16 @@ def _pending_jobs(session: Session):
     return [obj for obj in session.new if isinstance(obj, Job)]
 
 
-def _company_lookup_token(company: str) -> str:
-    key = _company_key(company)
-    return key[:48] if key else _normalize_text(company)[:48]
-
-
 def _candidate_jobs(session: Session, company: str) -> Iterable[Job]:
-    token = _company_lookup_token(company)
-    if len(token) >= 3:
-        return session.query(Job).filter(Job.company.ilike(f"%{token}%")).all()
-    if company:
-        return session.query(Job).filter(Job.company.ilike(company)).all()
-    return []
+    key = _company_key(company)
+    if not key or key == "unknown":
+        return []
+    return session.query(Job).filter(Job.company_key == key).all()
+
+
+def _url_matches(url: str, other_url: str) -> bool:
+    key = normalize_job_url(url)
+    return bool(key) and key == normalize_job_url(other_url)
 
 
 def is_duplicate(job_data: Dict[str, Any], session: Session) -> bool:
@@ -144,13 +250,16 @@ def is_duplicate(job_data: Dict[str, Any], session: Session) -> bool:
     external_id = str(job_data.get("external_id") or "")
 
     for pending in _pending_jobs(session):
-        if url and pending.url == url:
+        if url and _url_matches(url, pending.url or ""):
             return True
         if external_id and pending.external_id == external_id:
             return True
 
-    if url:
-        existing_url = session.query(Job).filter(Job.url == url).first()
+    url_key = normalize_job_url(url)
+    if url_key:
+        existing_url = session.query(Job).filter(Job.url_key == url_key).first()
+        if existing_url is None and url:
+            existing_url = session.query(Job).filter(Job.url == url).first()
         if existing_url:
             return True
 
@@ -209,47 +318,74 @@ def collapse_duplicate_jobs(session: Session, *, dry_run: bool = False) -> tuple
     from models.database import InterviewPrepSheet
 
     jobs = session.query(Job).all()
+    parent: dict[int, int] = {job.id: job.id for job in jobs if job.id is not None}
+
+    def find(job_id: int) -> int:
+        while parent[job_id] != job_id:
+            parent[job_id] = parent[parent[job_id]]
+            job_id = parent[job_id]
+        return job_id
+
+    def union(left_id: int, right_id: int) -> None:
+        left_root, right_root = find(left_id), find(right_id)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    by_url: dict[str, list[Job]] = {}
     buckets: dict[str, list[Job]] = {}
     for job in jobs:
-        key = _company_key(job.company) or f"id:{job.id}"
-        buckets.setdefault(key, []).append(job)
+        url_key = job.url_key or normalize_job_url(job.url or "")
+        if url_key:
+            by_url.setdefault(url_key, []).append(job)
+        key = job.company_key or _company_key(job.company)
+        if key and key != "unknown":
+            buckets.setdefault(key, []).append(job)
+
+    for group in by_url.values():
+        if len(group) < 2:
+            continue
+        head = group[0].id
+        for other in group[1:]:
+            union(head, other.id)
+
+    for bucket in buckets.values():
+        by_title: dict[str, list[Job]] = {}
+        by_fp: dict[str, list[Job]] = {}
+        for job in bucket:
+            title_key = _title_key(job.title or "")
+            if title_key:
+                by_title.setdefault(title_key, []).append(job)
+            fingerprint = _description_fingerprint(job.company or "", job)
+            if fingerprint:
+                by_fp.setdefault(fingerprint, []).append(job)
+        for group in by_title.values():
+            for i in range(len(group)):
+                for j in range(i + 1, len(group)):
+                    if _same_posting(group[i], group[j]):
+                        union(group[i].id, group[j].id)
+        for group in by_fp.values():
+            for i in range(len(group)):
+                for j in range(i + 1, len(group)):
+                    if _same_posting(group[i], group[j]):
+                        union(group[i].id, group[j].id)
+
+    clustered: dict[int, list[Job]] = {}
+    for job in jobs:
+        if job.id is None:
+            continue
+        clustered.setdefault(find(job.id), []).append(job)
 
     drop_ids: list[int] = []
     groups = 0
-    for bucket in buckets.values():
-        if len(bucket) < 2:
+    for group in clustered.values():
+        if len(group) < 2:
             continue
-        parent = list(range(len(bucket)))
-
-        def find(i: int, _parent=parent) -> int:
-            while _parent[i] != i:
-                _parent[i] = _parent[_parent[i]]
-                i = _parent[i]
-            return i
-
-        def union(i: int, j: int, _parent=parent) -> None:
-            pi, pj = find(i), find(j)
-            if pi != pj:
-                _parent[pj] = pi
-
-        for i in range(len(bucket)):
-            for j in range(i + 1, len(bucket)):
-                if _same_posting(bucket[i], bucket[j]):
-                    union(i, j)
-
-        clustered: dict[int, list[Job]] = {}
-        for i, job in enumerate(bucket):
-            clustered.setdefault(find(i), []).append(job)
-
-        for group in clustered.values():
-            if len(group) < 2:
+        groups += 1
+        keeper = _pick_keeper(group)
+        for job in group:
+            if job.id == keeper.id or job.status in _KEEP_STATUSES:
                 continue
-            groups += 1
-            keeper = _pick_keeper(group)
-            for job in group:
-                if job.id == keeper.id or job.status in _KEEP_STATUSES:
-                    continue
-                drop_ids.append(job.id)
+            drop_ids.append(job.id)
 
     if not drop_ids or dry_run:
         return groups, len(drop_ids)
@@ -262,3 +398,32 @@ def collapse_duplicate_jobs(session: Session, *, dry_run: bool = False) -> tuple
         session.query(Job).filter(Job.id.in_(chunk)).delete(synchronize_session=False)
     session.commit()
     return groups, len(drop_ids)
+
+
+def backfill_dedup_keys(engine) -> None:
+    """Fill company_key and url_key on rows stored before those columns existed."""
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT id, company, url FROM jobs "
+            "WHERE company_key IS NULL OR url_key IS NULL"
+        )).fetchall()
+        for row in rows:
+            conn.execute(
+                text(
+                    "UPDATE jobs SET company_key = :company_key, url_key = :url_key "
+                    "WHERE id = :id"
+                ),
+                {
+                    "id": row[0],
+                    "company_key": _company_key(row[1] or ""),
+                    "url_key": normalize_job_url(row[2] or ""),
+                },
+            )
+        if rows:
+            conn.commit()
+
+
+@event.listens_for(Job, "before_insert")
+def _assign_dedup_keys(mapper, connection, target) -> None:
+    target.company_key = _company_key(target.company or "")
+    target.url_key = normalize_job_url(target.url or "")

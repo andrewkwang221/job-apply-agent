@@ -33,6 +33,7 @@ from sqlalchemy.orm import defer, sessionmaker
 
 import config
 from models.database import CompanyProfile, InterviewPrepSheet, Job, ensure_company_profiles, ensure_job_columns
+from utils.dedup import backfill_dedup_keys
 from utils.application_filter import (
     applied_to_same_company_within_days,
     recent_applied_company_keys,
@@ -52,6 +53,7 @@ _engine = create_engine(config.DATABASE_URL, connect_args={"check_same_thread": 
 _Session = sessionmaker(bind=_engine)
 if _engine.dialect.name == "sqlite":
     ensure_job_columns(_engine)
+    backfill_dedup_keys(_engine)
     ensure_company_profiles(_engine)
 
 HTML_PATH = Path(__file__).parent / "index.html"

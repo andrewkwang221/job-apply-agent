@@ -21,6 +21,8 @@ class Job(Base):
     description = Column(Text)
     description_text = Column(Text, nullable=True)
     url = Column(String, unique=True)
+    company_key = Column(String, nullable=True, index=True)
+    url_key = Column(String, nullable=True, index=True)
     remote_eligibility = Column(String, nullable=True)
     ats_type = Column(String, nullable=True)
     fit_score = Column(Integer, nullable=True)
@@ -49,6 +51,8 @@ def ensure_job_columns(engine) -> None:
         "reject_code": "ALTER TABLE jobs ADD COLUMN reject_code VARCHAR",
         "reject_detail": "ALTER TABLE jobs ADD COLUMN reject_detail TEXT",
         "score_breakdown": "ALTER TABLE jobs ADD COLUMN score_breakdown TEXT",
+        "company_key": "ALTER TABLE jobs ADD COLUMN company_key VARCHAR",
+        "url_key": "ALTER TABLE jobs ADD COLUMN url_key VARCHAR",
     }
     with engine.connect() as conn:
         existing = {
@@ -59,6 +63,12 @@ def ensure_job_columns(engine) -> None:
         for name, sql in statements.items():
             if name not in existing:
                 conn.execute(text(sql))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_jobs_company_key ON jobs (company_key)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_jobs_url_key ON jobs (url_key)"
+        ))
         conn.commit()
 
 
