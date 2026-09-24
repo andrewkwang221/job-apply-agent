@@ -105,6 +105,7 @@ _LISTING_DOMAINS = [
     "hubstafftalent.net",
     "tryremotely.com",
     "findmyremote.ai",
+    "jobdiva.com",
     "remotewlb.com",
     "omnijobs.io",
     "techcareers.com",

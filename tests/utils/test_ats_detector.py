@@ -13,6 +13,7 @@ from utils.ats_detector import detect_ats
     ("https://canonical.com/careers/5792361/application", "canonical"),
     ("https://canonical.com/careers/5792361", "unknown"),
     ("https://example.com/jobs/123", "unknown"),
+    ("https://www1.jobdiva.com/portal/?a=team#/jobs/1", "jobdiva"),
 ])
 def test_detect_ats(url, expected):
     assert detect_ats(url) == expected

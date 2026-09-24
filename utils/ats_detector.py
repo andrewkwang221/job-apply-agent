@@ -7,6 +7,7 @@ ATS_PATTERNS = {
     "ashby": ["ashbyhq.com"],
     "workable": ["workable.com"],
     "smartrecruiters": ["smartrecruiters.com"],
+    "jobdiva": ["jobdiva.com"],
     "notion": ["notion.so", "notion.site"],
     "recruitee": ["recruitee.com"],
     "comeet": ["comeet.com", "app.comeet.co"],

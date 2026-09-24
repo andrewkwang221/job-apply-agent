@@ -1348,3 +1348,29 @@ class TestFindMyRemoteNormalize:
         assert n["url"] == "https://jobs.lever.co/aledade/abc"
         assert n["location"] == "Brazil, Austin, United States"
         assert isinstance(n["raw_location_text"], str)
+
+
+class TestJobDivaNormalize:
+    def _raw(self):
+        return {
+            "id": "33140156",
+            "listing_url": "https://www1.jobdiva.com/portal/?a=team#/jobs/33140156",
+            "url": "https://www1.jobdiva.com/portal/?a=team#/jobs/33140156",
+            "title": "AI Engineer",
+            "company": "Confidential",
+            "location": "Remote",
+            "description": "Work Mode: Remote. Build models.",
+            "posted_date": datetime(2026, 9, 23, tzinfo=timezone.utc),
+        }
+
+    def test_shape(self):
+        from connectors.jobdiva import JobDivaConnector
+        n = JobDivaConnector().normalize(self._raw())
+        _assert_shape(n, "jobdiva")
+
+    def test_location_is_a_string(self):
+        from connectors.jobdiva import JobDivaConnector
+        n = JobDivaConnector().normalize(self._raw())
+        assert n["url"].endswith("#/jobs/33140156")
+        assert n["location"] == "Remote"
+        assert isinstance(n["raw_location_text"], str)

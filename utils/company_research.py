@@ -69,6 +69,7 @@ _BLOCKED_HOST_SUFFIXES = (
     "hubstafftalent.net",
     "tryremotely.com",
     "findmyremote.ai",
+    "jobdiva.com",
     "remotewlb.com",
     "omnijobs.io",
     "techcareers.com",
