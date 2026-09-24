@@ -108,6 +108,7 @@ _LISTING_DOMAINS = [
     "remotewlb.com",
     "omnijobs.io",
     "techcareers.com",
+    "jobs.smartrecruiters.com",
 ]
 
 

@@ -57,6 +57,7 @@ def test_public_board_connectors_are_registered():
     assert "remotewlb" in CONNECTORS
     assert "omnijobs" in CONNECTORS
     assert "techcareers" in CONNECTORS
+    assert "smartrecruiters" in CONNECTORS
     assert "hubstafftalent" in CONNECTORS
     assert "tryremotely" in CONNECTORS
     assert "findmyremote" in CONNECTORS
@@ -85,7 +86,8 @@ def test_ats_connectors_run_after_aggregators():
     assert keys.index("ashby") > keys.index("findmyremote")
     assert keys.index("findmyremote") > keys.index("tryremotely")
     assert keys.index("tryremotely") > keys.index("hubstafftalent")
-    assert keys.index("hubstafftalent") > keys.index("techcareers")
+    assert keys.index("smartrecruiters") > keys.index("techcareers")
+    assert keys.index("hubstafftalent") > keys.index("smartrecruiters")
     assert keys.index("greenhouse") > keys.index("ashby")
     assert keys.index("lever") > keys.index("greenhouse")
     assert keys.index("direct_ats") > keys.index("lever")

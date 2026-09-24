@@ -145,6 +145,7 @@ _ALREADY_SOURCED_HOSTS = frozenset({
     "remotewlb.com",
     "omnijobs.io",
     "techcareers.com",
+    "jobs.smartrecruiters.com",
 })
 
 
