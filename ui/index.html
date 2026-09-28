@@ -53,17 +53,29 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .btn-reject-stale:hover{background:var(--red-mid);color:var(--red);border-color:var(--red);}
 .btn-reject-stale.visible{display:flex;}
 .list-view{padding:0 4px 12px;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;overflow:hidden;}
-.list-view-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;display:flex;gap:12px;flex-shrink:0;}
-.list-view-header span:first-child{flex:1}
-.list-view-rows{flex:1;min-height:0;overflow-y:auto;padding-right:4px;}
-.list-view-rows::-webkit-scrollbar{width:8px;}
-.list-view-rows::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+.list-view-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;display:flex;align-items:center;gap:12px;flex-shrink:0;}
+.list-view-header span:nth-child(2){flex:1 1 240px;min-width:240px;}
+.list-head-avatar{width:30px;flex-shrink:0;}
+.list-scroll{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#3d8aa3 transparent;}
+.list-scroll::-webkit-scrollbar{width:10px;height:10px;}
+.list-scroll::-webkit-scrollbar-track{background:transparent;}
+.list-scroll::-webkit-scrollbar-thumb{background:#24586c;border:2px solid transparent;background-clip:padding-box;border-radius:999px;}
+.list-scroll::-webkit-scrollbar-thumb:hover{background:#4db8d4;border:2px solid transparent;background-clip:padding-box;}
+.list-scroll::-webkit-scrollbar-corner{background:transparent;}
+.list-view-rows{min-height:0;overflow:visible;padding-right:4px;}
+.list-view-header{position:sticky;top:0;z-index:1;background:#0d1a1f;}
+.list-view-header,.list-row{min-width:0;}
 .list-row{display:flex;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px solid var(--border-subtle);transition:background var(--transition);}
 .list-row:hover{background:var(--bg-hover);border-radius:6px;}
 .list-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;}
-.list-info{flex:1;min-width:0;}
-.list-title{font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.list-company{font-size:11.5px;color:var(--text-secondary);}
+.list-info{flex:1 1 240px;min-width:240px;overflow:hidden;}
+.list-title{display:block;font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.list-company{display:block;font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.list-source{flex:0 0 148px;width:148px;font-size:11.5px;font-weight:600;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.list-url{flex:0 0 168px;width:168px;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.list-url svg{flex-shrink:0;}
+.list-view-header .list-url{color:var(--text-muted);}
+.list-url:hover{text-decoration:underline;}
 .company-applied-star{color:var(--orange);margin-left:4px;font-size:12px;line-height:1;cursor:help;flex-shrink:0;}
 .card-company .company-applied-star{font-size:13px;}
 .list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:46px;width:46px;text-align:center;flex-shrink:0;}
@@ -72,7 +84,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-sort{display:none;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text-muted);flex-shrink:0;padding:4px 4px 12px;white-space:nowrap;}
 .list-sort select{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--text-primary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:5px 8px;cursor:pointer;}
 .list-sort select:hover{border-color:var(--accent-mid);}
-.list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
+.list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;width:132px;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .list-date{font-size:11.5px;color:var(--text-muted);width:60px;text-align:right;flex-shrink:0;}
 .list-row{cursor:pointer;}
 .reject-counts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 4px 12px;flex-shrink:0;}
@@ -149,7 +161,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .pipeline-stat .lbl{font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:500;}
 .pipeline-log{background:var(--bg-subtle);border-radius:var(--radius);padding:12px;font-size:11px;font-family:monospace;color:var(--text-secondary);max-height:150px;overflow-y:auto;line-height:1.6;}
 .triage-area{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:32px 24px 24px;max-width:880px;margin:0 auto;width:100%;overflow:auto;}
-.triage-area.list-mode{overflow:hidden;align-items:stretch;padding-top:20px;}
+.triage-area.list-mode{overflow:hidden;align-items:stretch;max-width:1180px;width:100%;padding:12px 8px 16px;}
 .nav-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;width:100%;flex-shrink:0;}
 .nav-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
 .nav-btn:hover{border-color:var(--accent-mid);color:var(--accent);background:var(--accent-light);}
@@ -700,10 +712,12 @@ a.card-company:hover{text-decoration:underline;}
         </select>
       </label>
     </div>
-    <div class="list-view-header" id="listViewHeader">
-      <span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
+    <div class="list-scroll" id="listScroll">
+      <div class="list-view-header" id="listViewHeader">
+        <span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
+      </div>
+      <div class="list-view-rows" id="listViewRows"></div>
     </div>
-    <div class="list-view-rows" id="listViewRows"></div>
   </div>
 </div>
 
@@ -1460,17 +1474,18 @@ function renderList(jobList) {
   const header = document.getElementById('listViewHeader');
   const reasonHead = currentStatus === 'rejected' ? 'Why' : 'Eval';
   if (header) {
-    const scoreHead = `<span>Job</span><span style="width:132px;text-align:center">${reasonHead}</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span>`;
+    const identityHead = `<span class="list-head-avatar"></span><span>Job</span><span class="list-source">Source</span><span class="list-url">Link</span>`;
+    const scoreHead = `${identityHead}<span style="width:132px;text-align:center">${reasonHead}</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span>`;
     if (currentStatus === 'rejected') {
-      header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span><span style="width:26px"></span>`;
+      header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span>`;
     } else if (currentStatus === 'review') {
-      header.innerHTML = `${scoreHead}<span style="width:222px;text-align:center">Actions</span><span style="width:26px"></span>`;
+      header.innerHTML = `${scoreHead}<span style="width:222px;text-align:center">Actions</span>`;
     } else if (currentStatus === 'shortlisted') {
-      header.innerHTML = `${scoreHead}<span style="width:156px;text-align:center">Actions</span><span style="width:26px"></span>`;
+      header.innerHTML = `${scoreHead}<span style="width:156px;text-align:center">Actions</span>`;
     } else if (currentStatus === 'applied') {
-      header.innerHTML = `<span>Job</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Applied</span><span style="width:26px"></span>`;
+      header.innerHTML = `${identityHead}<span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Applied</span>`;
     } else {
-      header.innerHTML = `${scoreHead}<span style="width:26px"></span>`;
+      header.innerHTML = scoreHead;
     }
   }
   const visible = _sortedListJobs(jobList);
@@ -1503,13 +1518,14 @@ function renderList(jobList) {
         <div class="list-title">${esc(j.title)}</div>
         <div class="list-company">${esc(j.company)}${companyAppliedStar(j)}</div>
       </div>
+      <div class="list-source" title="${esc(j.source || '')}">${esc(j.source || '—')}</div>
+      ${j.url
+        ? `<a class="list-url" href="${esc(j.url)}" target="_blank" rel="noopener" title="${esc(j.url)}" onclick="event.stopPropagation()"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>${esc(listUrlLabel(j.url))}</a>`
+        : `<div class="list-url" style="color:var(--text-muted)">—</div>`}
       ${reasonCell}
       <div class="list-score" style="${shownScore != null ? scoreColor(shownScore, criterion) : 'color:var(--text-muted)'}">${shownScore != null ? shownScore : '—'}</div>
       <div class="list-date">${dateVal ? relativeDate(dateVal) : '—'}</div>
       ${rowActions}
-      <a class="list-link" href="${esc(j.url)}" target="_blank" rel="noopener" title="Open job posting" onclick="event.stopPropagation()">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-      </a>
     </div>`;
   }).join('');
   document.getElementById('listView').style.display = '';
@@ -2535,7 +2551,14 @@ async function api(url, method='GET', body=null) {
 }
 
 function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  return String(s||'')
+    .replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'")
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function listUrlLabel(url) {
+  try { return new URL(url).hostname.replace(/^www\./i, ''); }
+  catch { return ''; }
 }
 
 function companyAppliedStar(job) {
