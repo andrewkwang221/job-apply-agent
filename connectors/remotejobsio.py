@@ -7,10 +7,11 @@ SSR). Job cards are embedded in ``__NEXT_DATA__`` as
 
 Strategy
 --------
-1. GET every developer category page (``jobsListWithPagination.totalPages``)
-   via Chrome-TLS (``curl_cffi``) first, then plain ``requests``. Cloudflare
-   blocks stock Python TLS; pages are not newest-first, so do not stop at a
-   page cap or the first old job.
+1. GET page 1, then the rest of ``jobsListWithPagination.totalPages`` four
+   at a time, via Chrome-TLS (``curl_cffi``) first, then plain ``requests``.
+   Cloudflare blocks stock Python TLS. Pages are not newest-first, so do
+   not stop at a page cap or the first old job. A failed page keeps jobs
+   already collected and the other pages still run.
 2. Parse ``__NEXT_DATA__`` for title, summary, location, dates, and slug.
 3. Keep engineering-relevant titles; skip expired and stale postings.
 4. Store the remotejobs.io job URL. Apply links are paywalled.
@@ -19,8 +20,10 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
@@ -44,7 +47,7 @@ _HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
 }
-_FETCH_DELAY = 0.4
+_PAGE_WORKERS = 4
 _API_TIMEOUT = 40
 _RETRIES = 3
 _RETRY_DELAY = 1.5
@@ -74,51 +77,48 @@ class RemoteJobsIoConnector(BaseConnector):
         all_jobs: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
 
-        page = 1
-        total_pages = 1
-        while page <= total_pages:
-            html = _fetch_listing_html(page)
-            if html is None:
+        first = _load_listing_page(1)
+        if first is None:
+            logger.info(
+                f"remotejobs.io page 1 skipped after retries "
+                f"(keeping {len(all_jobs)} prior jobs)"
+            )
+            return all_jobs
+        raw_items, total_pages = first
+        total_pages = max(total_pages, 1)
+        _ingest_page(self, 1, raw_items, total_pages, cutoff, seen_ids, all_jobs)
+        if total_pages < 2:
+            logger.info(f"Successfully fetched {len(all_jobs)} jobs from remotejobs.io")
+            return all_jobs
+
+        lock = threading.Lock()
+
+        def _one(page: int) -> None:
+            loaded = _load_listing_page(page)
+            if loaded is None:
                 logger.info(
                     f"remotejobs.io page {page} skipped after retries "
                     f"(keeping {len(all_jobs)} prior jobs)"
                 )
-                break
-            if not html:
-                break
-            try:
-                raw_items, reported_pages = _extract_listing_page(html)
-            except Exception as e:
-                logger.info(
-                    f"remotejobs.io page {page} parse failed "
-                    f"({type(e).__name__}); keeping prior jobs"
+                return
+            page_items, _reported = loaded
+            with lock:
+                _ingest_page(
+                    self, page, page_items, total_pages, cutoff, seen_ids, all_jobs
                 )
-                logger.debug(traceback.format_exc())
-                break
-            if page == 1:
-                total_pages = max(reported_pages, 1)
-            if not raw_items:
-                break
 
-            new_on_page = 0
-            for item in raw_items:
-                parsed = _parse_raw_job(item, cutoff)
-                if not parsed:
-                    continue
-                job_id = parsed["id"]
-                if job_id in seen_ids:
-                    continue
-                seen_ids.add(job_id)
-                self._emit(parsed, all_jobs)
-                new_on_page += 1
-
-            logger.info(
-                f"Page {page}/{total_pages}: {len(raw_items)} listings, "
-                f"{new_on_page} kept (total {len(all_jobs)})"
-            )
-            page += 1
-            if page <= total_pages:
-                time.sleep(_FETCH_DELAY)
+        workers = max(1, min(_PAGE_WORKERS, total_pages - 1))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_one, page) for page in range(2, total_pages + 1)]
+            for fut in as_completed(futures):
+                try:
+                    fut.result()
+                except Exception as e:
+                    logger.info(
+                        f"remotejobs.io page worker failed ({type(e).__name__}); "
+                        "keeping prior jobs"
+                    )
+                    logger.debug(traceback.format_exc())
 
         logger.info(f"Successfully fetched {len(all_jobs)} jobs from remotejobs.io")
         return all_jobs
@@ -242,6 +242,48 @@ def _fetch_listing_html(page: int) -> str | None:
     if html is not None:
         return html
     return _fetch_via_requests(url)
+
+
+def _load_listing_page(page: int) -> tuple[list[dict[str, Any]], int] | None:
+    """Fetch and parse one listing page. None means the fetch or parse failed."""
+    html = _fetch_listing_html(page)
+    if not html:
+        return None
+    try:
+        return _extract_listing_page(html)
+    except Exception as e:
+        logger.info(
+            f"remotejobs.io page {page} parse failed "
+            f"({type(e).__name__}); keeping prior jobs"
+        )
+        logger.debug(traceback.format_exc())
+        return None
+
+
+def _ingest_page(
+    connector: RemoteJobsIoConnector,
+    page: int,
+    raw_items: list[dict[str, Any]],
+    total_pages: int,
+    cutoff: datetime,
+    seen_ids: set[str],
+    all_jobs: list[dict[str, Any]],
+) -> None:
+    new_on_page = 0
+    for item in raw_items:
+        parsed = _parse_raw_job(item, cutoff)
+        if not parsed:
+            continue
+        job_id = parsed["id"]
+        if job_id in seen_ids:
+            continue
+        seen_ids.add(job_id)
+        connector._emit(parsed, all_jobs)
+        new_on_page += 1
+    logger.info(
+        f"Page {page}/{total_pages}: {len(raw_items)} listings, "
+        f"{new_on_page} kept (total {len(all_jobs)})"
+    )
 
 
 def _extract_listing_page(html: str) -> tuple[list[dict[str, Any]], int]:

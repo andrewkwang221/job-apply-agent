@@ -218,6 +218,38 @@ class TestFetchJobs:
     @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
     @patch("connectors.remotejobsio.time.sleep")
     @patch("connectors.remotejobsio.requests.get")
+    def test_keeps_job_on_a_late_page_and_continues_after_a_failure(
+        self, mock_get, _sleep, _curl
+    ):
+        from requests.exceptions import ConnectionError as ReqConnectionError
+
+        def side_effect(url, *args, **kwargs):
+            if "page=2" in str(url):
+                raise ReqConnectionError("dns fail")
+            if "page=4" in str(url):
+                return _mock_response(
+                    _listing_html(
+                        [_item(posted=_RECENT, job_id="late", slug="late-backend-engineer")],
+                        total_pages=4,
+                    )
+                )
+            return _mock_response(
+                _listing_html(
+                    [_item(posted=_OLD, job_id="old", slug="old-backend-engineer")],
+                    total_pages=4,
+                )
+            )
+
+        mock_get.side_effect = side_effect
+        jobs = RemoteJobsIoConnector().fetch_jobs()
+        assert {j["id"] for j in jobs} == {"late"}
+        urls = [str(c.args[0]) for c in mock_get.call_args_list]
+        assert any("page=3" in url for url in urls)
+        assert any("page=4" in url for url in urls)
+
+    @patch("connectors.remotejobsio._fetch_via_curl_cffi", return_value=None)
+    @patch("connectors.remotejobsio.time.sleep")
+    @patch("connectors.remotejobsio.requests.get")
     def test_keeps_prior_jobs_when_later_page_fails(self, mock_get, _sleep, _curl):
         from requests.exceptions import ConnectionError as ReqConnectionError
 

@@ -211,7 +211,7 @@ The LLM layer produces structured JSON outputs with defined schemas. Malformed o
 | [Remote100K](https://remote100k.com) | Sitemap + JSON-LD | $100K+ remote jobs; ATS apply URL extracted directly from page HTML |
 | [We Are Distributed](https://wearedistributed.org/jobs) | Sitemap + JSON-LD | Distributed-work focused jobs; engineering keyword filter; expired postings skipped |
 | [Flexa Careers](https://flexa.careers/jobs) | GraphQL API + JSON-LD | Flexible-work focused jobs; newest-first via `sort: DATE_DESC`; engineering title filter; description from per-page JSON-LD |
-| [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js listing HTML | Developer category listings from `__NEXT_DATA__`; engineering title filter; apply is subscription-gated |
+| [RemoteJobs.io](https://www.remotejobs.io/work-from-home/developer) | Next.js listing HTML | Developer category listings from `__NEXT_DATA__`; engineering title filter; pages after the first are fetched 4 at a time; apply is subscription-gated |
 | [RemoteJobsFinder](https://remotejobsfinder.co/en) | JSON jobs API | Guest `GET .../public/jobs` then `GET .../public/jobs/{uuid}` for `descriptionHtml`. Unique `target_roles` plus `engineering`, USA, `minHourlyRate=30`. `limit=20` + `skip` walk (mixed dates; no prefix cap), 3 searches at a time. Merge by uuid. Employer `jobUrl` when present. |
 | [DailyRemote](https://dailyremote.com/remote-software-development-jobs) | Listing HTML | Software-development board cards; engineering title filter; company/apply are Premium-gated |
 | [Arc.dev](https://arc.dev/remote-jobs) | Next.js listing HTML | Public board + engineering category pages from `__NEXT_DATA__`; Fast apply is account-gated |
