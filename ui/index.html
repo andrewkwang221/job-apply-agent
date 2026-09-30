@@ -944,8 +944,7 @@ function showDashboard(el) {
   if (triage) triage.style.display = 'none';
   const dash = document.getElementById('dashboardView');
   if (dash) dash.classList.add('open');
-  const staleBtn = document.getElementById('rejectStaleBtn');
-  if (staleBtn) staleBtn.classList.remove('visible');
+  _syncRejectStaleButton('');
   loadDashboard();
 }
 
@@ -1032,10 +1031,16 @@ function _renderDashPie(data) {
 }
 
 // ── Jobs ───────────────────────────────────────────────────────────────────
+function _syncRejectStaleButton(status) {
+  const staleBtn = document.getElementById('rejectStaleBtn');
+  if (staleBtn) staleBtn.classList.toggle('visible', status === 'review' || status === 'shortlisted');
+}
+
 async function loadJobs(status, opts) {
   currentStatus = status;
   selectMode = false;
   selectedJobIds = new Set();
+  _syncRejectStaleButton(status);
   const asList = !!(opts && opts.asList);
   _queueListComplete = false;
   try {
@@ -1076,8 +1081,6 @@ function filterJobs(status, el) {
   document.querySelectorAll('.status-pill').forEach(p => p.classList.remove('active'));
   if (el) el.classList.add('active');
   loadJobs(status);
-  const staleBtn = document.getElementById('rejectStaleBtn');
-  if (staleBtn) staleBtn.classList.toggle('visible', status === 'review' || status === 'shortlisted');
 }
 
 function _jobStaleTime(job) {
