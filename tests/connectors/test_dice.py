@@ -244,6 +244,7 @@ def test_fetch_detail_html_gives_up_after_retries(mock_get, mock_sleep):
     assert mock_sleep.call_count == _RETRIES - 1
 
 
+@patch("connectors.dice.listing_is_duplicate", return_value=False)
 @patch("connectors.dice.remember_listing_urls")
 @patch("connectors.dice.unseen_listing_urls")
 @patch("connectors.dice.time.sleep")
@@ -251,7 +252,7 @@ def test_fetch_detail_html_gives_up_after_retries(mock_get, mock_sleep):
 @patch("connectors.dice.requests.post")
 @patch("connectors.dice._search_queries", return_value=["backend engineer", "python"])
 def test_fetch_merges_keywords_stops_stale_and_keeps_jobs_on_429(
-    _queries, mock_post, mock_get, _sleep, mock_unseen, mock_remember
+    _queries, mock_post, mock_get, _sleep, mock_unseen, mock_remember, _dup
 ):
     recent = _item(
         guid="new-1",
@@ -328,6 +329,56 @@ def test_fetch_merges_keywords_stops_stale_and_keeps_jobs_on_429(
     assert all(a and "posted_date" not in a for a in search_args if a)
     remembered = [u for c in mock_remember.call_args_list for u in c.args[1]]
     assert {j["listing_url"] for j in jobs} <= set(remembered)
+
+
+def _listing_job(job_id: str, title: str) -> dict:
+    posted = datetime.now(tz=timezone.utc) - timedelta(hours=6)
+    url = f"https://www.dice.com/job-detail/{job_id}"
+    return {
+        "id": job_id,
+        "title": title,
+        "company": "Acme",
+        "listing_url": url,
+        "url": url,
+        "location": "Remote",
+        "description": "Short excerpt.",
+        "posted_date": posted,
+    }
+
+
+@patch("connectors.dice.remember_listing_urls")
+@patch("connectors.dice.unseen_listing_urls", side_effect=lambda urls, source, **kw: list(urls))
+@patch("connectors.dice.time.sleep")
+@patch("connectors.dice._fetch_detail_html", return_value="<html>FULL</html>")
+@patch("connectors.dice.listing_is_duplicate")
+def test_skips_detail_when_listing_matches_stored_posting(
+    mock_dup, mock_detail, mock_sleep, _unseen, mock_remember
+):
+    duplicate = _listing_job("dup-1", "Senior Backend Engineer")
+    fresh = _listing_job("new-1", "Staff Python Engineer")
+
+    def _is_dup(payload):
+        return payload.get("external_id") == "dup-1"
+
+    mock_dup.side_effect = _is_dup
+    kept: list[dict] = []
+    DiceConnector()._emit_page([duplicate, fresh], kept)
+    assert [job["id"] for job in kept] == ["new-1"]
+    assert mock_detail.call_count == 1
+    assert mock_detail.call_args.args[0].endswith("/new-1")
+    assert mock_sleep.call_count == 0
+    remembered = [u for c in mock_remember.call_args_list for u in c.args[1]]
+    assert duplicate["listing_url"] in remembered
+    assert fresh["listing_url"] in remembered
+    sent = next(
+        c.args[0]
+        for c in mock_dup.call_args_list
+        if c.args[0]["external_id"] == "dup-1"
+    )
+    assert sent["company"] == "Acme"
+    assert sent["title"] == "Senior Backend Engineer"
+    assert sent["location"] == "Remote"
+    assert "description" not in sent
 
 
 class TestDiceNormalize:

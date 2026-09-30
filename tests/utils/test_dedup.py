@@ -4,7 +4,7 @@ Tests for utils/dedup.py — is_duplicate() and generate_job_hash()
 from datetime import datetime, timedelta, timezone
 
 from models.database import Job
-from utils.dedup import is_duplicate, generate_job_hash
+from utils.dedup import is_duplicate, generate_job_hash, listing_is_duplicate
 
 _POSTED = datetime(2026, 9, 20, tzinfo=timezone.utc)
 
@@ -431,3 +431,24 @@ class TestDedupRules:
             },
             db_session,
         )
+
+
+def test_listing_is_duplicate_fail_open_when_database_unavailable(monkeypatch):
+    monkeypatch.setattr("utils.job_store._session", lambda: None)
+    assert listing_is_duplicate(
+        {"url": "https://example.com/1", "company": "Acme", "title": "Engineer"}
+    ) is False
+
+
+def test_listing_is_duplicate_fail_open_when_query_raises(monkeypatch):
+    class _Boom:
+        def query(self, *_args, **_kwargs):
+            raise RuntimeError("db down")
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr("utils.job_store._session", lambda: _Boom())
+    assert listing_is_duplicate(
+        {"url": "https://example.com/1", "company": "Acme", "title": "T"}
+    ) is False

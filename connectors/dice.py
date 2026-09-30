@@ -16,7 +16,8 @@ On 429: keep jobs already collected, retry the same page with exponential
 backoff. Search ``summary`` is a short excerpt; the full body is loaded from
 each job-detail HTML page (not MCP ``get_job_details``) with up to 3 GET
 retries, and emitted before the next search page so an abort still stores
-those jobs. Other errors retry
+those jobs. A listing that already matches a stored posting (URL, or the
+same company, title, and location) skips that detail GET. Other errors retry
 with the page delay, then continue other queries. ``location`` is always a
 string. Apply is on dice.com.
 """
@@ -37,6 +38,7 @@ from dateutil import parser as dateutil_parser
 
 from connectors.base import BaseConnector
 from utils.ats_detector import detect_ats
+from utils.dedup import listing_is_duplicate
 from utils.job_age import job_age_cutoff
 from utils.job_store import remember_listing_urls, unseen_listing_urls
 from utils.logger import setup_logger
@@ -146,7 +148,16 @@ class DiceConnector(BaseConnector):
             )
         )
         pending = [job for job in page_jobs if job["listing_url"] in unseen]
-        for i, job in enumerate(pending):
+        to_fetch: list[dict[str, Any]] = []
+        skipped = 0
+        for job in pending:
+            if _stored_listing_duplicate(job):
+                skipped += 1
+                continue
+            to_fetch.append(job)
+        if skipped:
+            logger.info(f"dice skipped {skipped} duplicates before detail")
+        for i, job in enumerate(to_fetch):
             try:
                 html = _fetch_detail_html(job["listing_url"])
                 _merge_detail(job, html)
@@ -156,7 +167,7 @@ class DiceConnector(BaseConnector):
                 )
                 logger.debug(traceback.format_exc())
             self._emit(job, kept_jobs)
-            if i + 1 < len(pending):
+            if i + 1 < len(to_fetch):
                 time.sleep(_FETCH_DELAY)
         if pending:
             remember_listing_urls(
@@ -186,6 +197,20 @@ class DiceConnector(BaseConnector):
 
     def get_source_name(self) -> str:
         return self.source_name
+
+
+def _stored_listing_duplicate(job: dict[str, Any]) -> bool:
+    """Match a stored posting from the search card, before the detail GET."""
+    return listing_is_duplicate(
+        {
+            "url": job.get("url") or job.get("listing_url") or "",
+            "external_id": str(job.get("id") or ""),
+            "company": job.get("company") or "",
+            "title": job.get("title") or "",
+            "location": job.get("location") or "",
+            "posted_date": job.get("posted_date"),
+        }
+    )
 
 
 def _search_queries() -> list[str]:

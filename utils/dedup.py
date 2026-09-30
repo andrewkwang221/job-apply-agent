@@ -284,6 +284,25 @@ def is_duplicate(job_data: Dict[str, Any], session: Session) -> bool:
     return False
 
 
+def listing_is_duplicate(job_data: Dict[str, Any]) -> bool:
+    """True when listing fields match a posting already stored.
+
+    Opens its own session so a connector can skip a detail request. Returns
+    False when the database is unavailable, so the detail fetch still runs.
+    """
+    from utils.job_store import _session
+
+    session = _session()
+    if session is None:
+        return False
+    try:
+        return is_duplicate(job_data, session)
+    except Exception:
+        return False
+    finally:
+        session.close()
+
+
 _STATUS_KEEP_RANK = {
     "applied": 0,
     "deferred": 1,

@@ -16,6 +16,10 @@ from connectors.remotewlb import (
     BASE_URL,
     SITEMAP_URL,
     RemoteWlbConnector,
+    _DETAIL_RETRIES,
+    _DETAIL_TIMEOUT,
+    _SITEMAP_RETRIES,
+    _SITEMAP_TIMEOUT,
     _is_engineering_title,
     _merge_detail,
     _parse_job_url,
@@ -28,6 +32,7 @@ _NOW = datetime(2026, 9, 22, 18, 0, tzinfo=timezone.utc)
 _CUTOFF = _NOW - timedelta(days=3)
 
 _ENG_URL = f"{BASE_URL}/job/agentic-ai-engineer-185158"
+_ENG_URL_2 = f"{BASE_URL}/job/backend-engineer-185159"
 _SALES_URL = f"{BASE_URL}/job/account-executive-sme-growth-187200"
 _STALE_URL = f"{BASE_URL}/job/backend-engineer-100001"
 _SEP_SHARD = f"{BASE_URL}/sitemaps/jobs/2026-09-1"
@@ -156,7 +161,7 @@ def test_merge_detail_and_expired():
 @patch("connectors.remotewlb.max_job_age_days", return_value=3)
 @patch("connectors.remotewlb._fetch_bytes")
 def test_fetch_stops_at_first_stale(mock_fetch, *_patches):
-    def _bytes(url, label):
+    def _bytes(url, label, **_kwargs):
         if url == SITEMAP_URL:
             return _index((_SEP_SHARD, "2026-09-22T16:28:42Z"))
         if url == _SEP_SHARD:
@@ -176,10 +181,56 @@ def test_fetch_stops_at_first_stale(mock_fetch, *_patches):
     assert jobs[0]["listing_url"] == _ENG_URL
     assert jobs[0]["company"] == "Supermetrics"
     # Sales skipped by title; stale not fetched as detail after stop.
-    detail_urls = [
-        c.args[0] for c in mock_fetch.call_args_list if c.args[1] == "detail"
-    ]
-    assert detail_urls == [_ENG_URL]
+    detail_calls = [c for c in mock_fetch.call_args_list if c.args[1] == "detail"]
+    assert [c.args[0] for c in detail_calls] == [_ENG_URL]
+    assert detail_calls[0].kwargs["timeout"] == _DETAIL_TIMEOUT == 10
+    assert detail_calls[0].kwargs["retries"] == _DETAIL_RETRIES == 2
+    sitemap_calls = [c for c in mock_fetch.call_args_list if c.args[1] != "detail"]
+    assert sitemap_calls
+    assert all(
+        c.kwargs["timeout"] == _SITEMAP_TIMEOUT == 60
+        and c.kwargs["retries"] == _SITEMAP_RETRIES == 3
+        for c in sitemap_calls
+    )
+
+
+@patch("connectors.remotewlb.remember_listing_urls")
+@patch(
+    "connectors.remotewlb.unseen_listing_urls",
+    side_effect=lambda urls, source, max_new=None: list(urls)[: (max_new or len(urls))],
+)
+@patch("connectors.remotewlb.time.sleep")
+@patch("connectors.remotewlb.exclusion_reason", return_value=None)
+@patch(
+    "connectors.remotewlb.load_candidate_profile",
+    return_value={"personal": {"location": "San Francisco, CA"}},
+)
+@patch("connectors.remotewlb.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.remotewlb.max_job_age_days", return_value=3)
+@patch("connectors.remotewlb._fetch_bytes")
+def test_fetches_both_details_with_short_timeout(mock_fetch, *_patches):
+    def _bytes(url, label, **_kwargs):
+        if url == SITEMAP_URL:
+            return _index((_SEP_SHARD, "2026-09-22T16:28:42Z"))
+        if url == _SEP_SHARD:
+            return _urlset(
+                (_ENG_URL, "2026-09-21T12:00:00Z"),
+                (_ENG_URL_2, "2026-09-22T12:00:00Z"),
+            )
+        if url == _ENG_URL:
+            return _detail_html().encode("utf-8")
+        if url == _ENG_URL_2:
+            return _detail_html(title="Backend Engineer", company="Other").encode("utf-8")
+        return b""
+
+    mock_fetch.side_effect = _bytes
+    jobs = RemoteWlbConnector().fetch_jobs()
+    assert {job["listing_url"] for job in jobs} == {_ENG_URL, _ENG_URL_2}
+    detail_calls = [c for c in mock_fetch.call_args_list if c.args[1] == "detail"]
+    assert {c.args[0] for c in detail_calls} == {_ENG_URL, _ENG_URL_2}
+    assert all(
+        c.kwargs["timeout"] == 10 and c.kwargs["retries"] == 2 for c in detail_calls
+    )
 
 
 @patch("connectors.remotewlb.job_age_cutoff", return_value=_CUTOFF)

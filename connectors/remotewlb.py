@@ -15,15 +15,18 @@ Engineering title filter (slug + JobPosting). Skip expired
 
 ``directApply`` is false and there is no employer apply URL.
 Fetch via Chrome TLS (``curl_cffi``) with soft retries; plain ``requests``
-fallback.
+fallback. Job pages are fetched four at a time (10s timeout, one retry).
+The sitemap index and month shard stay on a 60s timeout with 3 retries.
 """
 from __future__ import annotations
 
 import html as html_lib
 import json
 import re
+import threading
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 
@@ -51,8 +54,11 @@ _HEADERS = {
     "Referer": LISTING_URL,
 }
 _NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-_API_TIMEOUT = 60
-_RETRIES = 3
+_SITEMAP_TIMEOUT = 60
+_SITEMAP_RETRIES = 3
+_DETAIL_TIMEOUT = 10
+_DETAIL_RETRIES = 2
+_DETAIL_WORKERS = 4
 _RETRY_DELAY = 1.5
 _FETCH_DELAY = 0.4
 # Newest-first leftover cap after first-stale + engineering filter.
@@ -156,25 +162,45 @@ class RemoteWlbConnector(BaseConnector):
         profile = load_candidate_profile()
         skipped = 0
         remembered: list[str] = []
-        for i, job in enumerate(pending):
+        to_fetch: list[dict[str, Any]] = []
+        for job in pending:
             if profile and exclusion_reason(_inclusion_fields(job), profile):
                 skipped += 1
                 remembered.append(job["listing_url"])
                 continue
-            html = _fetch_bytes(job["listing_url"], "detail")
-            if html:
-                if not _merge_detail(job, html.decode("utf-8", "replace"), cutoff):
-                    skipped += 1
-                    remembered.append(job["listing_url"])
-                    continue
-                if profile and exclusion_reason(_inclusion_fields(job), profile):
-                    skipped += 1
-                    remembered.append(job["listing_url"])
-                    continue
-            self._emit(job, kept)
-            remembered.append(job["listing_url"])
-            if i + 1 < len(pending):
-                time.sleep(_FETCH_DELAY)
+            to_fetch.append(job)
+
+        lock = threading.Lock()
+
+        def _one(job: dict[str, Any]) -> None:
+            nonlocal skipped
+            html = _fetch_bytes(
+                job["listing_url"],
+                "detail",
+                timeout=_DETAIL_TIMEOUT,
+                retries=_DETAIL_RETRIES,
+            )
+            with lock:
+                if html:
+                    if not _merge_detail(
+                        job, html.decode("utf-8", "replace"), cutoff
+                    ):
+                        skipped += 1
+                        remembered.append(job["listing_url"])
+                        return
+                    if profile and exclusion_reason(_inclusion_fields(job), profile):
+                        skipped += 1
+                        remembered.append(job["listing_url"])
+                        return
+                self._emit(job, kept)
+                remembered.append(job["listing_url"])
+
+        if to_fetch:
+            workers = max(1, min(_DETAIL_WORKERS, len(to_fetch)))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_one, job) for job in to_fetch]
+                for fut in as_completed(futures):
+                    fut.result()
         if skipped:
             logger.info(
                 f"remotewlb skipped {skipped} ineligible listings before persist"
@@ -327,14 +353,22 @@ def _parse_month_urlset(content: bytes) -> list[dict[str, Any]]:
     return jobs
 
 
-def _fetch_bytes(url: str, label: str) -> bytes | None:
-    data = _fetch_via_curl_cffi(url, label)
+def _fetch_bytes(
+    url: str,
+    label: str,
+    *,
+    timeout: int = _SITEMAP_TIMEOUT,
+    retries: int = _SITEMAP_RETRIES,
+) -> bytes | None:
+    data = _fetch_via_curl_cffi(url, label, timeout=timeout, retries=retries)
     if data is not None:
         return data
-    return _fetch_via_requests(url, label)
+    return _fetch_via_requests(url, label, timeout=timeout, retries=retries)
 
 
-def _fetch_via_curl_cffi(url: str, label: str) -> bytes | None:
+def _fetch_via_curl_cffi(
+    url: str, label: str, *, timeout: int, retries: int
+) -> bytes | None:
     global _CURL_VERIFY
     try:
         from curl_cffi import requests as chrome_requests
@@ -345,13 +379,13 @@ def _fetch_via_curl_cffi(url: str, label: str) -> bytes | None:
         return chrome_requests.get(
             url,
             impersonate="chrome",
-            timeout=_API_TIMEOUT,
+            timeout=timeout,
             allow_redirects=True,
             verify=verify,
             headers=_HEADERS,
         )
 
-    for attempt in range(1, _RETRIES + 1):
+    for attempt in range(1, retries + 1):
         verify = True if _CURL_VERIFY is None else _CURL_VERIFY
         try:
             resp = _get(verify=verify)
@@ -367,17 +401,17 @@ def _fetch_via_curl_cffi(url: str, label: str) -> bytes | None:
                 except Exception as e2:
                     logger.info(
                         f"remotewlb {label} chrome-TLS failed "
-                        f"({type(e2).__name__}) attempt {attempt}/{_RETRIES}"
+                        f"({type(e2).__name__}) attempt {attempt}/{retries}"
                     )
-                    if attempt < _RETRIES:
+                    if attempt < retries:
                         time.sleep(_RETRY_DELAY * attempt)
                     continue
             else:
                 logger.info(
                     f"remotewlb {label} chrome-TLS failed "
-                    f"({type(e).__name__}) attempt {attempt}/{_RETRIES}"
+                    f"({type(e).__name__}) attempt {attempt}/{retries}"
                 )
-                if attempt < _RETRIES:
+                if attempt < retries:
                     time.sleep(_RETRY_DELAY * attempt)
                 continue
         else:
@@ -387,52 +421,64 @@ def _fetch_via_curl_cffi(url: str, label: str) -> bytes | None:
         if resp.status_code >= 400:
             logger.info(
                 f"remotewlb {label} chrome-TLS HTTP {resp.status_code} "
-                f"attempt {attempt}/{_RETRIES}"
+                f"attempt {attempt}/{retries}"
             )
-            if attempt < _RETRIES:
+            if attempt < retries:
                 time.sleep(_RETRY_DELAY * attempt)
             continue
         return resp.content or b""
-    logger.info(f"remotewlb {label} chrome-TLS skipped after {_RETRIES} attempts")
+    logger.info(f"remotewlb {label} chrome-TLS skipped after {retries} attempts")
     return None
 
 
-def _fetch_via_requests(url: str, label: str) -> bytes | None:
+def _fetch_via_requests(
+    url: str, label: str, *, timeout: int, retries: int
+) -> bytes | None:
     import requests
 
-    for attempt in range(1, _RETRIES + 1):
+    for attempt in range(1, retries + 1):
         try:
-            resp = requests.get(url, headers=_HEADERS, timeout=_API_TIMEOUT)
+            resp = requests.get(url, headers=_HEADERS, timeout=timeout)
         except (requests.Timeout, requests.ConnectionError) as e:
             logger.info(
                 f"remotewlb {label} requests failed ({type(e).__name__}) "
-                f"attempt {attempt}/{_RETRIES}"
+                f"attempt {attempt}/{retries}"
             )
-            if attempt < _RETRIES:
+            if attempt < retries:
                 time.sleep(_RETRY_DELAY * attempt)
             continue
         if resp.status_code >= 400:
             logger.info(
                 f"remotewlb {label} requests HTTP {resp.status_code} "
-                f"attempt {attempt}/{_RETRIES}"
+                f"attempt {attempt}/{retries}"
             )
-            if attempt < _RETRIES:
+            if attempt < retries:
                 time.sleep(_RETRY_DELAY * attempt)
             continue
         return resp.content or b""
-    logger.info(f"remotewlb {label} requests skipped after {_RETRIES} attempts")
+    logger.info(f"remotewlb {label} requests skipped after {retries} attempts")
     return None
 
 
 def _fetch_month_shard_urls() -> list[str]:
-    content = _fetch_bytes(SITEMAP_URL, "sitemap-index")
+    content = _fetch_bytes(
+        SITEMAP_URL,
+        "sitemap-index",
+        timeout=_SITEMAP_TIMEOUT,
+        retries=_SITEMAP_RETRIES,
+    )
     if content is None:
         return []
     return [loc for loc, _ in _parse_sitemap_index(content)]
 
 
 def _fetch_month_entries(shard_url: str) -> list[dict[str, Any]]:
-    content = _fetch_bytes(shard_url, "month-sitemap")
+    content = _fetch_bytes(
+        shard_url,
+        "month-sitemap",
+        timeout=_SITEMAP_TIMEOUT,
+        retries=_SITEMAP_RETRIES,
+    )
     if content is None:
         return []
     return _parse_month_urlset(content)
