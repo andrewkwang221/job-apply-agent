@@ -423,7 +423,11 @@ async def stats():
         rows = session.query(Job.status, func.count()).group_by(Job.status).all()
         counts = {status: n for status, n in rows}
         total = sum(counts.values())
-        return {"counts": counts, "total": total}
+        return {
+            "counts": counts,
+            "total": total,
+            "reject_stale_days": config.REJECT_STALE_DAYS,
+        }
     finally:
         session.close()
 
@@ -727,7 +731,7 @@ async def bulk_status(body: BulkStatusRequest):
 
 class BulkRejectStaleRequest(BaseModel):
     status: str
-    older_than_days: int = 14
+    older_than_days: Optional[int] = None
 
 
 @app.post("/api/jobs/bulk-reject-stale")
@@ -735,19 +739,24 @@ async def bulk_reject_stale(body: BulkRejectStaleRequest):
     allowed = {"shortlisted", "review"}
     if body.status not in allowed:
         raise HTTPException(400, f"bulk-reject-stale only supports: {', '.join(sorted(allowed))}")
-    cutoff = datetime.utcnow() - timedelta(days=body.older_than_days)
+    days = config.REJECT_STALE_DAYS if body.older_than_days is None else body.older_than_days
+    if days < 1:
+        raise HTTPException(400, "older_than_days must be at least 1")
+    cutoff = datetime.utcnow() - timedelta(days=days)
     session = _Session()
     try:
+        age_on = func.coalesce(Job.posted_date, Job.created_at)
         stale = (
             session.query(Job)
-            .filter(Job.status == body.status, Job.created_at < cutoff)
+            .filter(Job.status == body.status, age_on < cutoff)
             .all()
         )
         count = len(stale)
         for job in stale:
             job.status = "rejected"
             job.reject_code = "stale"
-            job.reject_detail = f"Created more than {body.older_than_days} days ago"
+            basis = "Posted" if job.posted_date else "Added"
+            job.reject_detail = f"{basis} more than {days} days ago"
         session.commit()
         return {"ok": True, "rejected": count}
     except Exception as exc:

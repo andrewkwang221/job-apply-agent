@@ -749,6 +749,75 @@ def test_bulk_status_moves_selected_jobs(memory_client):
     assert empty.status_code == 400
 
 
+def test_bulk_reject_stale_uses_configured_days(memory_client, monkeypatch):
+    import config
+
+    monkeypatch.setattr(config, "REJECT_STALE_DAYS", 3)
+    client, _job_id = memory_client
+    session = app_module._Session()
+    try:
+        session.add(Job(
+            external_id="stale-old",
+            source="test",
+            company="Acme",
+            title="Old Review Role",
+            location="Remote",
+            url="https://example.com/jobs/stale-old",
+            status="review",
+            created_at=datetime.utcnow() - timedelta(days=10),
+        ))
+        session.add(Job(
+            external_id="stale-fresh",
+            source="test",
+            company="Acme",
+            title="Fresh Review Role",
+            location="Remote",
+            url="https://example.com/jobs/stale-fresh",
+            status="review",
+            created_at=datetime.utcnow() - timedelta(days=1),
+        ))
+        session.add(Job(
+            external_id="stale-posted",
+            source="test",
+            company="Acme",
+            title="Old Posting",
+            location="Remote",
+            url="https://example.com/jobs/stale-posted",
+            status="review",
+            posted_date=datetime.utcnow() - timedelta(days=10),
+            created_at=datetime.utcnow() - timedelta(days=1),
+        ))
+        session.add(Job(
+            external_id="stale-reposted",
+            source="test",
+            company="Acme",
+            title="Fresh Posting",
+            location="Remote",
+            url="https://example.com/jobs/stale-reposted",
+            status="review",
+            posted_date=datetime.utcnow() - timedelta(days=1),
+            created_at=datetime.utcnow() - timedelta(days=10),
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    stats = client.get("/api/stats")
+    assert stats.status_code == 200
+    assert stats.json()["reject_stale_days"] == 3
+
+    moved = client.post("/api/jobs/bulk-reject-stale", json={"status": "review"})
+    assert moved.status_code == 200
+    assert moved.json()["rejected"] == 2
+    rejected = {j["title"]: j for j in client.get("/api/jobs?status=rejected").json()["jobs"]}
+    assert rejected["Old Review Role"]["reject_code"] == "stale"
+    assert "Added" in rejected["Old Review Role"]["reject_detail"]
+    assert rejected["Old Posting"]["reject_code"] == "stale"
+    assert "Posted" in rejected["Old Posting"]["reject_detail"]
+    review = {j["title"] for j in client.get("/api/jobs?status=review").json()["jobs"]}
+    assert review == {"Fresh Review Role", "Fresh Posting"}
+
+
 def test_list_archived_returns_all_jobs(memory_client):
     client, _job_id = memory_client
     session = app_module._Session()

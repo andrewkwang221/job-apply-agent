@@ -62,7 +62,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-scroll::-webkit-scrollbar-thumb{background:#24586c;border:2px solid transparent;background-clip:padding-box;border-radius:999px;}
 .list-scroll::-webkit-scrollbar-thumb:hover{background:#4db8d4;border:2px solid transparent;background-clip:padding-box;}
 .list-scroll::-webkit-scrollbar-corner{background:transparent;}
-.list-view-rows{min-height:0;overflow:visible;padding-right:4px;}
+.list-view-rows{min-height:0;overflow:visible;}
 .list-view-header{position:sticky;top:0;z-index:1;background:#0d1a1f;}
 .list-view-header,.list-row{min-width:0;}
 .list-row{display:flex;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px solid var(--border-subtle);transition:background var(--transition);}
@@ -71,21 +71,21 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-info{flex:1 1 240px;min-width:240px;overflow:hidden;}
 .list-title{display:block;font-size:13px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .list-company{display:block;font-size:11.5px;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.list-source{flex:0 0 148px;width:148px;font-size:11.5px;font-weight:600;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.list-url{flex:0 0 168px;width:168px;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.list-source{flex:0 0 148px;width:148px;min-width:148px;font-size:11.5px;font-weight:600;color:var(--text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.list-url{flex:0 0 168px;width:168px;min-width:168px;display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;color:var(--accent);text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .list-url svg{flex-shrink:0;}
 .list-view-header .list-url{color:var(--text-muted);}
 .list-url:hover{text-decoration:underline;}
 .company-applied-star{color:var(--orange);margin-left:4px;font-size:12px;line-height:1;cursor:help;flex-shrink:0;}
 .card-company .company-applied-star{font-size:13px;}
-.list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;min-width:46px;width:46px;text-align:center;flex-shrink:0;}
+.list-score{font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;flex:0 0 46px;width:46px;min-width:46px;text-align:center;}
 .list-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0;}
 .list-toolbar .reject-counts{flex:1;padding-bottom:12px;}
 .list-sort{display:none;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text-muted);flex-shrink:0;padding:4px 4px 12px;white-space:nowrap;}
 .list-sort select{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--text-primary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:5px 8px;cursor:pointer;}
 .list-sort select:hover{border-color:var(--accent-mid);}
-.list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;width:132px;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
-.list-date{font-size:11.5px;color:var(--text-muted);width:60px;text-align:right;flex-shrink:0;}
+.list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex:0 0 132px;width:132px;min-width:132px;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
+.list-date{font-size:11.5px;color:var(--text-muted);flex:0 0 76px;width:76px;min-width:76px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .list-row{cursor:pointer;}
 .list-row.selected,.list-row.selected:hover{background:rgba(77,184,212,.18);border-radius:6px;}
 .list-check{width:16px;height:16px;flex-shrink:0;margin:0;accent-color:var(--accent);cursor:pointer;}
@@ -116,9 +116,12 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .why-block-detail{font-size:13px;color:var(--text-secondary);line-height:1.5;}
 .list-link{width:26px;height:26px;border-radius:6px;background:var(--bg-subtle);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--text-muted);text-decoration:none;transition:all var(--transition);flex-shrink:0;}
 .list-link:hover{background:var(--accent-light);color:var(--accent);border-color:var(--accent-mid);}
-.list-actions{display:flex;align-items:center;gap:6px;flex-shrink:0;width:148px;}
-.list-actions.three{width:222px;}
-.list-actions.two{width:156px;}
+.list-actions{display:flex;align-items:center;gap:6px;flex:0 0 148px;width:148px;min-width:148px;}
+.list-actions.three{flex-basis:222px;width:222px;min-width:222px;}
+.list-actions.two{flex-basis:156px;width:156px;min-width:156px;}
+.list-view-header .list-reason,
+.list-view-header .list-score{background:transparent;padding:0;border-radius:0;font-size:12px;font-weight:600;color:var(--text-muted);}
+.list-view-header .list-actions{justify-content:center;}
 .list-actions .list-archive,.list-actions .list-shortlist,.list-actions .list-applied{flex:1;}
 .list-archive{flex-shrink:0;padding:3px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);font-family:'Inter',sans-serif;font-size:11px;font-weight:650;cursor:pointer;}
 .list-archive:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--text-muted);}
@@ -173,7 +176,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .pipeline-stat .lbl{font-size:11px;color:var(--text-muted);margin-top:2px;font-weight:500;}
 .pipeline-log{background:var(--bg-subtle);border-radius:var(--radius);padding:12px;font-size:11px;font-family:monospace;color:var(--text-secondary);max-height:150px;overflow-y:auto;line-height:1.6;}
 .triage-area{flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;padding:32px 24px 24px;max-width:880px;margin:0 auto;width:100%;overflow:auto;}
-.triage-area.list-mode{overflow:hidden;align-items:stretch;max-width:1180px;width:100%;padding:12px 8px 16px;}
+.triage-area.list-mode{overflow:hidden;align-items:stretch;max-width:1400px;width:100%;padding:12px 8px 16px;}
 .nav-row{display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;width:100%;flex-shrink:0;}
 .nav-btn{display:flex;align-items:center;gap:6px;padding:7px 14px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:500;color:var(--text-secondary);cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
 .nav-btn:hover{border-color:var(--accent-mid);color:var(--accent);background:var(--accent-light);}
@@ -436,7 +439,7 @@ a.card-company:hover{text-decoration:underline;}
     <span>Archived</span><span class="count">—</span>
   </div>
   <div class="strip-spacer"></div>
-  <button class="btn-reject-stale" id="rejectStaleBtn" onclick="openRejectStaleModal()" title="Reject all jobs in this tab older than 2 weeks">
+  <button class="btn-reject-stale" id="rejectStaleBtn" onclick="openRejectStaleModal()" title="Reject jobs in this tab posted before the configured cutoff">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
     Reject Stale
   </button>
@@ -733,7 +736,7 @@ a.card-company:hover{text-decoration:underline;}
     </div>
     <div class="list-scroll" id="listScroll">
       <div class="list-view-header" id="listViewHeader">
-        <span>Job</span><span style="width:132px;text-align:center">Why</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span><span style="width:26px"></span>
+        <span class="list-head-job">Job</span><span class="list-reason">Why</span><span class="list-score">Score</span><span class="list-date">Posted</span><span class="list-date">Added</span>
       </div>
       <div class="list-view-rows" id="listViewRows"></div>
     </div>
@@ -824,6 +827,7 @@ a.card-company:hover{text-decoration:underline;}
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
+let rejectStaleDays = null;
 let jobs = [];
 let idx = 0;
 let currentStatus = 'review';
@@ -882,6 +886,11 @@ async function loadStats() {
   try {
     const data = await api('/api/stats');
     const c = data.counts || {};
+    if (Number.isFinite(data.reject_stale_days) && data.reject_stale_days > 0) {
+      rejectStaleDays = data.reject_stale_days;
+      const staleBtn = document.getElementById('rejectStaleBtn');
+      if (staleBtn) staleBtn.title = `Reject jobs in this tab posted more than ${rejectStaleDays} days ago`;
+    }
     document.querySelectorAll('.status-pill[data-status]').forEach(el => {
       const s = el.dataset.status;
       el.querySelector('.count').textContent = c[s] ?? 0;
@@ -1071,25 +1080,43 @@ function filterJobs(status, el) {
   if (staleBtn) staleBtn.classList.toggle('visible', status === 'review' || status === 'shortlisted');
 }
 
+function _jobStaleTime(job) {
+  const raw = job && (job.posted_date || job.created_at);
+  const t = raw ? new Date(raw).getTime() : NaN;
+  return Number.isFinite(t) ? t : null;
+}
+
+function _staleJobs(days) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return jobs.filter(j => {
+    const t = _jobStaleTime(j);
+    return t != null && t < cutoff;
+  });
+}
+
 function openRejectStaleModal() {
-  const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000;
-  const stale = jobs.filter(j => j.created_at && new Date(j.created_at).getTime() < cutoff);
+  const days = rejectStaleDays;
+  if (!Number.isFinite(days)) {
+    showToast('Still loading the stale cutoff', '');
+    return;
+  }
+  const stale = _staleJobs(days);
   const label = currentStatus === 'shortlisted' ? 'Shortlisted' : 'Review';
   const listEl = document.getElementById('rejectStaleList');
   if (stale.length > 0) {
     document.getElementById('rejectStaleMsg').textContent =
-      `Permanently reject these ${stale.length} ${label} job${stale.length === 1 ? '' : 's'} (older than 14 days)?`;
+      `Permanently reject these ${stale.length} ${label} job${stale.length === 1 ? '' : 's'} posted more than ${days} days ago?`;
     listEl.innerHTML = stale.map(j => `
       <div style="display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid var(--border-subtle);">
         <div style="width:26px;height:26px;border-radius:50%;background:${j.avatar_color};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0">${esc(j.avatar_text)}</div>
         <div style="flex:1;min-width:0">
           <div style="font-size:12.5px;font-weight:600;color:var(--text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(j.title)}</div>
-          <div style="font-size:11.5px;color:var(--text-secondary)">${esc(j.company)}${companyAppliedStar(j)} &middot; ${j.created_at ? relativeDate(j.created_at) : '—'}</div>
+          <div style="font-size:11.5px;color:var(--text-secondary)">${esc(j.company)}${companyAppliedStar(j)} &middot; ${j.posted_date ? 'posted ' + relativeDate(j.posted_date) : (j.created_at ? 'added ' + relativeDate(j.created_at) : '—')}</div>
         </div>
       </div>`).join('');
     listEl.style.display = '';
   } else {
-    document.getElementById('rejectStaleMsg').textContent = `No jobs older than 14 days in the ${label} queue.`;
+    document.getElementById('rejectStaleMsg').textContent = `No jobs posted more than ${days} days ago in the ${label} queue.`;
     listEl.style.display = 'none';
   }
   document.getElementById('rejectStaleConfirmBtn').style.display = stale.length > 0 ? '' : 'none';
@@ -1103,14 +1130,38 @@ function closeRejectStaleModal() {
 }
 
 async function confirmRejectStale() {
+  const days = rejectStaleDays;
+  if (!Number.isFinite(days)) {
+    showToast('Still loading the stale cutoff', '');
+    return;
+  }
+  const staleCount = _staleJobs(days).length;
+  const confirmBtn = document.getElementById('rejectStaleConfirmBtn');
+  const headerBtn = document.getElementById('rejectStaleBtn');
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Rejecting…'; }
+  if (headerBtn) headerBtn.disabled = true;
   closeRejectStaleModal();
+  showToast(
+    staleCount
+      ? `Rejecting ${staleCount.toLocaleString()} stale job${staleCount === 1 ? '' : 's'}…`
+      : 'Rejecting stale jobs…',
+    '',
+    true
+  );
   try {
-    const res = await api('/api/jobs/bulk-reject-stale', 'POST', {status: currentStatus, older_than_days: 14});
-    showToast(`Rejected ${res.rejected} stale job${res.rejected === 1 ? '' : 's'}`, '');
+    const res = await api('/api/jobs/bulk-reject-stale', 'POST', {
+      status: currentStatus,
+      older_than_days: days,
+    });
+    const n = res.rejected ?? 0;
+    await loadJobs(currentStatus);
     loadStats();
-    loadJobs(currentStatus);
-  } catch(e) {
+    showToast(`Rejected ${n} stale job${n === 1 ? '' : 's'}`, 'success');
+  } catch (e) {
     showToast('Bulk reject failed', 'error');
+  } finally {
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Reject All'; }
+    if (headerBtn) headerBtn.disabled = false;
   }
 }
 
@@ -1500,15 +1551,16 @@ function renderList(jobList) {
   if (header) {
     const checkHead = `<input class="list-check" id="listSelectAll" type="checkbox" title="Select all" onclick="event.stopPropagation(); toggleSelectAllVisible(event)">`;
     const identityHead = `${checkHead}<span class="list-head-avatar"></span><span class="list-head-job">Job</span><span class="list-source">Source</span><span class="list-url">Link</span>`;
-    const scoreHead = `${identityHead}<span style="width:132px;text-align:center">${reasonHead}</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span>`;
+    const dateHeads = `<span class="list-date" title="When the employer posted the job">Posted</span><span class="list-date" title="When this app saved the job">Added</span>`;
+    const scoreHead = `${identityHead}<span class="list-reason">${reasonHead}</span><span class="list-score">Score</span>${dateHeads}`;
     if (currentStatus === 'rejected') {
-      header.innerHTML = `${scoreHead}<span style="width:78px"></span>`;
+      header.innerHTML = `${scoreHead}<span class="list-actions" style="flex-basis:78px;width:78px;min-width:78px"></span>`;
     } else if (currentStatus === 'review') {
-      header.innerHTML = `${scoreHead}<span style="width:222px;text-align:center">Actions</span>`;
+      header.innerHTML = `${scoreHead}<span class="list-actions three">Actions</span>`;
     } else if (currentStatus === 'shortlisted') {
-      header.innerHTML = `${scoreHead}<span style="width:156px;text-align:center">Actions</span>`;
+      header.innerHTML = `${scoreHead}<span class="list-actions two">Actions</span>`;
     } else if (currentStatus === 'applied') {
-      header.innerHTML = `${identityHead}<span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Applied</span>`;
+      header.innerHTML = `${identityHead}<span class="list-score">Score</span>${dateHeads}<span class="list-date" title="When you marked it applied">Applied</span>`;
     } else {
       header.innerHTML = scoreHead;
     }
@@ -1524,7 +1576,7 @@ function renderList(jobList) {
     const label = _jobFilterLabel(j);
     const tip = j.reject_detail || label;
     const rowActions = currentStatus === 'rejected'
-      ? `<button class="list-archive" type="button" title="Archive" style="width:78px" onclick="archiveJobAt(${original}, event)">Archive</button>`
+      ? `<div class="list-actions" style="flex-basis:78px;width:78px;min-width:78px"><button class="list-archive" type="button" title="Archive" onclick="archiveJobAt(${original}, event)">Archive</button></div>`
       : currentStatus === 'review'
       ? `<div class="list-actions three">
           <button class="list-archive" type="button" title="Archive" onclick="setJobStatusAt(${original}, 'archived', event)">Archive</button>
@@ -1539,7 +1591,7 @@ function renderList(jobList) {
       : '';
     const criterion = _isEvalList() && listSortBy !== 'sum';
     const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
-    const dateVal = currentStatus === 'applied' ? (j.updated_at || j.created_at) : j.created_at;
+    const dateCells = `${_listDateCell(j.posted_date, 'Posted')}${_listDateCell(j.created_at, 'Added')}${currentStatus === 'applied' ? _listDateCell(j.updated_at || j.created_at, 'Applied') : ''}`;
     const reasonCell = currentStatus === 'applied' ? '' : `<div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(tip)}">${esc(label)}</div>`;
     const picked = selectedJobIds.has(j.id);
     if (picked) listSelectedVisible++;
@@ -1558,7 +1610,7 @@ function renderList(jobList) {
         : `<div class="list-url" style="color:var(--text-muted)">—</div>`}
       ${reasonCell}
       <div class="list-score" style="${shownScore != null ? scoreColor(shownScore, criterion) : 'color:var(--text-muted)'}">${shownScore != null ? shownScore : '—'}</div>
-      <div class="list-date">${dateVal ? relativeDate(dateVal) : '—'}</div>
+      ${dateCells}
       ${rowActions}
     </div>`;
   }).join('');
@@ -2798,6 +2850,12 @@ function renderMarkdown(src) {
     out.push('<p>' + inlineMarkdown(para.join(' ')) + '</p>');
   }
   return out.join('');
+}
+
+function _listDateCell(value, label) {
+  const abs = value ? new Date(value).toLocaleString() : '';
+  const tip = abs ? `${label}: ${abs}` : `${label}: unknown`;
+  return `<div class="list-date" title="${esc(tip)}">${value ? relativeDate(value) : '—'}</div>`;
 }
 
 function relativeDate(iso) {
