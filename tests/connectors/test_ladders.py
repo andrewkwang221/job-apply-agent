@@ -321,11 +321,9 @@ def test_fetch_stops_after_two_failed_listings(mock_open, mock_detail, *_patches
 @patch("connectors.ladders._open_detail", return_value=_detail_html())
 @patch("connectors.ladders._open_listing")
 @patch("connectors.ladders._browser_session", _fake_browser)
-def test_fetch_walks_past_page_40_until_empty(mock_open, mock_detail, *_patches):
+def test_fetch_stops_at_five_pages(mock_open, mock_detail, *_patches):
     def _open(_page, url):
         n = 1 if "page=" not in url else int(url.split("page=")[1].split("&")[0])
-        if n >= 42:
-            return "<html></html>"
         return _listing_html(
             _card(
                 slug=f"software-engineer-acme-{n}",
@@ -336,22 +334,22 @@ def test_fetch_walks_past_page_40_until_empty(mock_open, mock_detail, *_patches)
 
     mock_open.side_effect = _open
     jobs = LaddersConnector().fetch_jobs()
-    assert [j["id"] for j in jobs] == [str(1000 + n) for n in range(1, 42)]
+    assert [j["id"] for j in jobs] == [str(1000 + n) for n in range(1, 6)]
     urls = [c.args[1] for c in mock_open.call_args_list]
-    assert any("page=41" in u for u in urls)
-    assert any("page=42" in u for u in urls)
-    assert not any("page=43" in u for u in urls)
+    assert any("page=5" in u for u in urls)
+    assert not any("page=6" in u for u in urls)
 
 
 def test_open_detail_soft_retries_then_skips():
-    from connectors.ladders import _OPEN_RETRIES, _open_detail
+    from connectors.ladders import _DETAIL_RETRIES, _DETAIL_TIMEOUT_MS, _open_detail
 
     page = MagicMock()
-    page.goto.side_effect = TimeoutError("Timeout 45000ms exceeded")
+    page.goto.side_effect = TimeoutError("Timeout 12000ms exceeded")
 
     assert _open_detail(page, "https://www.theladders.com/job/x_1") == ""
-    assert page.goto.call_count == _OPEN_RETRIES
-    assert page.wait_for_timeout.call_count == _OPEN_RETRIES - 1
+    assert page.goto.call_count == _DETAIL_RETRIES
+    assert page.goto.call_args.kwargs["timeout"] == _DETAIL_TIMEOUT_MS
+    assert page.wait_for_timeout.call_count == _DETAIL_RETRIES - 1
 
 
 def test_open_detail_retries_then_succeeds():

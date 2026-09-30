@@ -13,14 +13,16 @@ Each listing page is SSR HTML (20 cards). Cards link to
 detail ``creationTS``.
 
 Compose unique ``profile.yaml`` ``target_roles`` plus ``engineer``,
-once for ``worktype=remote`` and once for ``worktype=hybrid``. Merge
-by job id. On error, keep jobs already collected and continue the
-other searches.
+``worktype=remote`` only. Merge by job id. On error, keep jobs
+already collected and continue the other searches.
 
-The list is treated as newest-first: stop at the first fully stale
-page (``MAX_JOB_AGE_DAYS`` / ``MAX_JOB_AGE_DAYS_INITIAL``). Runaway
-page cap only. Ineligible remote/seniority rows are skipped before
-the detail GET when listing title/location is enough.
+Known listing URLs and ids already handled in this run (including a
+failed detail) are skipped before ``GET /api/jobs/job``. The list is
+newest-first: stop when a page has no fresh ``creationTS`` (every
+engineering card was a duplicate, every detail call failed, or every
+date is older than the age cutoff). Runaway page cap only. Ineligible
+remote/seniority rows are skipped before the detail GET when listing
+title is enough.
 
 ``targetUrl`` is usually the employer ATS. ``location`` is a string.
 """
@@ -55,14 +57,15 @@ DETAIL_URL = f"{BASE_URL}/api/jobs/job"
 _PROFILE_PATH = "profile.yaml"
 _COUNTRY = "us"
 _EXPERIENCE = "professional,senior,manager"
-_WORK_TYPES = ("remote", "hybrid")
+_WORK_TYPES = ("remote",)
 _FETCH_DELAY = 0.4
-# Runaway only; newest-first stale-page stop should fire earlier.
+# Runaway only; a page with no fresh dates stops the walk earlier.
 _MAX_PAGES = 40
-_DETAIL_WORKERS = 8
+_DETAIL_WORKERS = 4
 _LISTING_TIMEOUT = 40
-_DETAIL_TIMEOUT = 40
+_DETAIL_TIMEOUT = 10
 _RETRIES = 3
+_DETAIL_RETRIES = 2
 _RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
@@ -125,6 +128,7 @@ class RemoteScout24Connector(BaseConnector):
                     cutoff,
                     parsed,
                     seen_ids,
+                    self.source_name,
                     on_page=lambda page_jobs: self._emit_page(page_jobs, kept_jobs),
                 )
                 logger.info(
@@ -196,7 +200,7 @@ class RemoteScout24Connector(BaseConnector):
 
 
 def _listing_queries() -> list[tuple[str, str]]:
-    """Unique role searches × remote/hybrid. Keywords/skills are too broad."""
+    """Unique role searches, remote only. Keywords/skills are too broad."""
     return [(search, worktype) for search in _search_queries() for worktype in _WORK_TYPES]
 
 
@@ -250,6 +254,7 @@ def _fetch_query(
     cutoff: datetime,
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
+    source_name: str,
     on_page=None,
 ) -> int:
     added = 0
@@ -265,7 +270,9 @@ def _fetch_query(
             cards = _extract_listings(html)
             if not cards:
                 break
-            dated, page_jobs = _hydrate_page(cards, cutoff, seen_ids, parsed)
+            _, page_jobs, stop = _hydrate_page(
+                cards, cutoff, seen_ids, parsed, source_name
+            )
             added += len(page_jobs)
             logger.info(
                 f"remotescout24 query={search!r} worktype={worktype} page={page}: "
@@ -273,10 +280,10 @@ def _fetch_query(
             )
             if on_page:
                 on_page(page_jobs)
-            if dated and all(dt < cutoff for dt in dated):
+            if stop:
                 logger.info(
                     f"remotescout24 query={search!r} worktype={worktype} "
-                    f"page={page} is fully stale — stopping"
+                    f"page={page} has no fresh dates ({stop}) — stopping"
                 )
                 break
             if page < _MAX_PAGES:
@@ -294,21 +301,44 @@ def _hydrate_page(
     cutoff: datetime,
     seen_ids: set[str],
     parsed: list[dict[str, Any]],
-) -> tuple[list[datetime], list[dict[str, Any]]]:
+    source_name: str,
+) -> tuple[list[datetime], list[dict[str, Any]], str]:
+    """Return dates, new jobs, and a stop reason when the page has no fresh date."""
     profile = load_candidate_profile()
-    to_fetch: list[dict[str, str]] = []
+    eligible: list[dict[str, str]] = []
     for card in cards:
         title = card.get("title") or ""
         if title and not _is_engineering_title(title):
             continue
         if title and profile and seniority_exclusion({"title": title}, profile):
             continue
-        to_fetch.append(card)
+        eligible.append(card)
+    if not eligible:
+        return [], [], ""
 
-    details = _fetch_details(to_fetch)
+    need = [card for card in eligible if card["id"] not in seen_ids]
+    if need:
+        unseen = set(
+            unseen_listing_urls(
+                [card["listing_url"] for card in need if card.get("listing_url")],
+                source_name,
+            )
+        )
+        still: list[dict[str, str]] = []
+        for card in need:
+            if card.get("listing_url") and card["listing_url"] not in unseen:
+                seen_ids.add(card["id"])
+                continue
+            still.append(card)
+        need = still
+    if not need:
+        return [], [], "duplicates"
+
+    details = _fetch_details(need)
     dated: list[datetime] = []
     page_jobs: list[dict[str, Any]] = []
-    for card in to_fetch:
+    for card in need:
+        seen_ids.add(card["id"])
         item = _job_payload(details.get(card["id"]))
         if not item:
             continue
@@ -318,12 +348,12 @@ def _hydrate_page(
         raw = _parse_raw_job(item, cutoff, listing_url=card.get("listing_url") or "")
         if not raw:
             continue
-        if raw["id"] in seen_ids:
-            continue
-        seen_ids.add(raw["id"])
         parsed.append(raw)
         page_jobs.append(raw)
-    return dated, page_jobs
+    if any(dt >= cutoff for dt in dated):
+        return dated, page_jobs, ""
+    stop = "stale" if dated else "no_dates"
+    return dated, page_jobs, stop
 
 
 def _fetch_details(cards: list[dict[str, str]]) -> dict[str, dict[str, Any] | None]:
@@ -434,8 +464,10 @@ def _get(
     accept: str = "*/*",
 ) -> requests.Response | None:
     headers = {**_HEADERS, "Accept": accept}
-    timeout = _DETAIL_TIMEOUT if "/api/" in url else _LISTING_TIMEOUT
-    for attempt in range(1, _RETRIES + 1):
+    is_detail = "/api/" in url
+    timeout = _DETAIL_TIMEOUT if is_detail else _LISTING_TIMEOUT
+    retries = _DETAIL_RETRIES if is_detail else _RETRIES
+    for attempt in range(1, retries + 1):
         try:
             resp = requests.get(
                 url,
@@ -446,21 +478,21 @@ def _get(
         except (requests.Timeout, requests.ConnectionError) as e:
             logger.info(
                 f"remotescout24 GET failed ({type(e).__name__}) "
-                f"attempt {attempt}/{_RETRIES}"
+                f"attempt {attempt}/{retries}"
             )
-            if attempt < _RETRIES:
+            if attempt < retries:
                 time.sleep(_RETRY_DELAY * attempt)
             continue
         if resp.status_code >= 400:
             logger.info(
                 f"remotescout24 GET HTTP {resp.status_code} "
-                f"attempt {attempt}/{_RETRIES}"
+                f"attempt {attempt}/{retries}"
             )
-            if attempt < _RETRIES:
+            if attempt < retries:
                 time.sleep(_RETRY_DELAY * attempt)
             continue
         return resp
-    logger.info(f"remotescout24 GET skipped after {_RETRIES} attempts for {url}")
+    logger.info(f"remotescout24 GET skipped after {retries} attempts for {url}")
     return None
 
 

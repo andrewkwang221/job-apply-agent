@@ -14,11 +14,11 @@ keeps jobs already emitted. ``robots.txt`` disallows ``/api/*`` and
 ``/job/*/apply``, so guest job JSON and apply URLs are unused.
 
 ``sortBy=PUBLICATION_DATE`` is live Newest. Walk unique profile
-``target_roles`` (plus ``software engineer``) until a loaded page has no
-cards or repeats the previous page's first id. Keyword search leaks sales
-titles, so keep engineering titles on the card. Stop at the first stale
-job. Skip known listing URLs. Skip detail HTTP when listing location/title
-already fails ``job_inclusion``.
+``target_roles`` (plus ``software engineer``) at most 5 pages per query,
+until a loaded page has no cards, repeats the previous page's first id,
+or the first card is stale. Keyword search leaks sales titles, so keep
+engineering titles on the card. Skip known listing URLs. Skip detail
+when listing location/title already fails ``job_inclusion``.
 
 ``location`` is the listing-card string. Apply stays on theladders.com.
 """
@@ -52,11 +52,12 @@ _UA = (
     "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 )
 _LISTING_TIMEOUT_MS = 15_000
-_DETAIL_TIMEOUT_MS = 45_000
+_DETAIL_TIMEOUT_MS = 12_000
 _OPEN_RETRIES = 3
-# Safety ceiling. A loaded page with no cards, a repeated first id, a stale
-# card, or two failed listings stops the query first.
-_RUNAWAY_PAGES = 200
+_DETAIL_RETRIES = 2
+# Newest-first (sortBy=PUBLICATION_DATE). daysPublished already matches the
+# age window, so a stale card rarely appears; cap each query at 5 pages.
+_MAX_LISTING_PAGES = 5
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font"})
 _CATCHALL_QUERY = "software engineer"
 _FALLBACK_QUERIES = (
@@ -131,7 +132,7 @@ class LaddersConnector(BaseConnector):
                     prev_first = ""
                     failed_loads = 0
                     page_n = 1
-                    while page_n <= _RUNAWAY_PAGES:
+                    while page_n <= _MAX_LISTING_PAGES:
                         url = listing_url(query, age_days, page_n)
                         html = _open_listing(page, url)
                         if _listing_failed(html):
@@ -192,8 +193,8 @@ class LaddersConnector(BaseConnector):
                         page_n += 1
                     else:
                         logger.info(
-                            f"ladders query={query!r}: runaway cap "
-                            f"{_RUNAWAY_PAGES} — stopping this query"
+                            f"ladders query={query!r}: page cap "
+                            f"{_MAX_LISTING_PAGES} — stopping this query"
                         )
                     logger.info(
                         f"ladders query={query!r}: +{added} (total {len(seen_ids)})"
@@ -599,18 +600,17 @@ def _open_detail(page: Any, url: str) -> str:
     if "/apply" in (url or "").lower():
         return ""
     last_err: Exception | None = None
-    for attempt in range(1, _OPEN_RETRIES + 1):
+    for attempt in range(1, _DETAIL_RETRIES + 1):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=_DETAIL_TIMEOUT_MS)
-            page.wait_for_timeout(800)
             return page.content() or ""
         except Exception as e:
             last_err = e
             logger.info(
                 f"ladders detail failed ({type(e).__name__}) "
-                f"attempt {attempt}/{_OPEN_RETRIES} for {url}"
+                f"attempt {attempt}/{_DETAIL_RETRIES} for {url}"
             )
-            if attempt < _OPEN_RETRIES:
+            if attempt < _DETAIL_RETRIES:
                 try:
                     page.wait_for_timeout(1000 * attempt)
                 except Exception:
@@ -618,7 +618,7 @@ def _open_detail(page: Any, url: str) -> str:
                 continue
     if last_err is not None:
         logger.info(
-            f"ladders detail skipped after {_OPEN_RETRIES} attempts "
+            f"ladders detail skipped after {_DETAIL_RETRIES} attempts "
             f"({type(last_err).__name__}) for {url}"
         )
     return ""

@@ -1,7 +1,7 @@
 """
 Mocked tests for RemoteScout24Connector.
 
-Covers: profile target_roles + engineer queries × remote/hybrid,
+Covers: profile target_roles + engineer queries, remote only,
 listing URL filters, HTML card parse, engineering title filter,
 newest-first stale-page stop (creationTS vs job_age_cutoff),
 detail hydrate, merge-by-id, failed page keeps prior jobs,
@@ -127,14 +127,11 @@ def test_search_queries_use_roles_plus_engineer_not_keywords():
     assert got == ["Backend Engineer", "AI engineer", _CATCHALL_QUERY]
     assert "python" not in got
     assert "Git" not in got
-    assert _WORK_TYPES == ("remote", "hybrid")
+    assert _WORK_TYPES == ("remote",)
     assert pairs == [
         ("Backend Engineer", "remote"),
-        ("Backend Engineer", "hybrid"),
         ("AI engineer", "remote"),
-        ("AI engineer", "hybrid"),
         ("engineer", "remote"),
-        ("engineer", "hybrid"),
     ]
 
 
@@ -241,18 +238,12 @@ def test_fetch_stops_on_stale_page(
     listings = {
         ("remote", "1"): _listing_html("1"),
         ("remote", "2"): _listing_html("2"),
-        ("hybrid", "1"): _listing_html("3"),
-        ("hybrid", "2"): _listing_html("4"),
         ("remote", "3"): _listing_html("99"),
-        ("hybrid", "3"): _listing_html("98"),
     }
     details = {
         "1": _detail("1", created=_RECENT),
         "2": _detail("2", created=_STALE),
-        "3": _detail("3", created=_RECENT, work_type="hybrid"),
-        "4": _detail("4", created=_STALE, work_type="hybrid"),
         "99": _detail("99", created=_RECENT),
-        "98": _detail("98", created=_RECENT),
     }
 
     def side_effect(url, **kwargs):
@@ -266,13 +257,12 @@ def test_fetch_stops_on_stale_page(
     mock_get.side_effect = side_effect
     jobs = RemoteScout24Connector().fetch_jobs()
 
-    assert [job["id"] for job in jobs] == ["1", "3"]
-    assert ("remote", "3") not in _listing_calls(mock_get)
-    assert ("hybrid", "3") not in _listing_calls(mock_get)
-    assert ("remote", "1") in _listing_calls(mock_get)
-    assert ("remote", "2") in _listing_calls(mock_get)
-    assert ("hybrid", "1") in _listing_calls(mock_get)
-    assert ("hybrid", "2") in _listing_calls(mock_get)
+    assert [job["id"] for job in jobs] == ["1"]
+    calls = _listing_calls(mock_get)
+    assert ("remote", "3") not in calls
+    assert all(worktype == "remote" for worktype, _page in calls)
+    assert ("remote", "1") in calls
+    assert ("remote", "2") in calls
     assert "99" not in _detail_ids(mock_get)
     assert mock_remember.called
 
@@ -302,7 +292,7 @@ def test_fetch_keeps_prior_jobs_when_a_query_fails(
 
     mock_get.side_effect = side_effect
     jobs = RemoteScout24Connector().fetch_jobs()
-    assert [job["id"] for job in jobs] == ["1", "3"]
+    assert [job["id"] for job in jobs] == ["1"]
 
 
 @patch("connectors.remotescout24.remember_listing_urls")
@@ -386,8 +376,8 @@ def test_fetch_skips_junior_listing_before_detail(
 @patch("connectors.remotescout24.load_candidate_profile", return_value=None)
 @patch("connectors.remotescout24.max_job_age_days", return_value=10)
 @patch("connectors.remotescout24.job_age_cutoff", return_value=_CUTOFF)
-@patch("connectors.remotescout24._search_queries", return_value=["engineer"])
-def test_fetch_merges_duplicate_ids_across_worktypes(
+@patch("connectors.remotescout24._search_queries", return_value=["backend engineer", "engineer"])
+def test_fetch_merges_duplicate_ids_across_queries(
     _queries, _cutoff, _age, _profile, mock_get, _sleep, _unseen, _remember
 ):
     def side_effect(url, **kwargs):
@@ -401,6 +391,57 @@ def test_fetch_merges_duplicate_ids_across_worktypes(
     mock_get.side_effect = side_effect
     jobs = RemoteScout24Connector().fetch_jobs()
     assert [job["id"] for job in jobs] == ["1"]
+    assert _detail_ids(mock_get) == ["1"]
+
+
+@patch("connectors.remotescout24.remember_listing_urls")
+@patch("connectors.remotescout24.unseen_listing_urls", return_value=[])
+@patch("connectors.remotescout24.time.sleep")
+@patch("connectors.remotescout24.requests.get")
+@patch("connectors.remotescout24.load_candidate_profile", return_value=None)
+@patch("connectors.remotescout24.max_job_age_days", return_value=10)
+@patch("connectors.remotescout24.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.remotescout24._search_queries", return_value=["engineer"])
+def test_fetch_skips_known_listing_before_detail(
+    _queries, _cutoff, _age, _profile, mock_get, _sleep, _unseen, _remember
+):
+    def side_effect(url, **kwargs):
+        if "/api/jobs/job" in url:
+            raise AssertionError("detail requested for a known listing")
+        qs = _query(url)
+        if qs.get("page") != "1":
+            return _Resp(text=_listing_html("2"))
+        return _Resp(text=_listing_html("1"))
+
+    mock_get.side_effect = side_effect
+    jobs = RemoteScout24Connector().fetch_jobs()
+    assert jobs == []
+    assert ("remote", "2") not in _listing_calls(mock_get)
+
+
+@patch("connectors.remotescout24.remember_listing_urls")
+@patch("connectors.remotescout24.unseen_listing_urls", side_effect=lambda urls, source: list(urls))
+@patch("connectors.remotescout24.time.sleep")
+@patch("connectors.remotescout24.requests.get")
+@patch("connectors.remotescout24.load_candidate_profile", return_value=None)
+@patch("connectors.remotescout24.max_job_age_days", return_value=10)
+@patch("connectors.remotescout24.job_age_cutoff", return_value=_CUTOFF)
+@patch("connectors.remotescout24._search_queries", return_value=["engineer"])
+def test_fetch_stops_when_detail_returns_no_dates(
+    _queries, _cutoff, _age, _profile, mock_get, _sleep, _unseen, _remember
+):
+    def side_effect(url, **kwargs):
+        if "/api/jobs/job" in url:
+            return _Resp(text="err", status=500)
+        qs = _query(url)
+        job_id = "9" if qs.get("page") == "2" else "1"
+        return _Resp(text=_listing_html(job_id))
+
+    mock_get.side_effect = side_effect
+    jobs = RemoteScout24Connector().fetch_jobs()
+    assert jobs == []
+    assert ("remote", "2") not in _listing_calls(mock_get)
+    assert _detail_ids(mock_get) == ["1", "1"]
 
 
 @patch("connectors.remotescout24.time.sleep")

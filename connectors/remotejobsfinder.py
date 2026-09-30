@@ -10,6 +10,8 @@ Each call is ``limit=20`` (21+ is 400). ``skip`` walks the result set.
 ``search`` is relevance-sorted (dates mixed; ``sort=`` is ignored), so
 walk until an empty page or ``skip >= totalRecords``. Date-filter with
 ``MAX_JOB_AGE_DAYS``. Do not prefix-cap or stop at the first stale page.
+Role searches run three at a time. A ``createdAfter`` query param does
+not change ``totalRecords``, so the walk stays unbounded by date.
 
 Compose unique ``profile.yaml`` ``target_roles`` plus ``engineering``, with
 ``locations=[{"country":"USA"}]`` and ``minHourlyRate=30``. Do not send
@@ -25,8 +27,10 @@ usually the employer apply URL. ``location`` is always a string.
 from __future__ import annotations
 
 import time
+import threading
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
@@ -55,11 +59,12 @@ _LOCATIONS = '[{"country":"USA"}]'
 _FETCH_DELAY = 0.4
 # Runaway only; search is mixed-date so no stale-page stop.
 _MAX_PAGES = 40
+_QUERY_WORKERS = 3
 _MAX_FETCH_FAILURES = 5
 _DETAIL_WORKERS = 8
 _STUB_DESC_MAX_CHARS = 800
-_API_TIMEOUT = 40
-_RETRIES = 3
+_API_TIMEOUT = 10
+_RETRIES = 2
 _RETRY_DELAY = 1.5
 _HEADERS = {
     "User-Agent": (
@@ -104,20 +109,34 @@ class RemoteJobsFinderConnector(BaseConnector):
         seen_ids: set[str] = set()
         kept_jobs: list[dict[str, Any]] = []
 
-        try:
-            for i, search in enumerate(queries):
+        lock = threading.Lock()
+
+        def _one(search: str) -> None:
+            try:
                 added = _fetch_query(
                     search,
                     cutoff,
                     parsed,
                     seen_ids,
                     on_page=lambda page_jobs: self._emit_page(page_jobs, kept_jobs),
+                    lock=lock,
                 )
-                logger.info(
-                    f"remotejobsfinder query={search!r}: +{added} (total {len(parsed)})"
-                )
-                if i + 1 < len(queries):
-                    time.sleep(_FETCH_DELAY)
+            except Exception as e:
+                logger.error(f"remotejobsfinder query={search!r} failed: {e}")
+                logger.debug(traceback.format_exc())
+                return
+            with lock:
+                total = len(parsed)
+            logger.info(
+                f"remotejobsfinder query={search!r}: +{added} (total {total})"
+            )
+
+        workers = max(1, min(_QUERY_WORKERS, len(queries)))
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_one, search) for search in queries]
+                for fut in as_completed(futures):
+                    fut.result()
         except Exception as e:
             logger.error(f"Error fetching jobs from RemoteJobsFinder: {e}")
             logger.debug(traceback.format_exc())
@@ -233,6 +252,7 @@ def _fetch_query(
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
     on_page=None,
+    lock: threading.Lock | None = None,
 ) -> int:
     added = 0
     consecutive_failures = 0
@@ -254,19 +274,20 @@ def _fetch_query(
         raw_items = _extract_jobs(data)
         if not raw_items:
             break
-        page_jobs: list[dict[str, Any]] = []
-        for item in raw_items:
-            raw = _parse_raw_job(item, cutoff)
-            if not raw:
-                continue
-            if raw["id"] in seen_ids:
-                continue
-            seen_ids.add(raw["id"])
-            parsed.append(raw)
-            page_jobs.append(raw)
-            added += 1
-        if on_page:
-            on_page(page_jobs)
+        with lock or nullcontext():
+            page_jobs: list[dict[str, Any]] = []
+            for item in raw_items:
+                raw = _parse_raw_job(item, cutoff)
+                if not raw:
+                    continue
+                if raw["id"] in seen_ids:
+                    continue
+                seen_ids.add(raw["id"])
+                parsed.append(raw)
+                page_jobs.append(raw)
+                added += 1
+            if on_page:
+                on_page(page_jobs)
         total = _total_records(data)
         logger.info(
             f"remotejobsfinder query={search!r} skip={skip}: "

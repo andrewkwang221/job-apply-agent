@@ -387,8 +387,7 @@ def test_fetch_page_retries_timeout_then_ok(mock_get, _sleep):
     from requests.exceptions import Timeout as RequestsTimeout
 
     mock_get.side_effect = [
-        RequestsTimeout("read timeout=40"),
-        RequestsTimeout("read timeout=40"),
+        RequestsTimeout("read timeout=10"),
         _Resp({"jobs": [], "meta": {"totalRecords": 0}}),
     ]
     data = _fetch_page([("search", "engineering"), ("skip", "0")])
@@ -403,6 +402,6 @@ def test_fetch_page_timeout_exhausts_retries(mock_get, _sleep):
     from connectors.remotejobsfinder import _RETRIES, _fetch_page
     from requests.exceptions import Timeout as RequestsTimeout
 
-    mock_get.side_effect = RequestsTimeout("read timeout=40")
+    mock_get.side_effect = RequestsTimeout("read timeout=10")
     assert _fetch_page([("search", "engineering"), ("skip", "0")]) is None
     assert mock_get.call_count == _RETRIES
