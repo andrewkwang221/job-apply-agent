@@ -54,7 +54,7 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .btn-reject-stale.visible{display:flex;}
 .list-view{padding:0 4px 12px;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;overflow:hidden;}
 .list-view-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;display:flex;align-items:center;gap:12px;flex-shrink:0;}
-.list-view-header span:nth-child(2){flex:1 1 240px;min-width:240px;}
+.list-view-header .list-head-job{flex:1 1 240px;min-width:240px;}
 .list-head-avatar{width:30px;flex-shrink:0;}
 .list-scroll{flex:1;min-height:0;overflow:auto;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:#3d8aa3 transparent;}
 .list-scroll::-webkit-scrollbar{width:10px;height:10px;}
@@ -87,6 +87,18 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex-shrink:0;width:132px;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .list-date{font-size:11.5px;color:var(--text-muted);width:60px;text-align:right;flex-shrink:0;}
 .list-row{cursor:pointer;}
+.list-row.selected,.list-row.selected:hover{background:rgba(77,184,212,.18);border-radius:6px;}
+.list-check{width:16px;height:16px;flex-shrink:0;margin:0;accent-color:var(--accent);cursor:pointer;}
+.list-view:not(.selecting) .list-check{display:none;}
+.list-select-bar{display:flex;align-items:center;gap:8px;flex-shrink:0;padding:4px 4px 12px;position:relative;}
+.list-select-btn{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--text-secondary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;}
+.list-select-btn:hover{border-color:var(--accent-mid);color:var(--accent);}
+.list-select-btn.active{background:var(--accent);color:#042028;border-color:var(--accent);}
+.list-select-btn:disabled{opacity:.45;cursor:default;}
+.list-move-wrap{position:relative;}
+.list-move-menu{position:absolute;top:calc(100% + 4px);right:0;z-index:5;min-width:148px;background:var(--bg-card);border:1px solid var(--border);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.28);}
+.list-move-menu button{display:block;width:100%;text-align:left;font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;color:var(--text-primary);background:transparent;border:none;border-radius:6px;padding:7px 10px;cursor:pointer;}
+.list-move-menu button:hover{background:var(--bg-hover);}
 .reject-counts{display:flex;flex-wrap:wrap;gap:6px;padding:4px 4px 12px;flex-shrink:0;}
 .reject-count-chip{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:16px;border:1px solid var(--border);background:var(--bg-subtle);color:var(--text-secondary);cursor:pointer;}
 .reject-count-chip:hover{border-color:var(--accent-mid);color:var(--accent);}
@@ -328,10 +340,10 @@ a.card-company:hover{text-decoration:underline;}
 @keyframes slideIn{from{opacity:0;transform:translateX(40px) rotate(2deg);}to{opacity:1;transform:translateX(0) rotate(0deg);}}
 .slide-in{animation:slideIn .35s cubic-bezier(.34,1.56,.64,1);}
 @keyframes slideOut{to{opacity:0;transform:translateX(-40px) rotate(-2deg);}}
-.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(80px);background:var(--text-primary);color:#fff;padding:10px 20px;border-radius:30px;font-size:13.5px;font-weight:500;z-index:300;transition:transform .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;box-shadow:var(--shadow-lg);}
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%) translateY(80px);background:#071820;color:var(--text-primary);border:1px solid var(--border);padding:10px 20px;border-radius:30px;font-size:13.5px;font-weight:500;z-index:300;transition:transform .3s cubic-bezier(.34,1.56,.64,1);pointer-events:none;box-shadow:var(--shadow-lg);}
 .toast.show{transform:translateX(-50%) translateY(0);}
-.toast.success{background:var(--green);}
-.toast.error{background:var(--red);}
+.toast.success{background:var(--green);color:#042028;border-color:transparent;}
+.toast.error{background:var(--red);color:#220e0e;border-color:transparent;}
 @keyframes spin{to{transform:rotate(360deg);}}
 .spin{animation:spin 1s linear infinite;display:inline-block;}
 .schedule-wrap{border-top:1px solid var(--border-subtle);padding-top:14px;margin-top:8px;display:flex;flex-direction:column;gap:4px;}
@@ -696,6 +708,13 @@ a.card-company:hover{text-decoration:underline;}
 
   <div class="list-view" id="listView" style="display:none">
     <div class="list-toolbar" id="listToolbar">
+      <div class="list-select-bar" id="listSelectBar">
+        <button type="button" class="list-select-btn" id="btnSelectMode" onclick="toggleSelectMode()">Select</button>
+        <div class="list-move-wrap">
+          <button type="button" class="list-select-btn" id="btnMoveSelected" onclick="toggleMoveMenu(event)" disabled>Move</button>
+          <div class="list-move-menu" id="listMoveMenu" style="display:none"></div>
+        </div>
+      </div>
       <div id="rejectCounts" class="reject-counts" style="display:none"></div>
       <label class="list-sort" id="listSortWrap">
         Sort by
@@ -803,22 +822,6 @@ a.card-company:hover{text-decoration:underline;}
   </div>
 </div>
 
-<!-- Archive All modal -->
-<div class="modal-overlay" id="archiveAllOverlay" onclick="closeArchiveAllModal()" style="display:none"></div>
-<div class="modal-box" id="archiveAllModal" style="display:none">
-  <div class="modal-header">
-    <span class="modal-title">Archive All</span>
-    <button class="btn-close" onclick="closeArchiveAllModal()">×</button>
-  </div>
-  <div class="modal-body">
-    <p class="modal-hint" id="archiveAllMsg"></p>
-  </div>
-  <div class="modal-footer">
-    <button class="btn-modal-cancel" onclick="closeArchiveAllModal()">Cancel</button>
-    <button class="btn-modal-fill" id="archiveAllConfirmBtn" onclick="confirmArchiveVisibleRejected()">Archive All</button>
-  </div>
-</div>
-
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
 let jobs = [];
@@ -832,8 +835,22 @@ let listFilter = 'all';
 let listSortBy = 'sum';
 let viewingListCard = false;
 let queueView = 'card';
+let selectMode = false;
+let selectedJobIds = new Set();
+let listVisibleCount = 0;
+let listSelectedVisible = 0;
 const _LIST_STATUSES = new Set(['rejected', 'expired', 'archived']);
-const _QUEUE_LIST_STATUSES = new Set(['review', 'shortlisted', 'applied']);
+const _QUEUE_LIST_STATUSES = new Set(['new', 'review', 'shortlisted', 'applied', 'deferred']);
+const _MOVE_STATUSES = [
+  ['new', 'New'],
+  ['review', 'Review'],
+  ['shortlisted', 'Shortlisted'],
+  ['applied', 'Applied'],
+  ['deferred', 'Deferred'],
+  ['rejected', 'Rejected'],
+  ['expired', 'Expired'],
+  ['archived', 'Archived'],
+];
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -1008,6 +1025,8 @@ function _renderDashPie(data) {
 // ── Jobs ───────────────────────────────────────────────────────────────────
 async function loadJobs(status, opts) {
   currentStatus = status;
+  selectMode = false;
+  selectedJobIds = new Set();
   const asList = !!(opts && opts.asList);
   _queueListComplete = false;
   try {
@@ -1434,6 +1453,30 @@ function setListSort(key) {
   renderList(jobs);
 }
 
+function _paintListChips(jobList) {
+  const showChips = currentStatus === 'rejected' || _isEvalList();
+  const counts = showChips ? _listChipCounts(jobList) : [];
+  if (listFilter !== 'all' && !counts.some(c => c.code === listFilter)) listFilter = 'all';
+  const countsEl = document.getElementById('rejectCounts');
+  if (!countsEl) return;
+  if (showChips) {
+    countsEl.style.display = 'flex';
+    countsEl.dataset.tone = currentStatus === 'rejected' ? 'rejected' : currentStatus;
+    const chips = counts.map(c => `
+      <button class="reject-count-chip${listFilter === c.code ? ' active' : ''}" onclick="filterListBy('${esc(c.code)}')">
+        ${esc(c.label)} ${c.count}
+      </button>`).join('');
+    countsEl.innerHTML = `
+      <button class="reject-count-chip${listFilter === 'all' ? ' active' : ''}" onclick="filterListBy('all')">
+        All ${jobList.length}
+      </button>${chips}`;
+  } else {
+    countsEl.style.display = 'none';
+    countsEl.innerHTML = '';
+    delete countsEl.dataset.tone;
+  }
+}
+
 function renderList(jobList) {
   viewingListCard = false;
   queueView = 'list';
@@ -1451,33 +1494,15 @@ function renderList(jobList) {
            s >= 50 ? `background:var(--orange-mid);color:var(--orange)` :
                      `background:var(--red-mid);color:var(--red)`;
   };
-  const showChips = currentStatus === 'rejected' || _isEvalList();
-  const counts = showChips ? _listChipCounts(jobList) : [];
-  if (listFilter !== 'all' && !counts.some(c => c.code === listFilter)) listFilter = 'all';
-  const countsEl = document.getElementById('rejectCounts');
-  if (showChips) {
-    countsEl.style.display = 'flex';
-    countsEl.dataset.tone = currentStatus === 'rejected' ? 'rejected' : currentStatus;
-    const chips = counts.map(c => `
-      <button class="reject-count-chip${listFilter === c.code ? ' active' : ''}" onclick="filterListBy('${esc(c.code)}')">
-        ${esc(c.label)} ${c.count}
-      </button>`).join('');
-    countsEl.innerHTML = `
-      <button class="reject-count-chip${listFilter === 'all' ? ' active' : ''}" onclick="filterListBy('all')">
-        All ${jobList.length}
-      </button>${chips}`;
-  } else {
-    countsEl.style.display = 'none';
-    countsEl.innerHTML = '';
-    delete countsEl.dataset.tone;
-  }
+  _paintListChips(jobList);
   const header = document.getElementById('listViewHeader');
   const reasonHead = currentStatus === 'rejected' ? 'Why' : 'Eval';
   if (header) {
-    const identityHead = `<span class="list-head-avatar"></span><span>Job</span><span class="list-source">Source</span><span class="list-url">Link</span>`;
+    const checkHead = `<input class="list-check" id="listSelectAll" type="checkbox" title="Select all" onclick="event.stopPropagation(); toggleSelectAllVisible(event)">`;
+    const identityHead = `${checkHead}<span class="list-head-avatar"></span><span class="list-head-job">Job</span><span class="list-source">Source</span><span class="list-url">Link</span>`;
     const scoreHead = `${identityHead}<span style="width:132px;text-align:center">${reasonHead}</span><span style="width:46px;text-align:center">Score</span><span style="width:60px;text-align:right">Added</span>`;
     if (currentStatus === 'rejected') {
-      header.innerHTML = `${scoreHead}<span style="width:78px;text-align:center"><button class="list-archive" type="button" id="btnArchiveAll" title="Archive all visible jobs" onclick="openArchiveAllModal()">Archive All</button></span>`;
+      header.innerHTML = `${scoreHead}<span style="width:78px"></span>`;
     } else if (currentStatus === 'review') {
       header.innerHTML = `${scoreHead}<span style="width:222px;text-align:center">Actions</span>`;
     } else if (currentStatus === 'shortlisted') {
@@ -1489,8 +1514,13 @@ function renderList(jobList) {
     }
   }
   const visible = _sortedListJobs(jobList);
+  const indexById = new Map();
+  for (let i = 0; i < jobList.length; i++) indexById.set(jobList[i].id, i);
+  listVisibleCount = visible.length;
+  listSelectedVisible = 0;
+  document.getElementById('listView').classList.toggle('selecting', selectMode);
   document.getElementById('listViewRows').innerHTML = visible.map(j => {
-    const original = jobList.indexOf(j);
+    const original = indexById.get(j.id);
     const label = _jobFilterLabel(j);
     const tip = j.reject_detail || label;
     const rowActions = currentStatus === 'rejected'
@@ -1511,8 +1541,12 @@ function renderList(jobList) {
     const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
     const dateVal = currentStatus === 'applied' ? (j.updated_at || j.created_at) : j.created_at;
     const reasonCell = currentStatus === 'applied' ? '' : `<div class="list-reason" style="${j.fit_score != null ? scoreColor(j.fit_score) : 'background:var(--bg-subtle);color:var(--text-muted)'}" title="${esc(tip)}">${esc(label)}</div>`;
+    const picked = selectedJobIds.has(j.id);
+    if (picked) listSelectedVisible++;
+    const checkCell = `<input class="list-check" type="checkbox"${picked ? ' checked' : ''} onclick="toggleRowSelected(${j.id}, event)">`;
     return `
-    <div class="list-row" onclick="openListJob(${original})">
+    <div class="list-row${selectMode && picked ? ' selected' : ''}" data-job-id="${j.id}" onclick="onListRowClick(${original}, ${j.id}, event)">
+      ${checkCell}
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
       <div class="list-info">
         <div class="list-title">${esc(j.title)}</div>
@@ -1530,18 +1564,165 @@ function renderList(jobList) {
   }).join('');
   document.getElementById('listView').style.display = '';
   document.getElementById('navCounter').textContent = `${visible.length} ${currentStatus} jobs`;
-  const archiveAll = document.getElementById('btnArchiveAll');
-  if (archiveAll) {
-    archiveAll.disabled = visible.length === 0;
-    archiveAll.title = listFilter !== 'all'
-      ? `Archive ${visible.length} visible job${visible.length === 1 ? '' : 's'} for this Why filter`
-      : `Archive all ${visible.length} rejected job${visible.length === 1 ? '' : 's'}`;
-  }
   const back = document.getElementById('btnBackList');
   if (back) back.style.display = 'none';
   _syncListSort();
+  _syncSelectChrome();
   updateViewToggle();
 }
+
+function _syncSelectChrome() {
+  const modeBtn = document.getElementById('btnSelectMode');
+  const moveBtn = document.getElementById('btnMoveSelected');
+  const menu = document.getElementById('listMoveMenu');
+  if (modeBtn) {
+    modeBtn.classList.toggle('active', selectMode);
+    modeBtn.textContent = selectMode ? 'Cancel' : 'Select';
+  }
+  const n = selectedJobIds.size;
+  if (moveBtn) {
+    moveBtn.disabled = !selectMode || n === 0;
+    moveBtn.textContent = n ? `Move (${n})` : 'Move';
+  }
+  if (menu && !selectMode) menu.style.display = 'none';
+  const all = document.getElementById('listSelectAll');
+  if (all) {
+    all.checked = listVisibleCount > 0 && listSelectedVisible === listVisibleCount;
+    all.indeterminate = listSelectedVisible > 0 && listSelectedVisible < listVisibleCount;
+  }
+}
+
+function toggleSelectMode() {
+  selectMode = !selectMode;
+  const menu = document.getElementById('listMoveMenu');
+  if (menu) menu.style.display = 'none';
+  if (!selectMode) {
+    selectedJobIds = new Set();
+    listSelectedVisible = 0;
+    document.querySelectorAll('#listViewRows .list-row.selected').forEach(row => {
+      row.classList.remove('selected');
+      const box = row.querySelector('.list-check');
+      if (box) box.checked = false;
+    });
+  }
+  const list = document.getElementById('listView');
+  if (list) list.classList.toggle('selecting', selectMode);
+  _syncSelectChrome();
+}
+
+function onListRowClick(i, id, evt) {
+  if (selectMode) {
+    toggleRowSelected(id, evt);
+    return;
+  }
+  openListJob(i);
+}
+
+function toggleRowSelected(id, evt) {
+  if (evt) evt.stopPropagation();
+  const row = evt && evt.target && evt.target.closest ? evt.target.closest('.list-row') : null;
+  const on = !selectedJobIds.has(id);
+  if (on) selectedJobIds.add(id);
+  else selectedJobIds.delete(id);
+  listSelectedVisible += on ? 1 : -1;
+  if (row) {
+    row.classList.toggle('selected', on);
+    const box = row.querySelector('.list-check');
+    if (box) box.checked = on;
+  }
+  _syncSelectChrome();
+}
+
+function toggleSelectAllVisible(evt) {
+  if (evt) evt.stopPropagation();
+  const rows = document.querySelectorAll('#listViewRows .list-row');
+  const allOn = listVisibleCount > 0 && listSelectedVisible === listVisibleCount;
+  rows.forEach(row => {
+    const id = Number(row.dataset.jobId);
+    if (allOn) selectedJobIds.delete(id);
+    else selectedJobIds.add(id);
+    row.classList.toggle('selected', !allOn);
+    const box = row.querySelector('.list-check');
+    if (box) box.checked = !allOn;
+  });
+  listSelectedVisible = allOn ? 0 : rows.length;
+  _syncSelectChrome();
+}
+
+function toggleMoveMenu(evt) {
+  if (evt) evt.stopPropagation();
+  const menu = document.getElementById('listMoveMenu');
+  if (!menu || !selectedJobIds.size) return;
+  if (menu.style.display !== 'none') {
+    menu.style.display = 'none';
+    return;
+  }
+  menu.innerHTML = _MOVE_STATUSES
+    .filter(([status]) => status !== currentStatus)
+    .map(([status, label]) => `<button type="button" onclick="moveSelected('${status}')">${label}</button>`)
+    .join('');
+  menu.style.display = 'block';
+}
+
+function _removeMovedFromList(moved) {
+  const filterBefore = listFilter;
+  jobs = jobs.filter(j => !moved.has(j.id));
+  selectMode = false;
+  selectedJobIds = new Set();
+  listSelectedVisible = 0;
+  const list = document.getElementById('listView');
+  if (list) list.classList.remove('selecting');
+  if (!jobs.length) {
+    renderEmpty(currentStatus);
+    return;
+  }
+  _paintListChips(jobs);
+  if (listFilter !== filterBefore) {
+    renderList(jobs);
+    return;
+  }
+  const parent = document.getElementById('listViewRows');
+  const keep = document.createDocumentFragment();
+  parent.querySelectorAll('.list-row').forEach(row => {
+    if (!moved.has(Number(row.dataset.jobId))) keep.appendChild(row);
+  });
+  parent.replaceChildren(keep);
+  listVisibleCount = parent.querySelectorAll('.list-row').length;
+  document.getElementById('navCounter').textContent = `${listVisibleCount} ${currentStatus} jobs`;
+  _syncSelectChrome();
+}
+
+async function moveSelected(status) {
+  const menu = document.getElementById('listMoveMenu');
+  if (menu) menu.style.display = 'none';
+  const ids = [...selectedJobIds];
+  if (!ids.length) return;
+  const btn = document.getElementById('btnMoveSelected');
+  const modeBtn = document.getElementById('btnSelectMode');
+  if (btn) { btn.disabled = true; btn.textContent = 'Moving…'; }
+  if (modeBtn) modeBtn.disabled = true;
+  const label = (_MOVE_STATUSES.find(([value]) => value === status) || [status, status])[1];
+  showToast(`Moving ${ids.length.toLocaleString()} to ${label}…`, '', true);
+  try {
+    const res = await api('/api/jobs/bulk-status', 'POST', {ids, status});
+    const n = res.updated ?? ids.length;
+    _removeMovedFromList(new Set(ids));
+    loadStats();
+    showToast(`Moved ${n} to ${label}`, 'success');
+  } catch (e) {
+    showToast(e.message || 'Failed to move', 'error');
+    _syncSelectChrome();
+  } finally {
+    if (modeBtn) modeBtn.disabled = false;
+  }
+}
+
+document.addEventListener('click', (evt) => {
+  const menu = document.getElementById('listMoveMenu');
+  if (!menu || menu.style.display === 'none') return;
+  if (evt.target.closest && (evt.target.closest('#btnMoveSelected') || evt.target.closest('#listMoveMenu'))) return;
+  menu.style.display = 'none';
+});
 
 function filterListBy(code) {
   listFilter = code || 'all';
@@ -1628,60 +1809,6 @@ async function archiveCurrentJob() {
 async function restoreArchivedJob(target) {
   const toast = target === 'review' ? 'Moved to review' : 'Moved to rejected';
   await _moveCurrentJob(target, toast);
-}
-
-function _visibleRejectedJobs() {
-  if (currentStatus !== 'rejected') return [];
-  return _visibleListJobs();
-}
-
-function openArchiveAllModal() {
-  const visible = _visibleRejectedJobs();
-  if (!visible.length) {
-    showToast('Nothing to archive', '');
-    return;
-  }
-  const why = listFilter !== 'all'
-    ? (visible[0].reject_label || listFilter)
-    : null;
-  const n = visible.length;
-  document.getElementById('archiveAllMsg').textContent = why
-    ? `Archive ${n} rejected job${n === 1 ? '' : 's'} with Why "${why}"? They move to Archived and can be restored later.`
-    : `Archive all ${n} rejected job${n === 1 ? '' : 's'}? They move to Archived and can be restored later.`;
-  document.getElementById('archiveAllOverlay').style.display = '';
-  document.getElementById('archiveAllModal').style.display = '';
-}
-
-function closeArchiveAllModal() {
-  document.getElementById('archiveAllOverlay').style.display = 'none';
-  document.getElementById('archiveAllModal').style.display = 'none';
-}
-
-async function confirmArchiveVisibleRejected() {
-  const visible = _visibleRejectedJobs();
-  if (!visible.length) {
-    closeArchiveAllModal();
-    showToast('Nothing to archive', '');
-    return;
-  }
-  const headerBtn = document.getElementById('btnArchiveAll');
-  const confirmBtn = document.getElementById('archiveAllConfirmBtn');
-  if (headerBtn) headerBtn.disabled = true;
-  if (confirmBtn) confirmBtn.disabled = true;
-  closeArchiveAllModal();
-  try {
-    const payload = listFilter !== 'all' ? {reject_codes: [listFilter]} : {};
-    const res = await api('/api/jobs/bulk-archive', 'POST', payload);
-    const n = res.archived ?? visible.length;
-    showToast(`Archived ${n} job${n === 1 ? '' : 's'}`, 'success');
-    loadStats();
-    loadJobs('rejected');
-  } catch (e) {
-    showToast('Failed to archive', 'error');
-    if (headerBtn) headerBtn.disabled = false;
-  } finally {
-    if (confirmBtn) confirmBtn.disabled = false;
-  }
 }
 
 async function archiveJobAt(i, evt) {
@@ -2689,12 +2816,12 @@ function badge(rec) {
 }
 
 let _toastTimer;
-function showToast(msg, type='') {
+function showToast(msg, type='', sticky=false) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className = 'toast show' + (type ? ' '+type : '');
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+  if (!sticky) _toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
 }
 </script>
 </body>

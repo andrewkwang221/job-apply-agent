@@ -10,7 +10,7 @@ import re
 import subprocess
 import sys
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -28,7 +28,7 @@ except ImportError:  # pragma: no cover — apscheduler optional at import time
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
-from sqlalchemy import create_engine, func, or_
+from sqlalchemy import case, create_engine, func, or_, update
 from sqlalchemy.orm import defer, sessionmaker
 
 import config
@@ -623,6 +623,27 @@ async def get_job(job_id: int):
         session.close()
 
 
+_JOB_STATUSES = frozenset({
+    "new", "review", "shortlisted", "applied",
+    "deferred", "rejected", "expired", "archived",
+})
+
+
+def _apply_job_status(job: Job, new_status: str) -> bool:
+    """Set status and the reject-reason side effects. False when unchanged."""
+    previous = job.status
+    if previous == new_status:
+        return False
+    job.status = new_status
+    if new_status == "rejected" and previous != "rejected" and not _plain_str(job.reject_code):
+        job.reject_code = "manual"
+        job.reject_detail = "Rejected from triage"
+    elif new_status in ("review", "new") and previous in ("rejected", "archived"):
+        job.reject_code = None
+        job.reject_detail = None
+    return True
+
+
 class StatusUpdate(BaseModel):
     status: str
 
@@ -637,14 +658,7 @@ async def update_status(job_id: int, body: StatusUpdate):
         job = session.query(Job).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(404, f"Job {job_id} not found")
-        previous = job.status
-        job.status = body.status
-        if body.status == "rejected" and previous != "rejected" and not _plain_str(job.reject_code):
-            job.reject_code = "manual"
-            job.reject_detail = "Rejected from triage"
-        elif body.status == "review" and previous in ("rejected", "archived"):
-            job.reject_code = None
-            job.reject_detail = None
+        _apply_job_status(job, body.status)
         session.commit()
         # Close the Playwright browser when the user marks a job as applied,
         # so they can immediately open the next job without hitting the
@@ -663,31 +677,47 @@ async def update_status(job_id: int, body: StatusUpdate):
         session.close()
 
 
-class BulkArchiveRequest(BaseModel):
-    reject_codes: Optional[List[str]] = None
+class BulkStatusRequest(BaseModel):
+    ids: List[int]
+    status: str
 
 
-@app.post("/api/jobs/bulk-archive")
-async def bulk_archive(body: BulkArchiveRequest):
+def _bulk_status_values(new_status: str) -> dict:
+    """Column updates for one SQL statement. Matches `_apply_job_status`."""
+    values = {"status": new_status, "updated_at": datetime.now(timezone.utc)}
+    if new_status == "rejected":
+        blank = or_(Job.reject_code.is_(None), Job.reject_code == "")
+        values["reject_code"] = case((blank, "manual"), else_=Job.reject_code)
+        values["reject_detail"] = case((blank, "Rejected from triage"), else_=Job.reject_detail)
+    elif new_status in ("review", "new"):
+        clear = Job.status.in_(("rejected", "archived"))
+        values["reject_code"] = case((clear, None), else_=Job.reject_code)
+        values["reject_detail"] = case((clear, None), else_=Job.reject_detail)
+    return values
+
+
+@app.post("/api/jobs/bulk-status")
+async def bulk_status(body: BulkStatusRequest):
+    if body.status not in _JOB_STATUSES:
+        raise HTTPException(400, f"Invalid status: {body.status}")
+    ids = list(dict.fromkeys(i for i in body.ids if isinstance(i, int)))
+    if not ids:
+        raise HTTPException(400, "No jobs selected")
     session = _Session()
     try:
-        query = session.query(Job).filter(Job.status == "rejected")
-        codes = [c for c in (body.reject_codes or []) if c is not None]
-        if codes:
-            named = [c for c in codes if c and c != "unknown"]
-            clauses = []
-            if named:
-                clauses.append(Job.reject_code.in_(named))
-            if any((not c) or c == "unknown" for c in codes):
-                clauses.append(or_(Job.reject_code.is_(None), Job.reject_code == ""))
-            if clauses:
-                query = query.filter(or_(*clauses) if len(clauses) > 1 else clauses[0])
-        rows = query.all()
-        count = len(rows)
-        for job in rows:
-            job.status = "archived"
+        updated = 0
+        values = _bulk_status_values(body.status)
+        for start in range(0, len(ids), 500):
+            stmt = (
+                update(Job)
+                .where(Job.id.in_(ids[start:start + 500]), Job.status != body.status)
+                .values(**values)
+                .execution_options(synchronize_session=False)
+            )
+            result = session.execute(stmt)
+            updated += max(result.rowcount or 0, 0)
         session.commit()
-        return {"ok": True, "archived": count}
+        return {"ok": True, "updated": updated, "status": body.status}
     except Exception as exc:
         session.rollback()
         raise HTTPException(500, str(exc))
