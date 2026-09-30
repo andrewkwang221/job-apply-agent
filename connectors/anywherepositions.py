@@ -7,20 +7,24 @@ the site search box ``q`` is sent as ``search``, and location chips as
 ``regions``.
 
 Call ``regions=Anywhere`` and ``regions=US`` separately. For each region,
-call ``search`` once per unique profile tag, role, keyword, and skill, then
-merge by job id. The UI infinite-scrolls ``page``; walk ``page=0,1,…`` until
-the first fully stale page (``MAX_JOB_AGE_DAYS``), a short/empty page, or
-repeated fetch failures — keep jobs already collected and continue the other
-queries so one 403 does not drop the rest. Page failures log at INFO; 429/timeouts
-retry with backoff inside each page fetch (3 attempts) before counting as a
-page failure toward the 3-failure stop.
+call ``search`` once per unique ``target_roles`` value, plus the catchalls
+``software`` and ``AI``. Skills, keywords, and resume tags are not searched.
+Run those searches four at a time and merge by job id. The UI infinite-scrolls
+``page``; walk ``page=0,1,…`` until the first fully stale page
+(``MAX_JOB_AGE_DAYS``), a short/empty page, or repeated fetch failures — keep
+jobs already collected and continue the other queries so one 403 does not drop
+the rest. Page failures log at INFO; 429/timeouts retry with backoff inside
+each page fetch (3 attempts) before counting as a page failure toward the
+3-failure stop.
 
 ``location`` is a string. Listing URLs are on anywherepositions.com (aggregator).
 """
 from __future__ import annotations
 
+import threading
 import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
@@ -43,6 +47,7 @@ API_URL = "https://xcvwddvzicqslyfyrwma.supabase.co/functions/v1/api-jobs"
 API_VERSION = "currency-fix-2026-04-16-rs1"
 REGIONS = ("Anywhere", "US")
 _PAGE_SIZE = 50
+_QUERY_WORKERS = 4
 _FETCH_DELAY = 0.4
 _RETRIES = 3
 _RETRY_DELAY = 1.5
@@ -67,6 +72,7 @@ _ENGINEERING_KEYWORDS = {
     "llm ", " llm", "artificial intelligence", "agentic", "rag",
 }
 
+_CATCHALLS = ("software", "AI")
 _FALLBACK_QUERIES = (
     "senior software engineer",
     "backend engineer",
@@ -74,8 +80,6 @@ _FALLBACK_QUERIES = (
     "full stack engineer",
     "AI engineer",
     "machine learning engineer",
-    "python",
-    "typescript",
 )
 
 
@@ -90,15 +94,40 @@ class AnywherePositionsConnector(BaseConnector):
         parsed: list[dict[str, Any]] = []
         seen_ids: set[str] = set()
 
+        pairs = [(region, search) for region in REGIONS for search in queries]
+        lock = threading.Lock()
+
+        def _one(region: str, search: str) -> None:
+            try:
+                added = _fetch_query(
+                    region,
+                    search,
+                    cutoff,
+                    parsed,
+                    seen_ids,
+                    on_job=self._emit,
+                    lock=lock,
+                )
+            except Exception as e:
+                logger.error(
+                    f"anywherepositions region={region!r} search={search!r} "
+                    f"failed: {e}"
+                )
+                logger.debug(traceback.format_exc())
+                return
+            with lock:
+                total = len(parsed)
+            logger.info(
+                f"anywherepositions region={region!r} search={search!r}: "
+                f"+{added} (total {total})"
+            )
+
+        workers = max(1, min(_QUERY_WORKERS, len(pairs)))
         try:
-            for region in REGIONS:
-                for search in queries:
-                    added = _fetch_query(region, search, cutoff, parsed, seen_ids, on_job=self._emit)
-                    logger.info(
-                        f"anywherepositions region={region!r} search={search!r}: "
-                        f"+{added} (total {len(parsed)})"
-                    )
-                    time.sleep(_FETCH_DELAY)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_one, region, search) for region, search in pairs]
+                for fut in as_completed(futures):
+                    fut.result()
         except Exception as e:
             logger.error(f"Error fetching jobs from Anywhere Positions: {e}")
             logger.debug(traceback.format_exc())
@@ -137,7 +166,7 @@ class AnywherePositionsConnector(BaseConnector):
 
 
 def _search_queries() -> list[str]:
-    """Unique profile tags, roles, keywords, and skills (site search box / API ``search``)."""
+    """Unique ``target_roles``, then ``software`` and ``AI``. Skills and tags are too broad."""
     found: list[str] = []
     seen: set[str] = set()
 
@@ -150,17 +179,13 @@ def _search_queries() -> list[str]:
         found.append(text)
 
     profile = _load_profile()
-    for key in ("target_roles", "keywords", "skills"):
-        for item in profile.get(key) or []:
-            _add(item)
-    for resume in profile.get("resumes") or []:
-        if not isinstance(resume, dict):
-            continue
-        for tag in resume.get("tags") or []:
-            _add(tag)
+    for item in profile.get("target_roles") or []:
+        _add(item)
     if not found:
         for item in _FALLBACK_QUERIES:
             _add(item)
+    for item in _CATCHALLS:
+        _add(item)
     return found
 
 
@@ -183,6 +208,21 @@ def _api_params(search: str, region: str, page: int) -> dict[str, Any]:
     }
 
 
+def _remember_job(
+    raw: dict[str, Any],
+    parsed: list[dict[str, Any]],
+    seen_ids: set[str],
+    on_job,
+) -> bool:
+    if raw["id"] in seen_ids:
+        return False
+    seen_ids.add(raw["id"])
+    parsed.append(raw)
+    if on_job:
+        on_job(raw)
+    return True
+
+
 def _fetch_query(
     region: str,
     search: str,
@@ -190,6 +230,7 @@ def _fetch_query(
     parsed: list[dict[str, Any]],
     seen_ids: set[str],
     on_job=None,
+    lock: threading.Lock | None = None,
 ) -> int:
     added = 0
     consecutive_failures = 0
@@ -219,12 +260,13 @@ def _fetch_query(
                 dated.append(posted)
             if not raw:
                 continue
-            if raw["id"] in seen_ids:
+            if lock is None:
+                fresh = _remember_job(raw, parsed, seen_ids, on_job)
+            else:
+                with lock:
+                    fresh = _remember_job(raw, parsed, seen_ids, on_job)
+            if not fresh:
                 continue
-            seen_ids.add(raw["id"])
-            parsed.append(raw)
-            if on_job:
-                on_job(raw)
             kept += 1
             added += 1
         all_stale = bool(dated) and all(dt < cutoff for dt in dated)

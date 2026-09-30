@@ -78,16 +78,16 @@ def test_api_params_use_search_and_separate_regions():
     assert REGIONS == ("Anywhere", "US")
 
 
-def test_search_queries_dedupe_profile_fields():
+def test_search_queries_use_roles_and_catchalls():
     profile = {
-        "target_roles": ["Backend Engineer", "backend engineer"],
+        "target_roles": ["Backend Engineer", "backend engineer", "AI engineer"],
         "keywords": ["python"],
         "skills": ["Python", "Go (Golang)"],
-        "resumes": [{"tags": ["backend", "AI"]}],
+        "resumes": [{"tags": ["backend", "CI/CD"]}],
     }
     with patch("connectors.anywherepositions._load_profile", return_value=profile):
         got = _search_queries()
-    assert got == ["Backend Engineer", "python", "Go (Golang)", "backend", "AI"]
+    assert got == ["Backend Engineer", "AI engineer", "software", "AI"]
 
 
 def test_engineering_title_filter():
