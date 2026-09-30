@@ -420,8 +420,19 @@ def collapse_duplicate_jobs(session: Session, *, dry_run: bool = False) -> tuple
 
 
 def backfill_dedup_keys(engine) -> None:
-    """Fill company_key and url_key on rows stored before those columns existed."""
+    """Fill company_key and url_key on rows stored before those columns existed.
+
+    A fresh database has no ``jobs`` table yet. Startup calls this on import,
+    so a missing table or column is a no-op.
+    """
     with engine.connect() as conn:
+        columns = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()
+        }
+        needed = {"id", "company", "url", "company_key", "url_key"}
+        if not needed <= columns:
+            return
         rows = conn.execute(text(
             "SELECT id, company, url FROM jobs "
             "WHERE company_key IS NULL OR url_key IS NULL"

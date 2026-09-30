@@ -4,7 +4,9 @@ Tests for utils/dedup.py — is_duplicate() and generate_job_hash()
 from datetime import datetime, timedelta, timezone
 
 from models.database import Job
-from utils.dedup import is_duplicate, generate_job_hash, listing_is_duplicate
+from sqlalchemy import create_engine
+
+from utils.dedup import backfill_dedup_keys, is_duplicate, generate_job_hash, listing_is_duplicate
 
 _POSTED = datetime(2026, 9, 20, tzinfo=timezone.utc)
 
@@ -431,6 +433,11 @@ class TestDedupRules:
             },
             db_session,
         )
+
+
+def test_backfill_dedup_keys_skips_missing_jobs_table():
+    engine = create_engine("sqlite://")
+    backfill_dedup_keys(engine)
 
 
 def test_listing_is_duplicate_fail_open_when_database_unavailable(monkeypatch):
