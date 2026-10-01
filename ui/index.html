@@ -82,8 +82,9 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-shrink:0;}
 .list-toolbar .reject-counts{flex:1;padding-bottom:12px;}
 .list-sort{display:none;align-items:center;gap:8px;font-size:12px;font-weight:600;color:var(--text-muted);flex-shrink:0;padding:4px 4px 12px;white-space:nowrap;}
-.list-sort select{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--text-primary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:5px 8px;cursor:pointer;}
+.list-sort select{font-family:'Inter',sans-serif;font-size:12px;font-weight:600;color:var(--text-primary);background:var(--bg-subtle);border:1px solid var(--border);border-radius:8px;padding:5px 8px;cursor:pointer;max-width:220px;}
 .list-sort select:hover{border-color:var(--accent-mid);}
+.list-source-filter{display:flex;}
 .list-reason{font-size:10.5px;font-weight:650;padding:2px 8px;border-radius:10px;flex:0 0 132px;width:132px;min-width:132px;max-width:132px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center;}
 .list-date{font-size:11.5px;color:var(--text-muted);flex:0 0 76px;width:76px;min-width:76px;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .list-row{cursor:pointer;}
@@ -132,6 +133,18 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .list-applied:hover{background:#4c1d95;color:#e9d5ff;border-color:var(--purple);}
 .list-archive:disabled:hover{background:var(--bg-subtle);color:var(--text-secondary);border-color:var(--border);}
 .list-view-header .list-archive{text-transform:none;letter-spacing:0;width:78px;padding:3px 6px;white-space:nowrap;}
+.btn-settings{display:flex;align-items:center;justify-content:center;width:36px;height:36px;margin-right:6px;background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all var(--transition);}
+.btn-settings:hover{color:var(--accent);border-color:var(--accent-mid);background:var(--bg-card);}
+.btn-settings svg{width:16px;height:16px;}
+.modal-box.settings{width:680px;}
+.settings-tools{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.settings-tools .modal-input{flex:1;}
+.settings-link{background:none;border:none;color:var(--accent);font-family:inherit;font-size:12px;font-weight:650;cursor:pointer;padding:0;}
+.settings-link:hover{text-decoration:underline;}
+.source-grid{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;max-height:420px;overflow:auto;padding-right:4px;}
+.source-item{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-primary);padding:5px 2px;cursor:pointer;}
+.source-item input{accent-color:var(--accent);cursor:pointer;}
+.settings-count{margin-right:auto;font-size:12.5px;color:var(--text-muted);align-self:center;}
 .btn-pipeline{display:flex;align-items:center;gap:8px;padding:8px 16px;background:var(--accent);color:#fff;border:none;border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:13px;font-weight:600;cursor:pointer;transition:all var(--transition);box-shadow:var(--shadow-sm);}
 .btn-pipeline:hover{background:#2563eb;box-shadow:0 0 0 3px rgba(59,130,246,.25);}
 .btn-pipeline svg{width:14px;height:14px;}
@@ -456,6 +469,9 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
     Parse Resume
   </button>
+  <button class="btn-settings" type="button" onclick="openSettings()" title="Choose connectors for full-run">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
   <button class="btn-pipeline" id="pipelineBtn" onclick="togglePipeline()">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
     Pipeline
@@ -724,6 +740,12 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
         </div>
       </div>
       <div id="rejectCounts" class="reject-counts" style="display:none"></div>
+      <label class="list-sort list-source-filter" id="listSourceWrap">
+        Source
+        <select id="listSourceSelect" onchange="setListSource(this.value)">
+          <option value="">All sources</option>
+        </select>
+      </label>
       <label class="list-sort" id="listSortWrap">
         Sort by
         <select id="listSortSelect" onchange="setListSort(this.value)">
@@ -769,6 +791,29 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Full-run connector settings -->
+<div class="modal-overlay" id="settingsOverlay" onclick="closeSettings()" style="display:none"></div>
+<div class="modal-box settings" id="settingsModal" style="display:none">
+  <div class="modal-header">
+    <span class="modal-title">Full-run connectors</span>
+    <button class="btn-close" onclick="closeSettings()">×</button>
+  </div>
+  <div class="modal-body">
+    <p class="modal-hint">Checked boards run on full-run. A connector added in code later stays off until you check it here. You can still fetch one board with <code>--source &lt;name&gt;</code>.</p>
+    <div class="settings-tools">
+      <input class="modal-input" id="connectorSearch" type="search" placeholder="Filter connectors" oninput="filterConnectorSettings(this.value)" />
+      <button type="button" class="settings-link" onclick="setAllConnectors(true)">All</button>
+      <button type="button" class="settings-link" onclick="setAllConnectors(false)">None</button>
+    </div>
+    <div class="source-grid" id="connectorGrid"></div>
+  </div>
+  <div class="modal-footer">
+    <span class="settings-count" id="connectorCount"></span>
+    <button class="btn-modal-cancel" onclick="closeSettings()">Cancel</button>
+    <button class="btn-modal-fill" id="connectorSaveBtn" onclick="saveConnectorSettings()">Save</button>
+  </div>
+</div>
 
 <!-- Fill URL modal -->
 <div class="modal-overlay" id="fillUrlOverlay" onclick="closeFillUrlModal()" style="display:none"></div>
@@ -841,6 +886,7 @@ let activeTab = 'overview';
 let pipelinePoller = null;
 let rejectCounts = [];
 let listFilter = 'all';
+let listSource = '';
 let listSortBy = 'sum';
 let viewingListCard = false;
 let queueView = 'card';
@@ -1056,6 +1102,7 @@ async function loadJobs(status, opts) {
     const data = await api(`/api/jobs?status=${encodeURIComponent(status)}${suffix}`);
     jobs = data.jobs || [];
     listFilter = 'all';
+    listSource = '';
     listSortBy = 'sum';
     if (status === 'shortlisted' || status === 'review') jobs = _sortLatestHighScore(jobs);
     if (status === 'applied') jobs = _sortApplied(jobs);
@@ -1434,11 +1481,42 @@ function _listChipCounts(jobList) {
   return [];
 }
 
+function _jobSource(job) {
+  const name = String(job && job.source || '').trim();
+  return name || 'unknown';
+}
+
+function _jobsForSource(jobList = jobs) {
+  if (!listSource) return jobList;
+  return jobList.filter(j => _jobSource(j) === listSource);
+}
+
 function _visibleListJobs(jobList = jobs) {
+  const scoped = _jobsForSource(jobList);
   if (listFilter && listFilter !== 'all') {
-    return jobList.filter(j => _jobFilterCode(j) === listFilter);
+    return scoped.filter(j => _jobFilterCode(j) === listFilter);
   }
-  return jobList;
+  return scoped;
+}
+
+function _syncSourceFilter(jobList) {
+  const sel = document.getElementById('listSourceSelect');
+  if (!sel) return;
+  const counts = new Map();
+  for (const job of jobList) {
+    const name = _jobSource(job);
+    counts.set(name, (counts.get(name) || 0) + 1);
+  }
+  if (listSource && !counts.has(listSource)) listSource = '';
+  const names = [...counts.keys()].sort((a, b) => (counts.get(b) - counts.get(a)) || a.localeCompare(b));
+  const html = [`<option value="">All sources (${jobList.length})</option>`]
+    .concat(names.map(name => `<option value="${esc(name)}">${esc(name)} (${counts.get(name)})</option>`))
+    .join('');
+  if (sel.dataset.options !== html) {
+    sel.innerHTML = html;
+    sel.dataset.options = html;
+  }
+  if (sel.value !== listSource) sel.value = listSource;
 }
 
 function _listScoreValue(j) {
@@ -1512,6 +1590,11 @@ function setListSort(key) {
   renderList(jobs);
 }
 
+function setListSource(value) {
+  listSource = value || '';
+  renderList(jobs);
+}
+
 function _paintListChips(jobList) {
   const showChips = currentStatus === 'rejected' || _isEvalList();
   const counts = showChips ? _listChipCounts(jobList) : [];
@@ -1553,7 +1636,8 @@ function renderList(jobList) {
            s >= 50 ? `background:var(--orange-mid);color:var(--orange)` :
                      `background:var(--red-mid);color:var(--red)`;
   };
-  _paintListChips(jobList);
+  _syncSourceFilter(jobList);
+  _paintListChips(_jobsForSource(jobList));
   const header = document.getElementById('listViewHeader');
   const reasonHead = currentStatus === 'rejected' ? 'Why' : 'Eval';
   if (header) {
@@ -1574,6 +1658,12 @@ function renderList(jobList) {
     }
   }
   const visible = _sortedListJobs(jobList);
+  if (selectedJobIds.size) {
+    const visibleIds = new Set(visible.map(j => j.id));
+    for (const id of selectedJobIds) {
+      if (!visibleIds.has(id)) selectedJobIds.delete(id);
+    }
+  }
   const indexById = new Map();
   for (let i = 0; i < jobList.length; i++) indexById.set(jobList[i].id, i);
   listVisibleCount = visible.length;
@@ -1726,6 +1816,7 @@ function toggleMoveMenu(evt) {
 
 function _removeMovedFromList(moved) {
   const filterBefore = listFilter;
+  const sourceBefore = listSource;
   jobs = jobs.filter(j => !moved.has(j.id));
   selectMode = false;
   selectedJobIds = new Set();
@@ -1736,8 +1827,9 @@ function _removeMovedFromList(moved) {
     renderEmpty(currentStatus);
     return;
   }
-  _paintListChips(jobs);
-  if (listFilter !== filterBefore) {
+  _syncSourceFilter(jobs);
+  _paintListChips(_jobsForSource(jobs));
+  if (listFilter !== filterBefore || listSource !== sourceBefore) {
     renderList(jobs);
     return;
   }
@@ -2465,6 +2557,83 @@ async function confirmApplied(didApply) {
   if (didApply) {
     // update_status('applied') already sets _prefill_cancel on the server side.
     await triageAction('applied');
+  }
+}
+
+// ── Full-run connector settings ─────────────────────────────────────────────
+let connectorSettings = [];
+let connectorQuery = '';
+
+async function openSettings() {
+  try {
+    const data = await api('/api/settings/connectors');
+    connectorSettings = data.connectors || [];
+    connectorQuery = '';
+    const search = document.getElementById('connectorSearch');
+    if (search) search.value = '';
+    renderConnectorSettings();
+    document.getElementById('settingsOverlay').style.display = 'block';
+    document.getElementById('settingsModal').style.display = 'flex';
+    if (search) search.focus();
+  } catch (e) {
+    showToast('Could not load connector settings. Restart the UI if this build is new.', 'error');
+  }
+}
+
+function closeSettings() {
+  document.getElementById('settingsOverlay').style.display = 'none';
+  document.getElementById('settingsModal').style.display = 'none';
+}
+
+function filterConnectorSettings(value) {
+  connectorQuery = String(value || '').trim().toLowerCase();
+  renderConnectorSettings();
+}
+
+function setConnectorEnabled(name, on) {
+  const row = connectorSettings.find(item => item.name === name);
+  if (row) row.enabled = on;
+  const count = document.getElementById('connectorCount');
+  if (count) {
+    const n = connectorSettings.filter(item => item.enabled).length;
+    count.textContent = `${n} of ${connectorSettings.length} on full-run`;
+  }
+}
+
+function setAllConnectors(on) {
+  connectorSettings.forEach(item => { item.enabled = on; });
+  renderConnectorSettings();
+}
+
+function renderConnectorSettings() {
+  const grid = document.getElementById('connectorGrid');
+  const count = document.getElementById('connectorCount');
+  if (!grid) return;
+  const q = connectorQuery;
+  const shown = connectorSettings.filter(item => !q || item.name.includes(q));
+  grid.innerHTML = shown.map(item => `
+    <label class="source-item">
+      <input type="checkbox" ${item.enabled ? 'checked' : ''} onchange="setConnectorEnabled('${esc(item.name)}', this.checked)">
+      <span>${esc(item.name)}</span>
+    </label>`).join('') || '<div class="modal-hint">No connectors match.</div>';
+  if (count) {
+    const n = connectorSettings.filter(item => item.enabled).length;
+    count.textContent = `${n} of ${connectorSettings.length} on full-run`;
+  }
+}
+
+async function saveConnectorSettings() {
+  const btn = document.getElementById('connectorSaveBtn');
+  const enabled = connectorSettings.filter(item => item.enabled).map(item => item.name);
+  if (btn) btn.disabled = true;
+  try {
+    await api('/api/settings/connectors', 'POST', {enabled});
+    closeSettings();
+    showToast(`Full-run will fetch ${enabled.length} connectors`, 'success');
+  } catch (e) {
+    showToast(e.message || 'Could not save connectors', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 

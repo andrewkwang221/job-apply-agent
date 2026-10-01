@@ -1197,6 +1197,38 @@ async def set_schedule(body: ScheduleConfig):
     return {"ok": True, "next_run": _next_run_iso(), **_sched_config}
 
 
+class FullRunSourcesUpdate(BaseModel):
+    enabled: List[str]
+
+
+@app.get("/api/settings/connectors")
+async def get_full_run_connectors():
+    from run_pipeline import CONNECTORS
+    from utils.full_run_sources import read_enabled
+
+    saved = set(read_enabled() or [])
+    return {
+        "connectors": [
+            {"name": name, "enabled": name in saved}
+            for name in CONNECTORS
+        ]
+    }
+
+
+@app.post("/api/settings/connectors")
+async def set_full_run_connectors(body: FullRunSourcesUpdate):
+    from run_pipeline import CONNECTORS
+    from utils.full_run_sources import save_enabled
+
+    unknown = [name for name in body.enabled if name not in CONNECTORS]
+    if unknown:
+        raise HTTPException(400, f"Unknown connectors: {', '.join(unknown)}")
+    chosen = set(body.enabled)
+    ordered = [name for name in CONNECTORS if name in chosen]
+    save_enabled(ordered)
+    return {"ok": True, "enabled": ordered}
+
+
 # ---------------------------------------------------------------------------
 # Routes — open / prefill
 # ---------------------------------------------------------------------------

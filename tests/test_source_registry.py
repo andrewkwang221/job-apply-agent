@@ -1,17 +1,10 @@
 """Registry tests: which connectors run on full-run --source all."""
 
 
-def test_weworkremotely_is_registered_and_enabled():
-    from run_pipeline import CONNECTORS, DISABLED_SOURCES
+def test_weworkremotely_is_registered():
+    from run_pipeline import CONNECTORS
 
     assert "weworkremotely" in CONNECTORS
-    assert "weworkremotely" not in DISABLED_SOURCES
-
-
-def test_no_sources_are_skipped_on_all_except_opt_in():
-    from run_pipeline import DISABLED_SOURCES
-
-    assert DISABLED_SOURCES == {"flexjobs", "justjoin"}
 
 
 def test_public_board_connectors_are_registered():
@@ -96,16 +89,9 @@ def test_ats_connectors_run_after_aggregators():
     assert keys[-1] == "wearedevelopers"
 
 
-def test_flexjobs_is_opt_in_not_in_all():
-    from run_pipeline import CONNECTORS, DISABLED_SOURCES
+def test_flexjobs_and_justjoin_stay_registered():
+    from run_pipeline import CONNECTORS
 
     assert "flexjobs" in CONNECTORS
-    assert "flexjobs" in DISABLED_SOURCES
-
-
-def test_justjoin_is_opt_in_not_in_all():
-    from run_pipeline import CONNECTORS, DISABLED_SOURCES
-
     assert "justjoin" in CONNECTORS
-    assert "justjoin" in DISABLED_SOURCES
 
