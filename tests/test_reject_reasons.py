@@ -667,31 +667,42 @@ def test_explain_does_not_change_status(mock_analyze, memory_client):
 
 def test_archive_from_rejected_keeps_reason(memory_client):
     client, job_id = memory_client
-    r = client.post(f"/api/jobs/{job_id}/status", json={"status": "archived"})
-    assert r.status_code == 200
-    shown = client.get(f"/api/jobs/{job_id}").json()
-    assert shown["status"] == "archived"
-    assert shown["reject_code"] == "low_score"
-    assert "Score 12" in shown["reject_detail"]
-
-
-def test_restore_archived_to_rejected_keeps_reason(memory_client):
-    client, job_id = memory_client
-    client.post(f"/api/jobs/{job_id}/status", json={"status": "archived"})
-    r = client.post(f"/api/jobs/{job_id}/status", json={"status": "rejected"})
+    r = client.post(f"/api/jobs/{job_id}/archive", json={"archived": True})
     assert r.status_code == 200
     shown = client.get(f"/api/jobs/{job_id}").json()
     assert shown["status"] == "rejected"
+    assert shown["archived"] is True
     assert shown["reject_code"] == "low_score"
+    assert "Score 12" in shown["reject_detail"]
+    rejected_ids = {j["id"] for j in client.get("/api/jobs?status=rejected").json()["jobs"]}
+    assert job_id not in rejected_ids
+    archived_ids = {j["id"] for j in client.get("/api/jobs?status=archived").json()["jobs"]}
+    assert job_id in archived_ids
+    stats = client.get("/api/stats").json()["counts"]
+    assert stats["archived"] >= 1
+
+
+def test_unarchive_returns_to_rejected(memory_client):
+    client, job_id = memory_client
+    client.post(f"/api/jobs/{job_id}/archive", json={"archived": True})
+    r = client.post(f"/api/jobs/{job_id}/archive", json={"archived": False})
+    assert r.status_code == 200
+    shown = client.get(f"/api/jobs/{job_id}").json()
+    assert shown["status"] == "rejected"
+    assert shown["archived"] is False
+    assert shown["reject_code"] == "low_score"
+    rejected_ids = {j["id"] for j in client.get("/api/jobs?status=rejected").json()["jobs"]}
+    assert job_id in rejected_ids
 
 
 def test_restore_archived_to_review_clears_reason(memory_client):
     client, job_id = memory_client
-    client.post(f"/api/jobs/{job_id}/status", json={"status": "archived"})
+    client.post(f"/api/jobs/{job_id}/archive", json={"archived": True})
     r = client.post(f"/api/jobs/{job_id}/status", json={"status": "review"})
     assert r.status_code == 200
     shown = client.get(f"/api/jobs/{job_id}").json()
     assert shown["status"] == "review"
+    assert shown["archived"] is False
     assert not shown["reject_code"]
 
 
@@ -806,14 +817,15 @@ def test_bulk_reject_stale_uses_configured_days(memory_client, monkeypatch):
     assert stats.status_code == 200
     assert stats.json()["reject_stale_days"] == 3
 
-    moved = client.post("/api/jobs/bulk-reject-stale", json={"status": "review"})
+    moved = client.post("/api/jobs/bulk-archive-stale", json={"status": "review"})
     assert moved.status_code == 200
-    assert moved.json()["rejected"] == 2
-    rejected = {j["title"]: j for j in client.get("/api/jobs?status=rejected").json()["jobs"]}
-    assert rejected["Old Review Role"]["reject_code"] == "stale"
-    assert "Added" in rejected["Old Review Role"]["reject_detail"]
-    assert rejected["Old Posting"]["reject_code"] == "stale"
-    assert "Posted" in rejected["Old Posting"]["reject_detail"]
+    assert moved.json()["archived"] == 2
+    archived = {j["title"]: j for j in client.get("/api/jobs?status=archived").json()["jobs"]}
+    assert archived["Old Review Role"]["status"] == "review"
+    assert archived["Old Review Role"]["archived"] is True
+    assert not archived["Old Review Role"]["reject_code"]
+    assert archived["Old Posting"]["status"] == "review"
+    assert archived["Old Posting"]["archived"] is True
     review = {j["title"] for j in client.get("/api/jobs?status=review").json()["jobs"]}
     assert review == {"Fresh Review Role", "Fresh Posting"}
 
@@ -830,7 +842,8 @@ def test_list_archived_returns_all_jobs(memory_client):
                 title=f"Archived Role {i}",
                 location="Remote",
                 url=f"https://example.com/jobs/arch-{i}",
-                status="archived",
+                status="shortlisted",
+                archived=True,
                 fit_score=i,
                 reject_code="low_score",
             ))
@@ -864,7 +877,8 @@ def test_evaluate_all_jobs_skips_archived():
         title="Archived Role",
         location="Remote",
         url="https://example.com/jobs/arch-eval",
-        status="archived",
+        status="rejected",
+        archived=True,
         fit_score=10,
         reject_code="low_score",
         reject_detail="Score 10 (need 28+ for review)",
@@ -913,7 +927,8 @@ def test_evaluate_all_jobs_skips_archived():
     try:
         archived_row = s2.query(Job).filter(Job.id == archived_id).one()
         review_row = s2.query(Job).filter(Job.id == review_id).one()
-        assert archived_row.status == "archived"
+        assert archived_row.status == "rejected"
+        assert archived_row.archived is True
         assert archived_row.fit_score == 10
         assert archived_row.reject_code == "low_score"
         assert review_row.status == "shortlisted"

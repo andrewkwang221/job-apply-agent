@@ -49,8 +49,8 @@ body{font-family:'Inter',sans-serif;background:linear-gradient(145deg,#091418 0%
 .strip-spacer{flex:1;}
 .btn-fill-url{display:flex;align-items:center;gap:6px;padding:7px 13px;background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:all var(--transition);margin-right:6px;}
 .btn-fill-url:hover{background:var(--bg-card);color:var(--accent);border-color:var(--accent-mid);}
-.btn-reject-stale{display:none;align-items:center;gap:6px;padding:7px 13px;background:var(--red-light);color:var(--red);border:1px solid var(--red-mid);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:all var(--transition);margin-right:6px;}
-.btn-reject-stale:hover{background:var(--red-mid);color:var(--red);border-color:var(--red);}
+.btn-reject-stale{display:none;align-items:center;gap:6px;padding:7px 13px;background:var(--bg-subtle);color:var(--text-secondary);border:1px solid var(--border);border-radius:var(--radius);font-family:'Inter',sans-serif;font-size:12.5px;font-weight:600;cursor:pointer;transition:all var(--transition);margin-right:6px;}
+.btn-reject-stale:hover{background:var(--bg-hover);color:var(--text-primary);border-color:var(--text-muted);}
 .btn-reject-stale.visible{display:flex;}
 .list-view{padding:0 4px 12px;flex:1;min-height:0;width:100%;display:flex;flex-direction:column;overflow:hidden;}
 .list-view-header{font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;padding:0 4px 8px;border-bottom:1px solid var(--border-subtle);margin-bottom:4px;display:flex;align-items:center;gap:12px;flex-shrink:0;}
@@ -457,9 +457,9 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
     <span>Archived</span><span class="count">—</span>
   </div>
   <div class="strip-spacer"></div>
-  <button class="btn-reject-stale" id="rejectStaleBtn" onclick="openRejectStaleModal()" title="Reject jobs in this tab posted before the configured cutoff">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
-    Reject Stale
+  <button class="btn-reject-stale" id="rejectStaleBtn" onclick="openRejectStaleModal()" title="Archive jobs in this tab posted before the configured cutoff">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M21 8v13H3V8"/><path d="M1 3h22v5H1z"/><path d="M10 12h4"/></svg>
+    Archive Stale
   </button>
   <button class="btn-fill-url" onclick="openFillUrlModal()" title="Fill a known application form URL directly">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" width="13" height="13"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
@@ -715,11 +715,8 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
         </button>
       </div>
       <div class="action-bar" id="actionBarArchived" style="display:none">
-        <button class="btn-triage-action btn-restore" onclick="restoreArchivedJob('rejected')">
-          Restore to rejected
-        </button>
-        <button class="btn-triage-action btn-restore" onclick="restoreArchivedJob('review')">
-          Restore to review
+        <button class="btn-triage-action btn-restore" id="btnUnarchive" onclick="unarchiveCurrentJob()">
+          Unarchive
         </button>
         <div class="action-sep"></div>
         <button class="btn-open-apply" onclick="openApply()">
@@ -777,8 +774,8 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
   </div>
   <div class="dashboard-grid">
     <div class="dash-card">
-      <div class="dash-card-title">Jobs fetched last 7 days</div>
-      <div class="dash-card-caption" id="dashBarCaption">Stacked by current status · source: jobs.created_at</div>
+      <div class="dash-card-title">Jobs published last 7 days</div>
+      <div class="dash-card-caption" id="dashBarCaption">Stacked by current status · published date (posted_date)</div>
       <div class="dash-bar-wrap" id="dashBarChart"></div>
       <div class="dash-legend" id="dashBarLegend"></div>
     </div>
@@ -858,11 +855,11 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
   </div>
 </div>
 
-<!-- Reject Stale modal -->
+<!-- Archive Stale modal -->
 <div class="modal-overlay" id="rejectStaleOverlay" onclick="closeRejectStaleModal()" style="display:none"></div>
 <div class="modal-box" id="rejectStaleModal" style="display:none">
   <div class="modal-header">
-    <span class="modal-title">Reject Stale Jobs</span>
+    <span class="modal-title">Archive Stale Jobs</span>
     <button class="btn-close" onclick="closeRejectStaleModal()">×</button>
   </div>
   <div class="modal-body">
@@ -871,7 +868,7 @@ a.job-url-link:visited,a.job-url-link:visited:hover{color:#c084fc;}
   </div>
   <div class="modal-footer">
     <button class="btn-modal-cancel" onclick="closeRejectStaleModal()">Cancel</button>
-    <button class="btn-modal-fill" style="background:var(--red);border:none;" id="rejectStaleConfirmBtn" onclick="confirmRejectStale()">Reject All</button>
+    <button class="btn-modal-fill" id="rejectStaleConfirmBtn" onclick="confirmRejectStale()">Archive All</button>
   </div>
 </div>
 
@@ -924,7 +921,7 @@ async function _openDeepLinkedJob(jobId) {
   try {
     const job = await api(`/api/jobs/${jobId}`);
     // Load the tab matching the job's status, then select it.
-    await loadJobs(job.status || 'shortlisted');
+    await loadJobs(job.archived ? 'archived' : (job.status || 'shortlisted'));
     const i = jobs.findIndex(j => j.id === jobId);
     if (i >= 0) { idx = i; renderCard(idx); }
   } catch(e) {
@@ -940,7 +937,7 @@ async function loadStats() {
     if (Number.isFinite(data.reject_stale_days) && data.reject_stale_days > 0) {
       rejectStaleDays = data.reject_stale_days;
       const staleBtn = document.getElementById('rejectStaleBtn');
-      if (staleBtn) staleBtn.title = `Reject jobs in this tab posted more than ${rejectStaleDays} days ago`;
+      if (staleBtn) staleBtn.title = `Archive jobs in this tab posted more than ${rejectStaleDays} days ago`;
     }
     document.querySelectorAll('.status-pill[data-status]').forEach(el => {
       const s = el.dataset.status;
@@ -1003,9 +1000,9 @@ async function loadDashboard() {
   try {
     const data = await api('/api/dashboard');
     const sub = document.getElementById('dashboardSub');
-    if (sub) sub.textContent = `${data.week_total || 0} jobs fetched in the last ${data.days || 7} days`;
+    if (sub) sub.textContent = `${data.week_total || 0} jobs published in the last ${data.days || 7} days`;
     const cap = document.getElementById('dashBarCaption');
-    if (cap) cap.textContent = 'Stacked by current status · counted from fetch date (created_at)';
+    if (cap) cap.textContent = 'Stacked by current status · published date, including archived jobs';
     _renderDashBars(data);
     _renderDashPie(data);
   } catch (e) {
@@ -1027,7 +1024,7 @@ function _renderDashBars(data) {
     ).join('');
   }
   if (!days.length) {
-    host.innerHTML = '<div class="dash-empty">No fetches in the last 7 days</div>';
+    host.innerHTML = '<div class="dash-empty">No jobs published in the last 7 days</div>';
     return;
   }
   const yTicks = [max, Math.round(max / 2), 0];
@@ -1137,31 +1134,46 @@ function filterJobs(status, el) {
 
 function _jobStaleTime(job) {
   const raw = job && (job.posted_date || job.created_at);
-  const t = raw ? new Date(raw).getTime() : NaN;
+  if (!raw) return null;
+  const t = Date.parse(String(raw).includes('T') ? raw : String(raw).replace(' ', 'T'));
   return Number.isFinite(t) ? t : null;
 }
 
-function _staleJobs(days) {
+function _staleJobs(days, jobList = jobs) {
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  return jobs.filter(j => {
+  return jobList.filter(j => {
     const t = _jobStaleTime(j);
     return t != null && t < cutoff;
   });
 }
 
-function openRejectStaleModal() {
+let archiveStalePreviewCount = 0;
+
+async function openRejectStaleModal() {
   const days = rejectStaleDays;
   if (!Number.isFinite(days)) {
     showToast('Still loading the stale cutoff', '');
     return;
   }
-  const stale = _staleJobs(days);
+  let pool = jobs;
+  if (!_queueListComplete) {
+    try {
+      const data = await api(`/api/jobs?status=${encodeURIComponent(currentStatus)}&limit=0`);
+      pool = data.jobs || [];
+    } catch (e) {
+      showToast('Could not load the full queue', 'error');
+      return;
+    }
+  }
+  const stale = _staleJobs(days, pool);
+  archiveStalePreviewCount = stale.length;
   const label = currentStatus === 'shortlisted' ? 'Shortlisted' : 'Review';
   const listEl = document.getElementById('rejectStaleList');
+  const shown = stale.slice(0, 80);
   if (stale.length > 0) {
     document.getElementById('rejectStaleMsg').textContent =
-      `Permanently reject these ${stale.length} ${label} job${stale.length === 1 ? '' : 's'} posted more than ${days} days ago?`;
-    listEl.innerHTML = stale.map(j => `
+      `Archive these ${stale.length} ${label} job${stale.length === 1 ? '' : 's'} posted more than ${days} days ago? Their status stays the same.`;
+    listEl.innerHTML = shown.map(j => `
       <div style="display:flex;align-items:center;gap:9px;padding:7px 4px;border-bottom:1px solid var(--border-subtle);">
         <div style="width:26px;height:26px;border-radius:50%;background:${j.avatar_color};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;flex-shrink:0">${esc(j.avatar_text)}</div>
         <div style="flex:1;min-width:0">
@@ -1170,6 +1182,9 @@ function openRejectStaleModal() {
         </div>
       </div>`).join('');
     listEl.style.display = '';
+    if (stale.length > shown.length) {
+      listEl.insertAdjacentHTML('beforeend', `<div style="padding:8px 4px;font-size:12px;color:var(--text-muted)">and ${stale.length - shown.length} more</div>`);
+    }
   } else {
     document.getElementById('rejectStaleMsg').textContent = `No jobs posted more than ${days} days ago in the ${label} queue.`;
     listEl.style.display = 'none';
@@ -1190,32 +1205,32 @@ async function confirmRejectStale() {
     showToast('Still loading the stale cutoff', '');
     return;
   }
-  const staleCount = _staleJobs(days).length;
+  const staleCount = archiveStalePreviewCount;
   const confirmBtn = document.getElementById('rejectStaleConfirmBtn');
   const headerBtn = document.getElementById('rejectStaleBtn');
-  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Rejecting…'; }
+  if (confirmBtn) { confirmBtn.disabled = true; confirmBtn.textContent = 'Archiving…'; }
   if (headerBtn) headerBtn.disabled = true;
   closeRejectStaleModal();
   showToast(
     staleCount
-      ? `Rejecting ${staleCount.toLocaleString()} stale job${staleCount === 1 ? '' : 's'}…`
-      : 'Rejecting stale jobs…',
+      ? `Archiving ${staleCount.toLocaleString()} stale job${staleCount === 1 ? '' : 's'}…`
+      : 'Archiving stale jobs…',
     '',
     true
   );
   try {
-    const res = await api('/api/jobs/bulk-reject-stale', 'POST', {
+    const res = await api('/api/jobs/bulk-archive-stale', 'POST', {
       status: currentStatus,
       older_than_days: days,
     });
-    const n = res.rejected ?? 0;
+    const n = res.archived ?? 0;
     await loadJobs(currentStatus);
     loadStats();
-    showToast(`Rejected ${n} stale job${n === 1 ? '' : 's'}`, 'success');
+    showToast(`Archived ${n} stale job${n === 1 ? '' : 's'}`, 'success');
   } catch (e) {
-    showToast('Bulk reject failed', 'error');
+    showToast('Bulk archive failed', 'error');
   } finally {
-    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Reject All'; }
+    if (confirmBtn) { confirmBtn.disabled = false; confirmBtn.textContent = 'Archive All'; }
     if (headerBtn) headerBtn.disabled = false;
   }
 }
@@ -1371,7 +1386,7 @@ function renderCard(i, opts) {
     ${gaps ? `<div class="analysis-section"><div class="analysis-section-title">Skill Gaps</div><ul class="bullet-list gaps">${gaps}</ul></div>` : ''}
     ${job.reasoning ? `<div class="analysis-section"><div class="analysis-section-title">Reasoning</div><div class="reasoning-block">${esc(job.reasoning)}</div></div>` : ''}
     ${job.llm_confidence ? `<div class="confidence-row"><span class="confidence-label">Confidence</span><div class="confidence-bar"><div class="confidence-fill" style="width:${job.llm_confidence}%"></div></div><span class="confidence-pct">${job.llm_confidence}%</span></div>` : ''}
-    ${noLlm ? `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">${job.status === 'rejected' ? 'No LLM write-up yet. Click Explain to compare this posting to your profile.' : job.status === 'archived' ? 'No LLM write-up for this archived job.' : 'No LLM analysis yet. Run the pipeline with analyze enabled.'}</div>` : ''}`;
+    ${noLlm ? `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:20px 0">${job.status === 'rejected' ? 'No LLM write-up yet. Click Explain to compare this posting to your profile.' : 'No LLM analysis yet. Run the pipeline with analyze enabled.'}</div>` : ''}`;
 
   // Cover letter
   const coverTextEl = document.getElementById('coverText');
@@ -1389,10 +1404,12 @@ function renderCard(i, opts) {
   // Action bar: show/hide triage for read-only statuses
   const readOnly = ['applied','expired'].includes(job.status);
   const rejected = job.status === 'rejected';
-  const archived = job.status === 'archived';
-  document.getElementById('actionBar').style.display = (readOnly || rejected || archived) ? 'none' : 'flex';
-  document.getElementById('actionBarRejected').style.display = rejected ? 'flex' : 'none';
+  const archived = !!job.archived;
+  document.getElementById('actionBar').style.display = (archived || readOnly || rejected) ? 'none' : 'flex';
+  document.getElementById('actionBarRejected').style.display = (!archived && rejected) ? 'flex' : 'none';
   document.getElementById('actionBarArchived').style.display = archived ? 'flex' : 'none';
+  const unarchiveBtn = document.getElementById('btnUnarchive');
+  if (unarchiveBtn) unarchiveBtn.textContent = `Unarchive to ${_statusLabel(job.status)}`;
   const archiveQueue = document.getElementById('btnArchiveQueue');
   if (archiveQueue) archiveQueue.style.display = job.status === 'shortlisted' ? '' : 'none';
   const appliedQueue = document.getElementById('btnAppliedQueue');
@@ -1653,6 +1670,8 @@ function renderList(jobList) {
       header.innerHTML = `${scoreHead}<span class="list-actions two">Actions</span>`;
     } else if (currentStatus === 'applied') {
       header.innerHTML = `${identityHead}<span class="list-score">Score</span>${dateHeads}<span class="list-date" title="When you marked it applied">Applied</span>`;
+    } else if (currentStatus === 'archived') {
+      header.innerHTML = `${scoreHead}<span class="list-actions" style="flex-basis:92px;width:92px;min-width:92px"></span>`;
     } else {
       header.innerHTML = scoreHead;
     }
@@ -1686,6 +1705,8 @@ function renderList(jobList) {
           <button class="list-archive" type="button" title="Archive" onclick="archiveJobAt(${original}, event)">Archive</button>
           <button class="list-applied" type="button" title="Applied" onclick="setJobStatusAt(${original}, 'applied', event)">Applied</button>
         </div>`
+      : currentStatus === 'archived'
+      ? `<div class="list-actions" style="flex-basis:92px;width:92px;min-width:92px"><button class="list-archive" type="button" title="Return to ${_statusLabel(j.status)}" onclick="unarchiveJobAt(${original}, event)">Unarchive</button></div>`
       : '';
     const criterion = _isEvalList() && listSortBy !== 'sum';
     const shownScore = criterion ? _listScoreValue(j) : j.fit_score;
@@ -1700,7 +1721,7 @@ function renderList(jobList) {
       <div class="list-avatar" style="background:${j.avatar_color}">${esc(j.avatar_text)}</div>
       <div class="list-info">
         <div class="list-title">${esc(j.title)}</div>
-        <div class="list-company">${esc(j.company)}${companyAppliedStar(j)}</div>
+        <div class="list-company">${esc(j.company)}${companyAppliedStar(j)}${currentStatus === 'archived' ? ` · ${_statusLabel(j.status)}` : ''}</div>
       </div>
       <div class="list-source" title="${esc(j.source || '')}">${esc(j.source || '—')}</div>
       ${j.url
@@ -1954,17 +1975,55 @@ async function restoreRejectedJob() {
   await _moveCurrentJob('review', 'Moved to review');
 }
 
-async function archiveCurrentJob() {
-  await _moveCurrentJob('archived', 'Archived');
+function _statusLabel(status) {
+  return (_MOVE_STATUSES.find(([value]) => value === status) || [, status || 'Review'])[1];
 }
 
-async function restoreArchivedJob(target) {
-  const toast = target === 'review' ? 'Moved to review' : 'Moved to rejected';
-  await _moveCurrentJob(target, toast);
+async function archiveCurrentJob() {
+  await _setCurrentArchived(true, 'Archived');
+}
+
+async function unarchiveCurrentJob() {
+  const job = jobs[idx];
+  await _setCurrentArchived(false, job ? `Back in ${_statusLabel(job.status)}` : 'Unarchived');
+}
+
+async function _setCurrentArchived(on, toastMsg) {
+  const job = jobs[idx];
+  if (!job) return;
+  try {
+    await api(`/api/jobs/${job.id}/archive`, 'POST', {archived: on});
+    showToast(toastMsg, 'success');
+    jobs.splice(idx, 1);
+    if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
+    if (idx >= jobs.length) idx = jobs.length - 1;
+    if (viewingListCard || queueView === 'list') { renderList(jobs); }
+    else { renderCardWrap(); renderCard(idx); }
+    loadStats();
+  } catch (e) {
+    showToast(on ? 'Failed to archive' : 'Failed to unarchive', 'error');
+  }
 }
 
 async function archiveJobAt(i, evt) {
   await setJobStatusAt(i, 'archived', evt);
+}
+
+async function unarchiveJobAt(i, evt) {
+  if (evt) evt.stopPropagation();
+  const job = jobs[i];
+  if (!job) return;
+  try {
+    await api(`/api/jobs/${job.id}/archive`, 'POST', {archived: false});
+    showToast(`Back in ${_statusLabel(job.status)}`, 'success');
+    jobs.splice(i, 1);
+    if (idx >= jobs.length) idx = Math.max(0, jobs.length - 1);
+    if (jobs.length === 0) { renderEmpty(currentStatus); loadStats(); return; }
+    renderList(jobs);
+    loadStats();
+  } catch (e) {
+    showToast('Failed to unarchive', 'error');
+  }
 }
 
 async function setJobStatusAt(i, status, evt) {
@@ -1972,7 +2031,8 @@ async function setJobStatusAt(i, status, evt) {
   const job = jobs[i];
   if (!job) return;
   try {
-    await api(`/api/jobs/${job.id}/status`, 'POST', {status});
+    if (status === 'archived') await api(`/api/jobs/${job.id}/archive`, 'POST', {archived: true});
+    else await api(`/api/jobs/${job.id}/status`, 'POST', {status});
     const toasts = {archived: 'Archived', shortlisted: '✓ Shortlisted', applied: '✓ Marked as applied'};
     showToast(toasts[status] || status, 'success');
     jobs.splice(i, 1);

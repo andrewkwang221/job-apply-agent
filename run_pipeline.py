@@ -12,7 +12,7 @@ import yaml
 import datetime
 import json
 import utils.ssl_compat  # noqa: F401  — trust OS CAs for requests HTTPS
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from models.database import Job, PipelineRun, ApplicationHistory, ensure_company_profiles, ensure_job_columns
@@ -208,7 +208,7 @@ def _load_profile(profile_path: str):
         return yaml.safe_load(f)
 
 def _should_preserve_final_status(job: Job) -> bool:
-    if job.status in ("applied", "archived", "expired", "deferred"):
+    if job.archived or job.status in ("applied", "expired", "deferred"):
         return True
     return bool(job.llm_status == "completed" and job.status not in (None, "new"))
 
@@ -429,7 +429,8 @@ def _run_evaluate(profile: str, dry_run: bool, all_jobs: bool):
         query = session.query(Job)
         if all_jobs:
             jobs_to_evaluate = query.filter(
-                Job.status.notin_(["applied", "deferred", "archived", "expired"])
+                Job.status.notin_(["applied", "deferred", "expired"]),
+                or_(Job.archived.is_(False), Job.archived.is_(None)),
             ).all()
         else:
             jobs_to_evaluate = query.filter(Job.status == "new").all()

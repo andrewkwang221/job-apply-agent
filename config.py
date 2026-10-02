@@ -42,6 +42,6 @@ LLM_MAX_JOBS_PER_RUN = 2000
 MAX_JOB_AGE_DAYS = 2  # Incremental fetch window after a source has been ingested
 MAX_JOB_AGE_DAYS_INITIAL = 7  # First completed fetch for a source (jobs_fetched > 0)
 MAX_DEDUPLICATION_PERIOD = 7  # Days to deduplicate jobs
-REJECT_STALE_DAYS = 3  # Review and shortlisted jobs older than this can be bulk-rejected
+REJECT_STALE_DAYS = 3  # Review and shortlisted jobs older than this can be bulk-archived
 LLM_STATUS_DEFAULT = "review"
 LLM_PROMOTION_CONFIDENCE = 75

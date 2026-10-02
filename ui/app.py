@@ -348,6 +348,7 @@ def _job_to_dict(
         "location": job.raw_location_text or job.location or "Remote",
         "source": job.source or "",
         "status": job.status or "new",
+        "archived": bool(job.archived),
         "fit_score": score,
         "rule_score": job.fit_score,
         "llm_confidence": job.llm_confidence,
@@ -420,12 +421,21 @@ async def index():
 async def stats():
     session = _Session()
     try:
-        rows = session.query(Job.status, func.count()).group_by(Job.status).all()
-        counts = {status: n for status, n in rows}
-        total = sum(counts.values())
+        visible = _not_archived()
+        rows = (
+            session.query(Job.status, func.count())
+            .filter(visible)
+            .group_by(Job.status)
+            .all()
+        )
+        counts = {status: n for status, n in rows if status != "archived"}
+        archived_n = (
+            session.query(func.count(Job.id)).filter(Job.archived.is_(True)).scalar() or 0
+        )
+        counts["archived"] = archived_n
         return {
             "counts": counts,
-            "total": total,
+            "total": sum(counts.values()),
             "reject_stale_days": config.REJECT_STALE_DAYS,
         }
     finally:
@@ -440,9 +450,11 @@ _DASHBOARD_STATUSES = (
     "deferred",
     "rejected",
     "expired",
-    "archived",
 )
-_DASHBOARD_PIE_SKIP = frozenset({"rejected", "archived"})
+
+
+def _not_archived():
+    return or_(Job.archived.is_(False), Job.archived.is_(None))
 
 
 def _dashboard_day_key(value: Any) -> str | None:
@@ -455,7 +467,7 @@ def _dashboard_day_key(value: Any) -> str | None:
 
 
 def dashboard_payload(session, *, now: datetime | None = None, days: int = 7) -> Dict[str, Any]:
-    """Last-week fetch counts by status, plus top connectors excluding rejects/archives."""
+    """Jobs published in the last week, stacked by status, plus active connectors."""
     now = now or datetime.utcnow()
     if now.tzinfo is not None:
         now = now.replace(tzinfo=None)
@@ -464,15 +476,15 @@ def dashboard_payload(session, *, now: datetime | None = None, days: int = 7) ->
     since = datetime.combine(day_list[0], datetime.min.time())
 
     week_rows = (
-        session.query(Job.created_at, Job.status)
-        .filter(Job.created_at.isnot(None), Job.created_at >= since)
+        session.query(Job.posted_date, Job.status)
+        .filter(Job.posted_date.isnot(None), Job.posted_date >= since)
         .all()
     )
     by_day: Dict[str, Dict[str, int]] = {
         d.isoformat(): {status: 0 for status in _DASHBOARD_STATUSES} for d in day_list
     }
-    for created_at, status in week_rows:
-        key = _dashboard_day_key(created_at)
+    for posted_date, status in week_rows:
+        key = _dashboard_day_key(posted_date)
         if key not in by_day:
             continue
         status_key = status or "new"
@@ -496,7 +508,7 @@ def dashboard_payload(session, *, now: datetime | None = None, days: int = 7) ->
 
     source_rows = (
         session.query(Job.source, func.count(Job.id))
-        .filter(~Job.status.in_(tuple(_DASHBOARD_PIE_SKIP)))
+        .filter(Job.status != "rejected", _not_archived())
         .group_by(Job.source)
         .order_by(func.count(Job.id).desc(), Job.source.asc())
         .limit(20)
@@ -543,9 +555,13 @@ _LIST_DEFER_COLS = (
 async def list_jobs(status: str = "review", limit: Optional[int] = None):
     session = _Session()
     try:
+        if status == "archived":
+            status_filter = Job.archived.is_(True)
+        else:
+            status_filter = (Job.status == status) & _not_archived()
         query = (
             session.query(Job)
-            .filter(Job.status == status)
+            .filter(status_filter)
             .options(*(defer(col) for col in _LIST_DEFER_COLS))
         )
         if status in ("shortlisted", "review"):
@@ -587,7 +603,7 @@ async def list_jobs(status: str = "review", limit: Optional[int] = None):
         if status == "rejected":
             rows = (
                 session.query(Job.reject_code, func.count(Job.id))
-                .filter(Job.status == "rejected")
+                .filter(Job.status == "rejected", _not_archived())
                 .group_by(Job.reject_code)
                 .all()
             )
@@ -642,7 +658,7 @@ def _apply_job_status(job: Job, new_status: str) -> bool:
     if new_status == "rejected" and previous != "rejected" and not _plain_str(job.reject_code):
         job.reject_code = "manual"
         job.reject_detail = "Rejected from triage"
-    elif new_status in ("review", "new") and previous in ("rejected", "archived"):
+    elif new_status in ("review", "new") and previous == "rejected":
         job.reject_code = None
         job.reject_detail = None
     return True
@@ -662,7 +678,11 @@ async def update_status(job_id: int, body: StatusUpdate):
         job = session.query(Job).filter(Job.id == job_id).first()
         if not job:
             raise HTTPException(404, f"Job {job_id} not found")
-        _apply_job_status(job, body.status)
+        if body.status == "archived":
+            job.archived = True
+        else:
+            _apply_job_status(job, body.status)
+            job.archived = False
         session.commit()
         # Close the Playwright browser when the user marks a job as applied,
         # so they can immediately open the next job without hitting the
@@ -671,7 +691,12 @@ async def update_status(job_id: int, body: StatusUpdate):
             with _prefill_lock:
                 if _prefill["status"] == "running" and _prefill["job_id"] == job_id:
                     _prefill_cancel.set()
-        return {"ok": True, "id": job_id, "status": body.status}
+        return {
+            "ok": True,
+            "id": job_id,
+            "status": job.status,
+            "archived": bool(job.archived),
+        }
     except HTTPException:
         raise
     except Exception as exc:
@@ -686,6 +711,35 @@ class BulkStatusRequest(BaseModel):
     status: str
 
 
+class ArchiveUpdate(BaseModel):
+    archived: bool = True
+
+
+@app.post("/api/jobs/{job_id}/archive")
+async def set_archived(job_id: int, body: ArchiveUpdate):
+    """Hide or restore a job without changing its status bucket."""
+    session = _Session()
+    try:
+        job = session.query(Job).filter(Job.id == job_id).first()
+        if not job:
+            raise HTTPException(404, f"Job {job_id} not found")
+        job.archived = body.archived
+        session.commit()
+        return {
+            "ok": True,
+            "id": job_id,
+            "status": job.status,
+            "archived": bool(job.archived),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        session.rollback()
+        raise HTTPException(500, str(exc))
+    finally:
+        session.close()
+
+
 def _bulk_status_values(new_status: str) -> dict:
     """Column updates for one SQL statement. Matches `_apply_job_status`."""
     values = {"status": new_status, "updated_at": datetime.now(timezone.utc)}
@@ -694,9 +748,10 @@ def _bulk_status_values(new_status: str) -> dict:
         values["reject_code"] = case((blank, "manual"), else_=Job.reject_code)
         values["reject_detail"] = case((blank, "Rejected from triage"), else_=Job.reject_detail)
     elif new_status in ("review", "new"):
-        clear = Job.status.in_(("rejected", "archived"))
+        clear = Job.status == "rejected"
         values["reject_code"] = case((clear, None), else_=Job.reject_code)
         values["reject_detail"] = case((clear, None), else_=Job.reject_detail)
+    values["archived"] = False
     return values
 
 
@@ -710,11 +765,16 @@ async def bulk_status(body: BulkStatusRequest):
     session = _Session()
     try:
         updated = 0
-        values = _bulk_status_values(body.status)
+        if body.status == "archived":
+            values = {"archived": True, "updated_at": datetime.now(timezone.utc)}
+            changed = or_(Job.archived.is_(False), Job.archived.is_(None))
+        else:
+            values = _bulk_status_values(body.status)
+            changed = or_(Job.status != body.status, Job.archived.is_(True))
         for start in range(0, len(ids), 500):
             stmt = (
                 update(Job)
-                .where(Job.id.in_(ids[start:start + 500]), Job.status != body.status)
+                .where(Job.id.in_(ids[start:start + 500]), changed)
                 .values(**values)
                 .execution_options(synchronize_session=False)
             )
@@ -734,11 +794,11 @@ class BulkRejectStaleRequest(BaseModel):
     older_than_days: Optional[int] = None
 
 
-@app.post("/api/jobs/bulk-reject-stale")
-async def bulk_reject_stale(body: BulkRejectStaleRequest):
+@app.post("/api/jobs/bulk-archive-stale")
+async def bulk_archive_stale(body: BulkRejectStaleRequest):
     allowed = {"shortlisted", "review"}
     if body.status not in allowed:
-        raise HTTPException(400, f"bulk-reject-stale only supports: {', '.join(sorted(allowed))}")
+        raise HTTPException(400, f"bulk-archive-stale only supports: {', '.join(sorted(allowed))}")
     days = config.REJECT_STALE_DAYS if body.older_than_days is None else body.older_than_days
     if days < 1:
         raise HTTPException(400, "older_than_days must be at least 1")
@@ -748,17 +808,14 @@ async def bulk_reject_stale(body: BulkRejectStaleRequest):
         age_on = func.coalesce(Job.posted_date, Job.created_at)
         stale = (
             session.query(Job)
-            .filter(Job.status == body.status, age_on < cutoff)
+            .filter(Job.status == body.status, _not_archived(), age_on < cutoff)
             .all()
         )
         count = len(stale)
         for job in stale:
-            job.status = "rejected"
-            job.reject_code = "stale"
-            basis = "Posted" if job.posted_date else "Added"
-            job.reject_detail = f"{basis} more than {days} days ago"
+            job.archived = True
         session.commit()
-        return {"ok": True, "rejected": count}
+        return {"ok": True, "archived": count}
     except Exception as exc:
         session.rollback()
         raise HTTPException(500, str(exc))

@@ -310,8 +310,7 @@ _STATUS_KEEP_RANK = {
     "review": 3,
     "new": 4,
     "rejected": 5,
-    "archived": 6,
-    "expired": 7,
+    "expired": 6,
 }
 _KEEP_STATUSES = frozenset({"applied", "deferred"})
 _DELETE_CHUNK = 400

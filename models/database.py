@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, UniqueConstraint, ForeignKey, text
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, Date, UniqueConstraint, ForeignKey, text
 from sqlalchemy.orm import declarative_base
 
 Base = declarative_base()
@@ -43,6 +43,7 @@ class Job(Base):
     created_at = Column(DateTime, default=_utc_now)
     updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
     status = Column(String, default="new")
+    archived = Column(Boolean, nullable=False, default=False, server_default=text("0"))
 
 
 def ensure_job_columns(engine) -> None:
@@ -53,6 +54,7 @@ def ensure_job_columns(engine) -> None:
         "score_breakdown": "ALTER TABLE jobs ADD COLUMN score_breakdown TEXT",
         "company_key": "ALTER TABLE jobs ADD COLUMN company_key VARCHAR",
         "url_key": "ALTER TABLE jobs ADD COLUMN url_key VARCHAR",
+        "archived": "ALTER TABLE jobs ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
     }
     with engine.connect() as conn:
         existing = {
@@ -69,6 +71,24 @@ def ensure_job_columns(engine) -> None:
         conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_jobs_url_key ON jobs (url_key)"
         ))
+        columns = {
+            row[1] for row in conn.execute(text("PRAGMA table_info(jobs)")).fetchall()
+        }
+        # Archive used to overwrite status. A rejection reason means the old
+        # bucket was rejected; every other archived row returns to review.
+        if {"status", "archived", "reject_code"} <= columns:
+            conn.execute(text(
+                """
+                UPDATE jobs
+                SET archived = 1,
+                    status = CASE
+                        WHEN reject_code IS NOT NULL AND TRIM(reject_code) != ''
+                        THEN 'rejected'
+                        ELSE 'review'
+                    END
+                WHERE status = 'archived'
+                """
+            ))
         conn.commit()
 
 

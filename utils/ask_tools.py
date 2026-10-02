@@ -17,13 +17,20 @@ import json
 import subprocess
 import sys
 from datetime import datetime, timedelta
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from models.database import Job, PipelineRun
 
 # Valid status values shared across schemas and validation
 _STATUSES = ["new", "review", "shortlisted", "rejected", "applied", "deferred", "expired", "archived"]
+
+
+def _status_clause(status: str):
+    """Archived is a flag. Status queues hide archived jobs."""
+    if status == "archived":
+        return Job.archived.is_(True)
+    return (Job.status == status) & or_(Job.archived.is_(False), Job.archived.is_(None))
 
 
 # ---------------------------------------------------------------------------
@@ -55,7 +62,7 @@ def _score_order(query):
 def count_jobs_by_status(session: Session, status: str) -> dict:
     """Count jobs in a given status bucket."""
     try:
-        count = session.query(func.count(Job.id)).filter(Job.status == status).scalar()
+        count = session.query(func.count(Job.id)).filter(_status_clause(status)).scalar()
         return {"status": status, "count": count}
     except Exception as e:
         return {"error": str(e)}
@@ -64,9 +71,9 @@ def count_jobs_by_status(session: Session, status: str) -> dict:
 def get_jobs_by_status(session: Session, status: str, limit: int = 20) -> dict:
     """Return jobs filtered by status, ordered by fit score."""
     try:
-        total = session.query(func.count(Job.id)).filter(Job.status == status).scalar()
+        total = session.query(func.count(Job.id)).filter(_status_clause(status)).scalar()
         jobs = (
-            _score_order(session.query(Job).filter(Job.status == status))
+            _score_order(session.query(Job).filter(_status_clause(status)))
             .limit(limit)
             .all()
         )
@@ -85,9 +92,12 @@ def get_top_jobs(session: Session, limit: int = 5, status: str = None) -> dict:
     try:
         q = session.query(Job)
         if status:
-            q = q.filter(Job.status == status)
+            q = q.filter(_status_clause(status))
         else:
-            q = q.filter(Job.status.in_(["shortlisted", "review"]))
+            q = q.filter(
+                Job.status.in_(["shortlisted", "review"]),
+                or_(Job.archived.is_(False), Job.archived.is_(None)),
+            )
         total = q.with_entities(func.count(Job.id)).scalar()
         jobs = _score_order(q).limit(limit).all()
         return {"total_matching": total, "returned": len(jobs), "jobs": [_job_summary(j) for j in jobs]}
@@ -194,6 +204,7 @@ def get_pipeline_stats(session: Session) -> dict:
         counts = dict(
             session.query(Job.status, func.count(Job.id)).group_by(Job.status).all()
         )
+        archived_n = session.query(func.count(Job.id)).filter(Job.archived.is_(True)).scalar() or 0
         runs = (
             session.query(PipelineRun)
             .order_by(PipelineRun.started_at.desc())
@@ -203,6 +214,7 @@ def get_pipeline_stats(session: Session) -> dict:
         return {
             "total_jobs": sum(counts.values()),
             "by_status": counts,
+            "archived": archived_n,
             "recent_pipeline_runs": [
                 {
                     "source": r.source,
@@ -254,9 +266,9 @@ def get_recent_runs(session: Session, limit: int = 10) -> dict:
 def get_jobs_needing_review(session: Session, limit: int = 20) -> dict:
     """Return jobs currently in review status, ordered by fit score — the triage queue."""
     try:
-        total = session.query(func.count(Job.id)).filter(Job.status == "review").scalar()
+        total = session.query(func.count(Job.id)).filter(_status_clause("review")).scalar()
         jobs = (
-            _score_order(session.query(Job).filter(Job.status == "review"))
+            _score_order(session.query(Job).filter(_status_clause("review")))
             .limit(limit)
             .all()
         )
@@ -272,9 +284,9 @@ def get_jobs_needing_review(session: Session, limit: int = 20) -> dict:
 def get_top_shortlisted_jobs(session: Session, limit: int = 10) -> dict:
     """Return shortlisted jobs ordered by fit score — the apply queue."""
     try:
-        total = session.query(func.count(Job.id)).filter(Job.status == "shortlisted").scalar()
+        total = session.query(func.count(Job.id)).filter(_status_clause("shortlisted")).scalar()
         jobs = (
-            _score_order(session.query(Job).filter(Job.status == "shortlisted"))
+            _score_order(session.query(Job).filter(_status_clause("shortlisted")))
             .limit(limit)
             .all()
         )
@@ -302,14 +314,13 @@ ACTION_TOOLS = {"open_job", "mark_job_status", "run_full_pipeline"}
 
 # Valid status transitions — terminal states have an empty set
 _VALID_TRANSITIONS: dict[str, set] = {
-    "new":        {"review", "shortlisted", "rejected", "deferred"},
-    "review":     {"shortlisted", "rejected", "deferred"},
-    "shortlisted":{"applied", "rejected", "deferred"},
+    "new":        {"review", "shortlisted", "rejected", "deferred", "archived"},
+    "review":     {"shortlisted", "rejected", "deferred", "archived"},
+    "shortlisted":{"applied", "rejected", "deferred", "archived"},
     "rejected":   {"review", "archived"},
-    "deferred":   {"review", "rejected"},
+    "deferred":   {"review", "rejected", "archived"},
     "applied":    set(),  # terminal
-    "expired":    {"review"},  # can be rescued manually
-    "archived":   {"rejected", "review"},
+    "expired":    {"review", "archived"},
 }
 
 
@@ -395,10 +406,18 @@ def mark_job_status(session: Session, job_id: int, status: str) -> dict:
     if not job:
         return {"error": f"Job {job_id} not found"}
     old_status = job.status
-    job.status = status
+    if status == "archived":
+        job.archived = True
+        message = (
+            f"Job {job_id} ({job.title} @ {job.company}): archived; status stays '{old_status}'"
+        )
+    else:
+        job.status = status
+        job.archived = False
+        message = f"Job {job_id} ({job.title} @ {job.company}): '{old_status}' → '{status}'"
     try:
         session.commit()
-        return {"success": True, "message": f"Job {job_id} ({job.title} @ {job.company}): '{old_status}' → '{status}'"}
+        return {"success": True, "message": message}
     except Exception as e:
         session.rollback()
         return {"error": str(e)}
@@ -641,8 +660,8 @@ TOOL_SCHEMAS = [
             "description": (
                 "Update the lifecycle status of a job. "
                 "Use this when the user says 'mark job N as applied', 'reject job N', 'shortlist job N', etc. "
-                "Valid transitions: review→shortlisted/rejected/deferred, shortlisted→applied/rejected/deferred, "
-                "rejected→review (undo) or archived, archived→rejected/review, applied is terminal. "
+                "Valid transitions: review→shortlisted/rejected/deferred/archived, shortlisted→applied/rejected/deferred/archived, "
+                "rejected→review (undo) or archived. Archiving keeps the current status. Applied is terminal. "
                 "Requires confirmation before executing."
             ),
             "parameters": {

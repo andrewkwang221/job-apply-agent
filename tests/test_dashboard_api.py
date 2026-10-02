@@ -3,11 +3,11 @@ from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from models.database import Base, Job
+from models.database import Base, Job, ensure_job_columns
 import ui.app as app_module
 from ui.app import dashboard_payload
 
@@ -35,6 +35,8 @@ def _add(session, i, **kw):
         url=f"https://example.com/dash/{i}",
         status=kw.get("status", "review"),
         created_at=kw.get("created_at", NOW),
+        posted_date=kw.get("posted_date", kw.get("created_at", NOW)),
+        archived=kw.get("archived", False),
     )
     session.add(row)
     return row
@@ -74,12 +76,28 @@ def test_empty_days_still_listed():
     assert data["connectors"] == []
 
 
+def test_week_uses_published_date_and_keeps_archived_status():
+    session = _session()
+    _add(session, 1, status="review", created_at=NOW, posted_date=NOW - timedelta(days=30))
+    _add(session, 2, status="shortlisted", created_at=NOW - timedelta(days=30), posted_date=NOW)
+    _add(session, 3, status="rejected", created_at=NOW, posted_date=None)
+    _add(session, 4, status="review", posted_date=NOW, archived=True)
+    session.commit()
+
+    data = dashboard_payload(session, now=NOW, days=7)
+    assert data["week_total"] == 2
+    assert data["by_day"][-1]["counts"]["shortlisted"] == 1
+    assert data["by_day"][-1]["counts"]["review"] == 1
+    assert data["by_day"][-1]["counts"].get("archived", 0) == 0
+    assert "archived" not in data["statuses"]
+
+
 def test_pie_excludes_rejected_and_archived_and_caps_at_20():
     session = _session()
     for i in range(22):
         _add(session, i, source=f"src{i:02d}", status="review")
     _add(session, 100, source="dice", status="rejected")
-    _add(session, 101, source="dice", status="archived")
+    _add(session, 101, source="dice", status="review", archived=True)
     _add(session, 102, source="dice", status="shortlisted")
     _add(session, 103, source="dice", status="applied")
     session.commit()
@@ -91,6 +109,26 @@ def test_pie_excludes_rejected_and_archived_and_caps_at_20():
     dice = next(row for row in data["connectors"] if row["source"] == "dice")
     assert dice["count"] == 2
     assert data["connectors"][0]["source"] == "dice"
+
+
+def test_archived_status_backfill_restores_a_bucket():
+    engine = create_engine("sqlite://")
+    with engine.begin() as conn:
+        conn.execute(text(
+            "CREATE TABLE jobs (id INTEGER PRIMARY KEY, status VARCHAR, reject_code VARCHAR)"
+        ))
+        conn.execute(text(
+            "INSERT INTO jobs (status, reject_code) VALUES "
+            "('archived', 'low_score'), ('archived', NULL), ('review', NULL)"
+        ))
+    ensure_job_columns(engine)
+    with engine.connect() as conn:
+        rows = conn.execute(text(
+            "SELECT status, archived FROM jobs ORDER BY id"
+        )).fetchall()
+    assert (rows[0][0], rows[0][1]) == ("rejected", 1)
+    assert (rows[1][0], rows[1][1]) == ("review", 1)
+    assert (rows[2][0], rows[2][1]) == ("review", 0)
 
 
 def test_dashboard_http_endpoint():
